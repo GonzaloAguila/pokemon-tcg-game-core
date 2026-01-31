@@ -1,0 +1,34 @@
+{
+  "name": "@poke-tcg/game-core",
+  "version": "0.1.0",
+  "description": "Shared game logic for Pokemon TCG multiplayer",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint src --ext .ts",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/pokemon-tcg-game-core.git"
+  },
+  "keywords": [
+    "pokemon",
+    "tcg",
+    "game-logic"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}
