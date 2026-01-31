@@ -62,7 +62,7 @@ export {
 export {
   initializeGame,
   startGame,
-  createInitialGameState,
+  buildDeckFromEntries,
 } from "./lib/gameState";
 
 // Turn Actions
@@ -70,26 +70,49 @@ export {
   executeAttack,
   endTurn,
   executeRetreat,
-  playBasicPokemon,
-  attachEnergy,
-  evolvePokemon,
 } from "./lib/gameState";
 
 // Validation
 export {
   canUseAttack,
   canRetreat,
-  canEvolvePokemon,
+  canEvolveInto,
   findValidEvolutionTargets,
   hasStatusCondition,
   canPokemonAttack,
+  canPokemonRetreat,
+  hasBasicPokemon,
 } from "./lib/gameState";
 
 // Prize & KO
 export {
   takePrize,
   promoteActivePokemon,
-  checkForKnockouts,
+} from "./lib/gameState";
+
+// Utilities
+export {
+  createGameEvent,
+  shuffle,
+  drawCard,
+  getEnergyValue,
+  getTotalEnergyValue,
+  getRetreatCost,
+  getCardImageUrl,
+  getEnergyTypeInSpanish,
+  getAttackDiscardRequirement,
+} from "./lib/gameState";
+
+// Status Effects
+export {
+  applyStatusCondition,
+  removeStatusCondition,
+  clearAllStatusConditions,
+  clearStatusConditionsOnRetreat,
+  applyProtection,
+  isProtected,
+  protectionBlocksDamage,
+  clearProtection,
 } from "./lib/gameState";
 
 // =============================================================================
@@ -124,7 +147,7 @@ export {
 // =============================================================================
 
 export {
-  BASE_SET_CARDS,
-  getCardById,
-  getCardImageUrl,
+  baseSetCards,
+  getBaseSetImageUrl,
+  getCardImageUrl as getCatalogImageUrl,
 } from "./domain/catalog";

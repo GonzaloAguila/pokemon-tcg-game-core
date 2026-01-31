@@ -18,7 +18,9 @@
     "noEmit": false,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@/domain/*": ["./src/domain/*"],
+      "@/shared/*": ["./src/shared/*"]
     }
   },
   "include": ["src/**/*"],
