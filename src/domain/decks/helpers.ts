@@ -7,6 +7,7 @@ import { isPokemonCard, isEnergyCard } from "@/domain/cards";
 import { EnergyType as EnergyTypeEnum, CardRarity, PokemonStage } from "@/domain/constants";
 import type { Deck } from "./types";
 import { resolveDeck } from "./resolve";
+import { decks } from "./theme-decks";
 
 /** Rarity ordering for sorting (higher = more featured) */
 const RARITY_ORDER: Record<string, number> = {
@@ -89,4 +90,11 @@ export function getDeckFeaturedPokemon(deck: Deck, count: number = 3): PokemonCa
   });
 
   return pokemon.slice(0, count);
+}
+
+/**
+ * Returns a deck by its ID
+ */
+export function getDeckById(deckId: string): Deck | undefined {
+  return decks.find((d) => d.id === deckId);
 }

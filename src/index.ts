@@ -151,3 +151,10 @@ export {
   getBaseSetImageUrl,
   getCardImageUrl as getCatalogImageUrl,
 } from "./domain/catalog";
+
+// =============================================================================
+// Decks
+// =============================================================================
+
+export type { DeckEntry, Deck } from "./domain/decks";
+export { decks, resolveDeck, getDeckById } from "./domain/decks";

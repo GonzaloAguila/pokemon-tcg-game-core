@@ -6,4 +6,4 @@ export type { DeckEntry, Deck } from "./types";
 export type { ResolvedDeckEntry, GroupedDeck } from "./resolve";
 export { decks } from "./theme-decks";
 export { resolveDeck, groupDeckByKind, findCardByNumber } from "./resolve";
-export { getDeckEnergyTypes, getDeckCardCount, getDeckFeaturedPokemon } from "./helpers";
+export { getDeckEnergyTypes, getDeckCardCount, getDeckFeaturedPokemon, getDeckById } from "./helpers";
