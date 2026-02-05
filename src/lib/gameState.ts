@@ -559,6 +559,50 @@ export function initializeGame(deck: Deck): GameState {
 }
 
 /**
+ * Inicializa el estado del juego para multijugador con ambos mazos especificados
+ */
+export function initializeMultiplayerGame(player1Deck: Deck, player2Deck: Deck): GameState {
+  // Construir y mezclar el mazo del jugador 1
+  const player1FullDeck = buildDeckFromEntries(player1Deck.cards);
+  const player1ShuffledDeck = shuffle(player1FullDeck);
+
+  // Construir y mezclar el mazo del jugador 2 (será el "opponent" desde la perspectiva del estado)
+  const player2FullDeck = buildDeckFromEntries(player2Deck.cards);
+  const player2ShuffledDeck = shuffle(player2FullDeck);
+
+  return {
+    playerDeck: player1ShuffledDeck,
+    playerHand: [],
+    playerPrizes: [],
+    playerDiscard: [],
+    playerActivePokemon: null,
+    playerBench: [],
+    opponentDeck: player2ShuffledDeck,
+    opponentHand: [],
+    opponentPrizes: [],
+    opponentDiscard: [],
+    opponentActivePokemon: null,
+    opponentBench: [],
+    selectedDeckId: player1Deck.id,
+    turnNumber: 0,
+    startingPlayer: null,
+    isPlayerTurn: false,
+    gameStarted: false,
+    gamePhase: GamePhase.Mulligan,
+    playerReady: false,
+    opponentReady: false,
+    energyAttachedThisTurn: false,
+    retreatedThisTurn: false,
+    playerCanTakePrize: false,
+    opponentCanTakePrize: false,
+    playerNeedsToPromote: false,
+    activeModifiers: [],
+    gameResult: null,
+    events: [createGameEvent("Partida multijugador inicializada", "system")],
+  };
+}
+
+/**
  * Prepara el juego: reparte cartas y premios (sin coinflip, eso ocurre después del setup)
  */
 export function startGame(gameState: GameState): GameState {

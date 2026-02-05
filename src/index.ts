@@ -61,6 +61,7 @@ export {
 // Initialization
 export {
   initializeGame,
+  initializeMultiplayerGame,
   startGame,
   buildDeckFromEntries,
 } from "./lib/gameState";
@@ -70,6 +71,9 @@ export {
   executeAttack,
   endTurn,
   executeRetreat,
+  doMulligan,
+  setPlayerReady,
+  startPlayingPhase,
 } from "./lib/gameState";
 
 // Validation

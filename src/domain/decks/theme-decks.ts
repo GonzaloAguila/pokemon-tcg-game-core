@@ -268,4 +268,54 @@ export const decks: Deck[] = [
       { cardNumber: 96, quantity: 4 },  // Double Colorless Energy
     ],
   },
+  {
+    id: "thunderstorm",
+    name: "Thunderstorm",
+    image: "/theme-decks/Thunderstorm.webp",
+    featuredPokemon: [16, 14, 21], // Zapdos, Raichu, Electrode
+    cards: [
+      // Pokemon (20)
+      { cardNumber: 16, quantity: 4 },  // Zapdos
+      { cardNumber: 67, quantity: 4 },  // Voltorb
+      { cardNumber: 21, quantity: 4 },  // Electrode
+      { cardNumber: 58, quantity: 4 },  // Pikachu
+      { cardNumber: 14, quantity: 4 },  // Raichu
+      // Trainers (20)
+      { cardNumber: 88, quantity: 4 },  // Professor Oak
+      { cardNumber: 91, quantity: 4 },  // Bill
+      { cardNumber: 74, quantity: 4 },  // Item Finder
+      { cardNumber: 71, quantity: 4 },  // Computer Search
+      { cardNumber: 72, quantity: 2 },  // Devolution Spray
+      { cardNumber: 73, quantity: 2 },  // Imposter Professor Oak
+      // Energy (20)
+      { cardNumber: 100, quantity: 20 }, // Lightning Energy
+    ],
+  },
+  {
+    id: "colorless",
+    name: "Normaltype",
+    image: "/theme-decks/Normaltype.webp",
+    featuredPokemon: [5, 18, 40], // Clefairy, Dragonair, Raticate
+    cards: [
+      // Pokemon (24)
+      { cardNumber: 5, quantity: 4 },   // Clefairy
+      { cardNumber: 26, quantity: 3 },  // Dratini
+      { cardNumber: 18, quantity: 2 },  // Dragonair
+      { cardNumber: 39, quantity: 4 },  // Porygon
+      { cardNumber: 61, quantity: 4 },  // Rattata
+      { cardNumber: 40, quantity: 3 },  // Raticate
+      { cardNumber: 48, quantity: 4 },  // Doduo
+      // Trainers (16)
+      { cardNumber: 91, quantity: 4 },  // Bill
+      { cardNumber: 88, quantity: 3 },  // Professor Oak
+      { cardNumber: 71, quantity: 2 },  // Computer Search
+      { cardNumber: 77, quantity: 2 },  // Pokémon Trader
+      { cardNumber: 95, quantity: 2 },  // Switch
+      { cardNumber: 93, quantity: 2 },  // Gust of Wind
+      { cardNumber: 82, quantity: 1 },  // Full Heal
+      // Energy (20)
+      { cardNumber: 96, quantity: 4 },  // Double Colorless Energy
+      { cardNumber: 101, quantity: 16 }, // Psychic Energy
+    ],
+  },
 ];
