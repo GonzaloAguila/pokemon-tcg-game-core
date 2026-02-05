@@ -242,6 +242,7 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
     playerCanTakePrize: state.opponentCanTakePrize,
     opponentCanTakePrize: state.playerCanTakePrize,
     playerNeedsToPromote: false, // Reset en el estado swapped
+    opponentNeedsToPromote: false,
     activeModifiers: swappedModifiers,
   };
 
@@ -467,6 +468,7 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
     playerCanTakePrize: resultState.opponentCanTakePrize,
     opponentCanTakePrize: resultState.playerCanTakePrize,
     playerNeedsToPromote,
+    opponentNeedsToPromote: false,
     activeModifiers: finalModifiers,
     events: correctedEvents,
     // Swap game result (victory <-> defeat)

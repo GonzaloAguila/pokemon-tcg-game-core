@@ -80,6 +80,7 @@ export type GameState = {
   playerCanTakePrize: boolean; // Player can take a prize (after KO)
   opponentCanTakePrize: boolean; // Opponent can take a prize
   playerNeedsToPromote: boolean; // Player needs to select a Pokemon from bench to promote
+  opponentNeedsToPromote: boolean; // Opponent needs to select a Pokemon from bench to promote
   gameResult: GameResult; // Game result (victory, defeat or null if not finished)
   activeModifiers: GameModifier[]; // Active modifiers (PlusPower, Defender, etc.)
   events: GameEvent[]; // Game event log

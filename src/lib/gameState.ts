@@ -95,6 +95,7 @@ export type GameState = {
   playerCanTakePrize: boolean; // El jugador puede tomar un premio (después de noquear)
   opponentCanTakePrize: boolean; // El oponente puede tomar un premio
   playerNeedsToPromote: boolean; // El jugador necesita elegir un Pokémon de la banca para promover
+  opponentNeedsToPromote: boolean; // El oponente necesita elegir un Pokémon de la banca para promover
   activeModifiers: GameModifier[]; // Modificadores activos (PlusPower, Defender, etc.)
   gameResult: GameResult; // Resultado del juego (victoria, derrota o null si aún no termina)
   events: GameEvent[]; // Registro de eventos del juego
@@ -552,6 +553,7 @@ export function initializeGame(deck: Deck): GameState {
     playerCanTakePrize: false,
     opponentCanTakePrize: false,
     playerNeedsToPromote: false,
+    opponentNeedsToPromote: false,
     activeModifiers: [],
     gameResult: null,
     events: [createGameEvent("Partida inicializada", "system")],
@@ -596,6 +598,7 @@ export function initializeMultiplayerGame(player1Deck: Deck, player2Deck: Deck):
     playerCanTakePrize: false,
     opponentCanTakePrize: false,
     playerNeedsToPromote: false,
+    opponentNeedsToPromote: false,
     activeModifiers: [],
     gameResult: null,
     events: [createGameEvent("Partida multijugador inicializada", "system")],
@@ -654,6 +657,7 @@ export function startGame(gameState: GameState): GameState {
     playerCanTakePrize: false,
     opponentCanTakePrize: false,
     playerNeedsToPromote: false,
+    opponentNeedsToPromote: false,
     activeModifiers: [],
     gameResult: null,
     events: newEvents,
@@ -1987,9 +1991,8 @@ export function executeAttack(
     opponentHand: newOpponentHand,
     playerCanTakePrize: playerCanTakePrize,
     opponentCanTakePrize: attackerKnockedOut && newOpponentPrizes.length > 0,
-    // opponentNeedsToPromote se trackea implícitamente:
-    // si opponentActivePokemon es null Y opponentBench tiene Pokemon, necesita promover
     playerNeedsToPromote: attackerNeedsToPromote || gameState.playerNeedsToPromote,
+    opponentNeedsToPromote: opponentNeedsToPromote,
     events,
   };
 
@@ -2156,6 +2159,7 @@ export function promoteActivePokemon(
       ...gameState,
       opponentActivePokemon: pokemonToPromote,
       opponentBench: newBench,
+      opponentNeedsToPromote: false,
       events,
     };
   }
