@@ -1,5 +1,5 @@
 {
-  "name": "@poke-tcg/game-core",
+  "name": "@gonzaloaguila/game-core",
   "version": "0.1.0",
   "description": "Shared game logic for Pokemon TCG multiplayer",
   "main": "dist/index.js",
@@ -25,7 +25,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/pokemon-tcg-game-core.git"
+    "url": "https://github.com/GonzaloAguila/pokemon-tcg-game-core.git"
   },
   "keywords": [
     "pokemon",
