@@ -33,6 +33,10 @@ export type PokemonInPlay = {
   };
   /** Energy Burn: treat all attached energy as this type until end of turn */
   energyConversionType?: EnergyType;
+  /** Conversion 1 (Porygon): overrides the opponent's weakness type. Clears when leaving active. */
+  modifiedWeakness?: EnergyType;
+  /** Conversion 2 (Porygon): overrides this Pokemon's resistance type. Clears when leaving active. */
+  modifiedResistance?: EnergyType;
 };
 
 export type GameEvent = {

@@ -1756,3 +1756,35 @@ export function playPokedex(
     events,
   };
 }
+
+// ============================================================================
+// HELPERS — Evolved Pokemon utilities (for Devolution Spray, etc.)
+// ============================================================================
+
+export function hasEvolvedPokemon(state: GameState): boolean {
+  if (state.playerActivePokemon?.previousEvolutions?.length) {
+    return true;
+  }
+  for (const pokemon of state.playerBench) {
+    if (pokemon?.previousEvolutions?.length) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function getEvolvedPokemonTargets(state: GameState): Array<{ index: number; pokemon: PokemonInPlay }> {
+  const targets: Array<{ index: number; pokemon: PokemonInPlay }> = [];
+
+  if (state.playerActivePokemon?.previousEvolutions?.length) {
+    targets.push({ index: -1, pokemon: state.playerActivePokemon });
+  }
+
+  state.playerBench.forEach((pokemon, i) => {
+    if (pokemon?.previousEvolutions?.length) {
+      targets.push({ index: i, pokemon });
+    }
+  });
+
+  return targets;
+}

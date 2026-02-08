@@ -34,13 +34,22 @@ export type {
 export {
   EnergyType,
   CardKind,
+  CardRarity,
+  CardSet,
   PokemonStage,
   TrainerType,
   GamePhase,
   StatusCondition,
   AttackEffectType,
+  ProtectionType,
+  BenchDamageTarget,
+  AttackTarget,
   PokemonPowerType,
   CoinFlipResult,
+  CoinFlipModeType,
+  CoinFlipPurposeType,
+  CardSize,
+  PokemonLocation,
 } from "./domain/constants";
 
 // =============================================================================
@@ -74,6 +83,7 @@ export {
   doMulligan,
   setPlayerReady,
   startPlayingPhase,
+  advanceToSetup,
 } from "./lib/gameState";
 
 // Validation
@@ -86,6 +96,7 @@ export {
   canPokemonAttack,
   canPokemonRetreat,
   hasBasicPokemon,
+  hasEnoughEnergyToRetreat,
 } from "./lib/gameState";
 
 // Prize & KO
@@ -141,8 +152,10 @@ export * from "./domain/status";
 // AI (for single-player mode)
 // =============================================================================
 
+export type { AIAction } from "./domain/ai";
 export {
   decideOpponentTurn,
+  decideOpponentSetup,
   executeAIAction,
 } from "./domain/ai";
 
@@ -160,5 +173,5 @@ export {
 // Decks
 // =============================================================================
 
-export type { DeckEntry, Deck } from "./domain/decks";
-export { decks, resolveDeck, getDeckById } from "./domain/decks";
+export type { DeckEntry, Deck, ResolvedDeckEntry, GroupedDeck } from "./domain/decks";
+export { decks, resolveDeck, getDeckById, getDeckEnergyTypes, getDeckCardCount, getDeckFeaturedPokemon, groupDeckByKind } from "./domain/decks";

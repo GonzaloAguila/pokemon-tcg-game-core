@@ -108,6 +108,7 @@ export const AttackEffectType = {
   SelfDamageReduction: "selfDamageReduction",
   ChangeType: "changeType",
   ChangeWeakness: "changeWeakness",
+  ChangeResistance: "changeResistance",
   DestinyBond: "destinyBond",
   HalfHPDamage: "halfHPDamage",
   UseOnce: "useOnce",

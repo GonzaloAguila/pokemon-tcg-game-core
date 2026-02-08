@@ -45,6 +45,10 @@ export type PokemonInPlay = {
   };
   /** Energy Burn: treat all attached energy as this type until end of turn */
   energyConversionType?: EnergyType;
+  /** Conversion 1 (Porygon): overrides the opponent's weakness type. Clears when leaving active. */
+  modifiedWeakness?: EnergyType;
+  /** Conversion 2 (Porygon): overrides this Pokemon's resistance type. Clears when leaving active. */
+  modifiedResistance?: EnergyType;
 };
 
 export type GameEvent = {
@@ -453,9 +457,12 @@ export function executeRetreat(
   const retreatingPokemon = clearStatusConditionsOnRetreat(activePokemon);
 
   // Crear el nuevo Pokémon en banca (el que estaba activo)
+  // Clear Conversion effects (modifiedWeakness/modifiedResistance) when leaving active
   const pokemonGoingToBench: PokemonInPlay = {
     ...retreatingPokemon,
     attachedEnergy: remainingEnergy,
+    modifiedWeakness: undefined,
+    modifiedResistance: undefined,
   };
 
   // Crear nueva banca: remover el que pasa a activo y agregar el que se retira
@@ -1419,9 +1426,15 @@ export function executeAttack(
   }
   let damage = baseDamage;
 
-  // Verificar debilidad y resistencia
-  const hasWeakness = defender.pokemon.weaknesses?.includes(attacker.pokemon.types[0]) ?? false;
-  const hasResistance = defender.pokemon.resistances?.includes(attacker.pokemon.types[0]) ?? false;
+  // Verificar debilidad y resistencia (using modifiedWeakness/modifiedResistance from Porygon's Conversion)
+  const defenderWeaknesses = defender.modifiedWeakness
+    ? [defender.modifiedWeakness]
+    : (defender.pokemon.weaknesses ?? []);
+  const defenderResistances = defender.modifiedResistance
+    ? [defender.modifiedResistance]
+    : (defender.pokemon.resistances ?? []);
+  const hasWeakness = defenderWeaknesses.includes(attacker.pokemon.types[0]);
+  const hasResistance = defenderResistances.includes(attacker.pokemon.types[0]);
 
   // Aplicar debilidad (x2)
   if (hasWeakness) {
@@ -2021,7 +2034,7 @@ export function executeAttack(
  * @param isPlayer - Si es el jugador o el oponente quien toma el premio
  * @returns Nuevo estado del juego con el premio tomado
  */
-export function takePrize(gameState: GameState, prizeIndex: number, isPlayer: boolean = true): GameState {
+export function takePrize(gameState: GameState, prizeIndex: number, isPlayer: boolean = true, shouldEndTurn: boolean = true): GameState {
   // Bloquear si el juego ya terminó
   if (gameState.gamePhase === GamePhase.GameOver) {
     return gameState;
@@ -2096,12 +2109,12 @@ export function takePrize(gameState: GameState, prizeIndex: number, isPlayer: bo
     events,
   };
 
-  // No terminar turno si el juego terminó
-  if (gameResult !== null) {
+  // No terminar turno si el juego terminó o si se indica que no debe terminar
+  if (gameResult !== null || !shouldEndTurn) {
     return updatedState;
   }
 
-  // Terminar el turno después de tomar el premio
+  // Terminar el turno después de tomar el premio (solo si shouldEndTurn = true)
   if (gameState.opponentActivePokemon !== null && gameState.playerActivePokemon !== null) {
     return endTurn(updatedState);
   }

@@ -3,7 +3,14 @@
   "version": "0.1.0",
   "description": "Shared game logic for Pokemon TCG multiplayer",
   "main": "dist/index.js",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "files": [
     "dist"
   ],
