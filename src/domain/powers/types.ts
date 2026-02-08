@@ -32,6 +32,13 @@ export type MoveDamageSelection = {
 };
 
 /**
+ * Target selection for healFlip power
+ */
+export type HealFlipSelection = {
+  targetPokemonId: string; // Pokemon ID to heal (active or bench)
+};
+
+/**
  * Context for checking if a power can be used
  */
 export type PowerContext = {

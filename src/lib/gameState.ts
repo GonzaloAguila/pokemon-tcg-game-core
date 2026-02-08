@@ -1,6 +1,6 @@
 import { baseSetCards, getBaseSetImageUrl } from "@/domain/catalog";
 import type { Card, ProtectionType, EnergyType } from "@/domain/cards";
-import { isEnergyCard } from "@/domain/cards";
+import { isEnergyCard, isPokemonCard } from "@/domain/cards";
 import {
   StatusCondition,
   GamePhase,
@@ -11,7 +11,7 @@ import {
   BenchDamageTarget,
 } from "@/domain/constants";
 import { decks, type Deck, type DeckEntry } from "@/domain/decks";
-import { getDamageReaction } from "@/domain/powers";
+import { getDamageReaction, getRetreatCostReduction, hasStatusImmunity, isDamageBlocked } from "@/domain/powers";
 
 // ============================================================================
 // TIPOS
@@ -367,10 +367,13 @@ export function getTotalEnergyValue(cards: GameCard[]): number {
  * @param pokemon - El Pokémon activo
  * @returns true si tiene suficiente energía
  */
-export function hasEnoughEnergyToRetreat(pokemon: PokemonInPlay): boolean {
+export function hasEnoughEnergyToRetreat(pokemon: PokemonInPlay, bench?: PokemonInPlay[]): boolean {
   if (pokemon.pokemon.kind !== CardKind.Pokemon) return false;
 
-  const retreatCost = pokemon.pokemon.retreatCost;
+  let retreatCost = pokemon.pokemon.retreatCost;
+  if (bench) {
+    retreatCost = Math.max(0, retreatCost - getRetreatCostReduction(bench));
+  }
 
   // Si el coste es 0, siempre puede retirarse
   if (retreatCost === 0) return true;
@@ -384,9 +387,13 @@ export function hasEnoughEnergyToRetreat(pokemon: PokemonInPlay): boolean {
  * @param pokemon - El Pokémon
  * @returns El coste de retirada (0-5)
  */
-export function getRetreatCost(pokemon: PokemonInPlay): number {
+export function getRetreatCost(pokemon: PokemonInPlay, bench?: PokemonInPlay[]): number {
   if (pokemon.pokemon.kind !== CardKind.Pokemon) return 0;
-  return pokemon.pokemon.retreatCost;
+  let cost = pokemon.pokemon.retreatCost;
+  if (bench) {
+    cost = Math.max(0, cost - getRetreatCostReduction(bench));
+  }
+  return cost;
 }
 
 /**
@@ -426,7 +433,7 @@ export function executeRetreat(
     };
   }
 
-  const retreatCost = getRetreatCost(activePokemon);
+  const retreatCost = getRetreatCost(activePokemon, gameState.playerBench);
 
   // Verificar que se están descartando la cantidad correcta de energías (DCE cuenta como 2)
   const discardCards = activePokemon.attachedEnergy.filter(e => energyIdsToDiscard.includes(e.id));
@@ -1463,11 +1470,15 @@ export function executeAttack(
     damage = Math.max(0, damage - defenderReduction);
   }
 
-  // Verificar si el defensor está protegido
+  // Verificar si el defensor está protegido o tiene barrera de daño
   const defenderIsProtected = protectionBlocksDamage(defender);
   let effectiveDamage = damage;
+  let damageBarrierBlocked = false;
   if (defenderIsProtected && damage > 0) {
     effectiveDamage = 0;
+  } else if (isDamageBlocked(defender, damage)) {
+    effectiveDamage = 0;
+    damageBarrierBlocked = true;
   }
 
   // Aplicar daño al defensor
@@ -1481,6 +1492,9 @@ export function executeAttack(
   let damageMessage = "";
   if (defenderIsProtected && damage > 0) {
     damageMessage = ` pero ${defender.pokemon.name} está protegido. ¡El daño fue prevenido!`;
+  } else if (damageBarrierBlocked) {
+    const barrierPowerName = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.name || "Muro Invisible" : "Muro Invisible";
+    damageMessage = ` pero ${defender.pokemon.name} bloqueó el daño con ${barrierPowerName}`;
   } else if (effectiveDamage > 0) {
     if (hasWeakness) {
       damageMessage = ` e hizo ${effectiveDamage} de daño${damageMultiplierDescription} (x2 debilidad)`;
@@ -1846,31 +1860,42 @@ export function executeAttack(
       // Aplicar estado sin coinFlip (ej: Ivysaur's Polvo Veneno, Nidoking's Tóxico)
       // IMPORTANTE: Solo aplicar si el defensor NO fue noqueado (no transferir al Pokemon promovido)
       if (effect.type === AttackEffectType.ApplyStatus && effect.status && newOpponentActive && !isKnockedOut) {
-        const status = effect.status;
-        const currentStatuses = newOpponentActive.statusConditions || [];
-
-        // No aplicar si ya tiene el estado (los estados no son acumulativos)
-        if (!currentStatuses.includes(status)) {
-          const statusMessages: Record<string, string> = {
-            paralyzed: "paralizado",
-            asleep: "dormido",
-            confused: "confundido",
-            poisoned: "envenenado",
-          };
-
-          newOpponentActive = {
-            ...newOpponentActive,
-            statusConditions: [...currentStatuses, status],
-            // Si es veneno con daño personalizado (Tóxico = 20), guardarlo
-            ...(status === StatusCondition.Poisoned && effect.poisonDamage ? { poisonDamage: effect.poisonDamage } : {}),
-          };
-
+        // Check StatusImmunity (Snorlax's Thick Skinned)
+        if (hasStatusImmunity(newOpponentActive)) {
+          const immunityPowerName = isPokemonCard(newOpponentActive.pokemon) ? newOpponentActive.pokemon.power?.name || "Piel Gruesa" : "Piel Gruesa";
           events.push(
             createGameEvent(
-              `¡${newOpponentActive.pokemon.name} está ${statusMessages[status] || status}!`,
+              `¡${newOpponentActive.pokemon.name} es inmune a estados alterados gracias a ${immunityPowerName}!`,
               "action"
             )
           );
+        } else {
+          const status = effect.status;
+          const currentStatuses = newOpponentActive.statusConditions || [];
+
+          // No aplicar si ya tiene el estado (los estados no son acumulativos)
+          if (!currentStatuses.includes(status)) {
+            const statusMessages: Record<string, string> = {
+              paralyzed: "paralizado",
+              asleep: "dormido",
+              confused: "confundido",
+              poisoned: "envenenado",
+            };
+
+            newOpponentActive = {
+              ...newOpponentActive,
+              statusConditions: [...currentStatuses, status],
+              // Si es veneno con daño personalizado (Tóxico = 20), guardarlo
+              ...(status === StatusCondition.Poisoned && effect.poisonDamage ? { poisonDamage: effect.poisonDamage } : {}),
+            };
+
+            events.push(
+              createGameEvent(
+                `¡${newOpponentActive.pokemon.name} está ${statusMessages[status] || status}!`,
+                "action"
+              )
+            );
+          }
         }
       }
     }

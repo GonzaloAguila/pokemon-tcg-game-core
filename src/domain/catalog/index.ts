@@ -1,6 +1,7 @@
 /**
- * Card catalog - Base Set data and image helpers
+ * Card catalog - Card data and image helpers
  */
 
 export { baseSetCards } from "./base-set";
-export { getBaseSetImageUrl, getCardImageUrl } from "./image-urls";
+export { jungleCards } from "./jungle";
+export { getBaseSetImageUrl, getJungleImageUrl, getCardImageUrl } from "./image-urls";

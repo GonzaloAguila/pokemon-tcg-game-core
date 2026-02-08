@@ -3,16 +3,11 @@
  */
 
 import type { Card } from "@/domain/cards";
+import { CardSet } from "@/domain/constants";
 
-/**
- * Generates the image URL for a Base Set card
- */
-export const getBaseSetImageUrl = (card: {
-  name: string;
-  number: number;
-  imageSetVersion?: "bs" | "b2";
-}): string => {
-  let slug = card.name
+/** Shared slug generation for card names */
+const toSlug = (name: string): string =>
+  name
     .toLowerCase()
     .replace(/é/g, "e")
     .replace(/♀/g, "f")
@@ -22,6 +17,16 @@ export const getBaseSetImageUrl = (card: {
     .replace(/[^a-z0-9\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-");
+
+/**
+ * Generates the image URL for a Base Set card
+ */
+export const getBaseSetImageUrl = (card: {
+  name: string;
+  number: number;
+  imageSetVersion?: "bs" | "b2";
+}): string => {
+  let slug = toSlug(card.name);
 
   // Special cases for slug mismatches
   if (card.name === "Nidoran") {
@@ -38,8 +43,26 @@ export const getBaseSetImageUrl = (card: {
 };
 
 /**
- * Gets the image URL for any card (wrapper around getBaseSetImageUrl)
+ * Generates the image URL for a Jungle card
+ */
+export const getJungleImageUrl = (card: {
+  name: string;
+  number: number;
+}): string => {
+  let slug = toSlug(card.name);
+
+  // Special cases for slug mismatches
+  if (card.name === "Nidoran♀") {
+    slug = "nidoran-female";
+  }
+
+  return `https://pkmncards.com/wp-content/uploads/${slug}-jungle-ju-${card.number}.jpg`;
+};
+
+/**
+ * Gets the image URL for any card (dispatches by set)
  */
 export function getCardImageUrl(card: Card & { id?: string }): string {
+  if (card.set === CardSet.Jungle) return getJungleImageUrl(card);
   return getBaseSetImageUrl(card);
 }

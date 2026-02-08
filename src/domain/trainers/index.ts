@@ -1793,3 +1793,63 @@ export function getEvolvedPokemonTargets(state: GameState): Array<{ index: numbe
 
   return targets;
 }
+
+// ============================================================================
+// POKÉ BALL (Jungle #64) — Flip coin, heads = search deck for Pokemon
+// ============================================================================
+
+export function canPlayPokeBall(state: GameState, cardId: string): boolean {
+  if (!canPlayTrainer(state, cardId)) return false;
+  return state.playerDeck.length > 0;
+}
+
+/**
+ * Play Poké Ball: if coin flip is heads, take a Pokemon (basic or evolution) from deck.
+ * If tails, just discard the card.
+ */
+export function playPokeBall(
+  state: GameState,
+  cardId: string,
+  deckCardId: string | null,
+  isHeads: boolean
+): GameState {
+  if (!canPlayPokeBall(state, cardId)) return state;
+
+  const card = state.playerHand.find((c) => c.id === cardId)!;
+  let newHand = state.playerHand.filter((c) => c.id !== cardId);
+  const newDiscard = [...state.playerDiscard, card];
+
+  if (!isHeads || !deckCardId) {
+    // Tails: just discard
+    const events = [
+      ...state.events,
+      createGameEvent(`Jugaste Poké Ball`, "action"),
+      createGameEvent(`Salió cruz — no se encontró ninguna carta`, "info"),
+    ];
+    return { ...state, playerHand: newHand, playerDiscard: newDiscard, events };
+  }
+
+  // Heads: take the selected Pokemon card from deck
+  const found = state.playerDeck.find((c) => c.id === deckCardId);
+  if (!found || found.kind !== CardKind.Pokemon) {
+    return { ...state, playerHand: newHand, playerDiscard: newDiscard };
+  }
+
+  const deckWithout = state.playerDeck.filter((c) => c.id !== deckCardId);
+  const newDeck = shuffle(deckWithout);
+  newHand = [found, ...newHand];
+
+  const events = [
+    ...state.events,
+    createGameEvent(`Jugaste Poké Ball`, "action"),
+    createGameEvent(`Salió cara — encontraste ${found.name} en tu mazo`, "info"),
+  ];
+
+  return {
+    ...state,
+    playerHand: newHand,
+    playerDeck: newDeck,
+    playerDiscard: newDiscard,
+    events,
+  };
+}

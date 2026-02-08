@@ -45,6 +45,7 @@ export type CardRarity = (typeof CardRarity)[keyof typeof CardRarity];
 
 export const CardSet = {
   BaseSet: "Base Set",
+  Jungle: "Jungle",
 } as const;
 export type CardSet = (typeof CardSet)[keyof typeof CardSet];
 
@@ -145,6 +146,12 @@ export const PokemonPowerType = {
   DamageReaction: "damageReaction",
   EnergyConversion: "energyConversion",
   SelfSacrifice: "selfSacrifice",
+  DamageBarrier: "damageBarrier",
+  StatusImmunity: "statusImmunity",
+  TypeShift: "typeShift",
+  HealFlip: "healFlip",
+  RetreatReduction: "retreatReduction",
+  Peek: "peek",
 } as const;
 export type PokemonPowerType = (typeof PokemonPowerType)[keyof typeof PokemonPowerType];
 

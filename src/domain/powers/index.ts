@@ -674,6 +674,38 @@ export function moveDamageWithDamageSwap(
 }
 
 // ============================================================================
+// STATUS IMMUNITY (Snorlax) - Thick Skinned
+// ============================================================================
+
+/**
+ * Check if a Pokemon has StatusImmunity power active.
+ * Unlike other powers, StatusImmunity is NOT blocked by status conditions
+ * (since it prevents status from being applied in the first place).
+ */
+export function hasStatusImmunity(pokemon: PokemonInPlay): boolean {
+  if (!isPokemonCard(pokemon.pokemon)) return false;
+  const power = pokemon.pokemon.power;
+  return !!power && power.type === PokemonPowerType.StatusImmunity;
+}
+
+// ============================================================================
+// DAMAGE BARRIER (Mr. Mime) - Invisible Wall
+// ============================================================================
+
+/**
+ * Check if a Pokemon has DamageBarrier power that blocks the given damage.
+ * Blocks attack damage of 30 or more. Only works while active.
+ * Blocked by status conditions.
+ */
+export function isDamageBlocked(pokemon: PokemonInPlay, damage: number): boolean {
+  if (!isPokemonCard(pokemon.pokemon)) return false;
+  const power = pokemon.pokemon.power;
+  if (!power || power.type !== PokemonPowerType.DamageBarrier) return false;
+  if (hasBlockingStatus(pokemon)) return false;
+  return damage >= 30;
+}
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 
@@ -912,6 +944,26 @@ export function canUseBuzzap(
   return { canUse: true, pokemon, validTargets };
 }
 
+// ============================================================================
+// RETREAT REDUCTION (Dodrio) - Retreat Aid
+// ============================================================================
+
+/**
+ * Calculate total retreat cost reduction from benched Pokemon with RetreatReduction power.
+ * Each benched Pokemon with this power (and no status conditions) reduces retreat cost by 1.
+ */
+export function getRetreatCostReduction(bench: PokemonInPlay[]): number {
+  let reduction = 0;
+  for (const pokemon of bench) {
+    if (!isPokemonCard(pokemon.pokemon)) continue;
+    const power = pokemon.pokemon.power;
+    if (!power || power.type !== PokemonPowerType.RetreatReduction) continue;
+    if (hasBlockingStatus(pokemon)) continue;
+    reduction += 1;
+  }
+  return reduction;
+}
+
 /**
  * Execute Buzzap: KO Electrode, opponent takes prize, attach as energy to target
  */
@@ -1034,4 +1086,106 @@ export function executeBuzzap(
       events,
     };
   }
+}
+
+// ============================================================================
+// HEAL FLIP (Vileplume) - Heal
+// ============================================================================
+
+/**
+ * Check if Heal power can be used.
+ * Requires: Pokemon with HealFlip power, no blocking status, at least one Pokemon with damage.
+ */
+export function canUseHealFlip(
+  state: GameState,
+  side: "player" | "opponent" = "player"
+): { canUse: boolean; errorMessage?: string; pokemonWithPower: PokemonInPlay[] } {
+  const active = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
+  const bench = side === "player" ? state.playerBench : state.opponentBench;
+
+  const pokemonWithPower: PokemonInPlay[] = [];
+
+  const allPokemon = active ? [active, ...bench] : [...bench];
+  for (const pokemon of allPokemon) {
+    if (!isPokemonCard(pokemon.pokemon)) continue;
+    const power = pokemon.pokemon.power;
+    if (!power || power.type !== PokemonPowerType.HealFlip) continue;
+
+    const isActive = pokemon === active;
+    const error = canUsePower(pokemon, isActive);
+    if (error) continue;
+
+    pokemonWithPower.push(pokemon);
+  }
+
+  if (pokemonWithPower.length === 0) {
+    return { canUse: false, errorMessage: "No hay Pokémon con el poder Curación disponible", pokemonWithPower: [] };
+  }
+
+  const hasDamagedPokemon = allPokemon.some(p => (p.currentDamage || 0) > 0);
+  if (!hasDamagedPokemon) {
+    return { canUse: false, errorMessage: "Ningún Pokémon tiene daño para curar", pokemonWithPower: [] };
+  }
+
+  return { canUse: true, pokemonWithPower };
+}
+
+/**
+ * Execute Heal power: remove 1 damage counter (10 HP) from the target Pokemon.
+ * Should only be called after a successful coin flip (heads).
+ * @param targetPokemonId - The ID of the Pokemon to heal
+ */
+export function executeHealFlip(
+  state: GameState,
+  targetPokemonId: string,
+  side: "player" | "opponent" = "player"
+): GameState {
+  const active = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
+  const bench = side === "player" ? state.playerBench : state.opponentBench;
+  const events = [...state.events];
+
+  // Try healing active Pokemon
+  if (active && active.pokemon.id === targetPokemonId && (active.currentDamage || 0) > 0) {
+    const healAmount = Math.min(10, active.currentDamage || 0);
+    const newActive = {
+      ...active,
+      currentDamage: (active.currentDamage || 0) - healAmount,
+    };
+    events.push(
+      createGameEvent(`Curación: ${active.pokemon.name} recuperó ${healAmount} HP`, "action")
+    );
+    return {
+      ...state,
+      ...(side === "player"
+        ? { playerActivePokemon: newActive }
+        : { opponentActivePokemon: newActive }),
+      events,
+    };
+  }
+
+  // Try healing bench Pokemon
+  const newBench = [...bench];
+  for (let i = 0; i < newBench.length; i++) {
+    const pokemon = newBench[i];
+    if (pokemon && pokemon.pokemon.id === targetPokemonId && (pokemon.currentDamage || 0) > 0) {
+      const healAmount = Math.min(10, pokemon.currentDamage || 0);
+      newBench[i] = {
+        ...pokemon,
+        currentDamage: (pokemon.currentDamage || 0) - healAmount,
+      };
+      events.push(
+        createGameEvent(`Curación: ${pokemon.pokemon.name} recuperó ${healAmount} HP`, "action")
+      );
+      return {
+        ...state,
+        ...(side === "player"
+          ? { playerBench: newBench }
+          : { opponentBench: newBench }),
+        events,
+      };
+    }
+  }
+
+  events.push(createGameEvent("No se pudo curar al Pokémon seleccionado", "info"));
+  return { ...state, events };
 }

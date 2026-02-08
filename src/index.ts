@@ -165,7 +165,9 @@ export {
 
 export {
   baseSetCards,
+  jungleCards,
   getBaseSetImageUrl,
+  getJungleImageUrl,
   getCardImageUrl as getCatalogImageUrl,
 } from "./domain/catalog";
 
