@@ -230,7 +230,7 @@ export function playPlusPower(state: GameState, cardId: string): GameState {
 export function canPlayDefender(state: GameState, cardId: string, targetPokemonId: string): boolean {
   if (!canPlayTrainer(state, cardId)) return false;
   if (state.playerActivePokemon?.pokemon.id === targetPokemonId) return true;
-  if (state.playerBench.some((p) => p.pokemon.id === targetPokemonId)) return true;
+  if (state.playerBench.some((p) => p?.pokemon.id === targetPokemonId)) return true;
   return false;
 }
 
@@ -248,7 +248,7 @@ export function playDefender(
   if (state.playerActivePokemon?.pokemon.id === targetPokemonId) {
     targetName = state.playerActivePokemon.pokemon.name;
   } else {
-    const benchTarget = state.playerBench.find((p) => p.pokemon.id === targetPokemonId);
+    const benchTarget = state.playerBench.find((p) => p?.pokemon.id === targetPokemonId);
     targetName = benchTarget?.pokemon.name ?? "";
   }
 
@@ -287,7 +287,7 @@ export function canPlayPotion(state: GameState, cardId: string, targetPokemonId:
     if (state.playerActivePokemon?.pokemon.id === targetPokemonId) {
       return state.playerActivePokemon;
     }
-    return state.playerBench.find((p) => p.pokemon.id === targetPokemonId);
+    return state.playerBench.find((p) => p?.pokemon.id === targetPokemonId);
   };
 
   const target = findTarget();
@@ -321,7 +321,7 @@ export function playPotion(
       currentDamage: currentDamage - healed,
     };
   } else {
-    const idx = state.playerBench.findIndex((p) => p.pokemon.id === targetPokemonId);
+    const idx = state.playerBench.findIndex((p) => p?.pokemon.id === targetPokemonId);
     if (idx !== -1) {
       const benchPokemon = state.playerBench[idx];
       const currentDamage = benchPokemon.currentDamage ?? 0;
@@ -367,7 +367,7 @@ export function canPlaySuperPotion(
     if (state.playerActivePokemon?.pokemon.id === targetPokemonId) {
       return state.playerActivePokemon;
     }
-    return state.playerBench.find((p) => p.pokemon.id === targetPokemonId);
+    return state.playerBench.find((p) => p?.pokemon.id === targetPokemonId);
   };
 
   const target = findTarget();
@@ -412,7 +412,7 @@ export function playSuperPotion(
   if (state.playerActivePokemon?.pokemon.id === targetPokemonId) {
     newActive = healPokemon(state.playerActivePokemon);
   } else {
-    const idx = state.playerBench.findIndex((p) => p.pokemon.id === targetPokemonId);
+    const idx = state.playerBench.findIndex((p) => p?.pokemon.id === targetPokemonId);
     if (idx !== -1) {
       newBench = [...state.playerBench];
       newBench[idx] = healPokemon(state.playerBench[idx]);
@@ -544,7 +544,7 @@ export function canPlaySuperEnergyRemoval(
   // Must discard 1 own energy
   const findOwnPokemon = (): PokemonInPlay | undefined => {
     if (state.playerActivePokemon?.pokemon.id === ownPokemonId) return state.playerActivePokemon;
-    return state.playerBench.find((p) => p.pokemon.id === ownPokemonId);
+    return state.playerBench.find((p) => p?.pokemon.id === ownPokemonId);
   };
   const ownPokemon = findOwnPokemon();
   if (!ownPokemon) return false;
@@ -596,7 +596,7 @@ export function playSuperEnergyRemoval(
       attachedEnergy: state.playerActivePokemon.attachedEnergy.filter((e) => e.id !== ownEnergyId),
     };
   } else {
-    const idx = state.playerBench.findIndex((p) => p.pokemon.id === ownPokemonId);
+    const idx = state.playerBench.findIndex((p) => p?.pokemon.id === ownPokemonId);
     if (idx !== -1) {
       const benchPokemon = state.playerBench[idx];
       const discarded = benchPokemon.attachedEnergy.find((e) => e.id === ownEnergyId);
@@ -1672,17 +1672,22 @@ export function playScoopUp(
   let newBench = [...state.playerBench];
 
   if (targetIndex === -1) {
-    // Need to promote from bench
-    if (state.playerBench.length > 0) {
-      newActive = state.playerBench[0];
-      newBench = state.playerBench.slice(1);
-      events.push(
-        createGameEvent(
-          `${basicCard.name} volvió a tu mano. ${newActive!.pokemon.name} es ahora tu Pokémon activo`,
-          "info"
-        )
-      );
-    }
+    // Active pokemon was scooped — player must choose new active from bench
+    events.push(
+      createGameEvent(
+        `${basicCard.name} volvió a tu mano`,
+        "info"
+      )
+    );
+    return {
+      ...state,
+      playerHand: newHand,
+      playerDiscard: newDiscard,
+      playerActivePokemon: null,
+      playerBench: newBench,
+      playerNeedsToPromote: newBench.length > 0,
+      events,
+    };
   } else {
     newBench = [...state.playerBench];
     newBench.splice(targetIndex, 1);

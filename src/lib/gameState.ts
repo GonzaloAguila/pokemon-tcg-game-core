@@ -868,14 +868,13 @@ export function endTurn(gameState: GameState): GameState {
         events.push(createGameEvent("El rival puede tomar un premio", "action"));
       }
 
-      // Promover de banca
-      const playerPromoteIndex = updatedState.playerBench.findIndex(p => p != null);
-      if (playerPromoteIndex !== -1) {
-        const promoted = updatedState.playerBench[playerPromoteIndex]!;
-        updatedState.playerBench.splice(playerPromoteIndex, 1);
-        updatedState.playerActivePokemon = promoted;
+      // Promover de banca — el jugador debe elegir
+      const hasPlayerBench = updatedState.playerBench.some(p => p != null);
+      if (hasPlayerBench) {
+        updatedState.playerActivePokemon = null;
+        updatedState.playerNeedsToPromote = true;
         events.push(
-          createGameEvent(`${promoted.pokemon.name} pasa a ser tu Pokémon activo`, "info")
+          createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")
         );
       } else {
         updatedState.playerActivePokemon = null;
@@ -979,8 +978,8 @@ export function endTurn(gameState: GameState): GameState {
     };
   }
 
-  // Si alguien puede tomar premio, no avanzar el turno aún
-  if (playerCanTakePrize || opponentCanTakePrize) {
+  // Si alguien puede tomar premio o promover, no avanzar el turno aún
+  if (playerCanTakePrize || opponentCanTakePrize || updatedState.playerNeedsToPromote) {
     return {
       ...updatedState,
       playerCanTakePrize,
@@ -1630,23 +1629,12 @@ export function executeAttack(
 
           // Promover Pokémon de la banca del jugador (si hay)
           const benchPokemonCount = newPlayerBench.filter(p => p != null).length;
-          if (benchPokemonCount > 1) {
-            // Más de 1 Pokémon en la banca: el jugador debe elegir
+          if (benchPokemonCount >= 1) {
+            // El jugador debe elegir qué Pokémon promover
             newPlayerActive = null;
             attackerNeedsToPromote = true;
             events.push(
               createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")
-            );
-          } else if (benchPokemonCount === 1) {
-            // Exactamente 1 Pokémon en la banca: auto-promover
-            const playerBenchPokemonIndex = newPlayerBench.findIndex(p => p != null);
-            newPlayerActive = newPlayerBench[playerBenchPokemonIndex]!;
-            newPlayerBench.splice(playerBenchPokemonIndex, 1);
-            events.push(
-              createGameEvent(
-                `${newPlayerActive.pokemon.name} pasa a ser tu Pokémon activo`,
-                "info"
-              )
             );
           } else {
             // No hay Pokémon en la banca: derrota
@@ -1929,21 +1917,11 @@ export function executeAttack(
 
         // Promover Pokémon de la banca del jugador
         const benchPokemonCount = newPlayerBench.filter(p => p != null).length;
-        if (benchPokemonCount > 1) {
+        if (benchPokemonCount >= 1) {
           newPlayerActive = null;
           attackerNeedsToPromote = true;
           events.push(
             createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")
-          );
-        } else if (benchPokemonCount === 1) {
-          const playerBenchPokemonIndex = newPlayerBench.findIndex(p => p != null);
-          newPlayerActive = newPlayerBench[playerBenchPokemonIndex]!;
-          newPlayerBench.splice(playerBenchPokemonIndex, 1);
-          events.push(
-            createGameEvent(
-              `${newPlayerActive.pokemon.name} pasa a ser tu Pokémon activo`,
-              "info"
-            )
           );
         } else {
           newPlayerActive = null;
