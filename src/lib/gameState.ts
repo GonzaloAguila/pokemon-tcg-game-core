@@ -1,4 +1,4 @@
-import { baseSetCards, getBaseSetImageUrl } from "@/domain/catalog";
+import { baseSetCards, getCardImageUrl as getCatalogImageUrl } from "@/domain/catalog";
 import type { Card, ProtectionType, EnergyType } from "@/domain/cards";
 import { isEnergyCard, isPokemonCard } from "@/domain/cards";
 import {
@@ -1131,7 +1131,7 @@ export function endTurn(gameState: GameState): GameState {
  * Obtiene la URL de la imagen de una carta
  */
 export function getCardImageUrl(card: GameCard): string {
-  return getBaseSetImageUrl(card);
+  return getCatalogImageUrl(card);
 }
 
 /**
