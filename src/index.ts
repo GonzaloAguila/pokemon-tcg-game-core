@@ -175,5 +175,5 @@ export {
 // Decks
 // =============================================================================
 
-export type { DeckEntry, Deck, ResolvedDeckEntry, GroupedDeck } from "./domain/decks";
+export type { DeckEntry, FeaturedPokemonRef, Deck, ResolvedDeckEntry, GroupedDeck } from "./domain/decks";
 export { decks, resolveDeck, getDeckById, getDeckEnergyTypes, getDeckCardCount, getDeckFeaturedPokemon, groupDeckByKind } from "./domain/decks";

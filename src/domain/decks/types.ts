@@ -2,9 +2,17 @@
  * Deck domain types
  */
 
+import type { CardSet } from "@/domain/constants";
+
 export type DeckEntry = {
-  cardNumber: number; // Card number within the set (e.g. 1-102 for Base Set)
+  cardNumber: number;
   quantity: number;
+  set?: CardSet; // undefined = Base Set (backward compatible)
+};
+
+export type FeaturedPokemonRef = {
+  cardNumber: number;
+  set?: CardSet; // undefined = Base Set
 };
 
 export type Deck = {
@@ -12,6 +20,6 @@ export type Deck = {
   name: string;
   image: string;
   cards: DeckEntry[];
-  /** Card numbers for featured Pokemon display [left, center, right] */
-  featuredPokemon?: [number, number, number];
+  /** Featured Pokemon for display [left, center, right] */
+  featuredPokemon?: [FeaturedPokemonRef, FeaturedPokemonRef, FeaturedPokemonRef];
 };

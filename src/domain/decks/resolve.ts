@@ -4,7 +4,8 @@
  */
 
 import type { Card } from "@/domain/cards";
-import { baseSetCards } from "@/domain/catalog";
+import { baseSetCards, jungleCards } from "@/domain/catalog";
+import { CardSet } from "@/domain/constants";
 import type { Deck, DeckEntry } from "./types";
 
 export type ResolvedDeckEntry = {
@@ -18,13 +19,17 @@ export type GroupedDeck = {
   trainer: ResolvedDeckEntry[];
 };
 
+/** All cards across all sets (for findCardByNumber fallback) */
+const allCards = [...baseSetCards, ...jungleCards];
+
 /**
  * Resolves a single DeckEntry to its Card from the catalog
  */
 function resolveEntry(entry: DeckEntry): ResolvedDeckEntry | null {
-  const card = baseSetCards.find((c) => c.number === entry.cardNumber);
+  const searchPool = entry.set === CardSet.Jungle ? jungleCards : baseSetCards;
+  const card = searchPool.find((c) => c.number === entry.cardNumber);
   if (!card) {
-    console.warn(`Card #${entry.cardNumber} not found in catalog`);
+    console.warn(`Card #${entry.cardNumber} not found in ${entry.set ?? "Base Set"}`);
     return null;
   }
   return { card, quantity: entry.quantity };
@@ -68,5 +73,5 @@ export function groupDeckByKind(entries: ResolvedDeckEntry[]): GroupedDeck {
  * Finds a card in the catalog by its set number
  */
 export function findCardByNumber(cardNumber: number): Card | undefined {
-  return baseSetCards.find((c) => c.number === cardNumber);
+  return allCards.find((c) => c.number === cardNumber);
 }

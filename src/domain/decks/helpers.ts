@@ -63,8 +63,10 @@ export function getDeckFeaturedPokemon(deck: Deck, count: number = 3): PokemonCa
   // If deck has explicit featured Pokemon, use them in order
   if (deck.featuredPokemon) {
     const featured: PokemonCard[] = [];
-    for (const cardNumber of deck.featuredPokemon) {
-      const entry = resolved.find(e => e.card.number === cardNumber);
+    for (const ref of deck.featuredPokemon) {
+      const entry = resolved.find(
+        (e) => e.card.number === ref.cardNumber && (!ref.set || e.card.set === ref.set)
+      );
       if (entry && isPokemonCard(entry.card)) {
         featured.push(entry.card);
       }
