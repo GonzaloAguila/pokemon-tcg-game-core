@@ -84,7 +84,7 @@ export const jungleCards: Card[] = [
       },
       {
         name: "Rayo Cadena",
-        cost: [EnergyType.Lightning, EnergyType.Lightning, EnergyType.Lightning],
+        cost: [EnergyType.Lightning, EnergyType.Lightning, EnergyType.Colorless],
         damage: 20,
         text: "Si el Pokémon Defensor no es Incoloro, este ataque hace 10 puntos de daño a cada Pokémon en Banca del mismo tipo que el Pokémon Defensor (de ambos jugadores).",
         effects: [
@@ -93,6 +93,8 @@ export const jungleCards: Card[] = [
             target: AttackTarget.Defender,
             amount: 10,
             benchTarget: BenchDamageTarget.Both,
+            matchDefenderType: true,
+            skipIfColorless: true,
           },
         ],
       },
@@ -325,7 +327,7 @@ export const jungleCards: Card[] = [
         text: "A menos que este ataque Noquee al Pokémon Defensor, devuelve al Pokémon Defensor y todas las cartas adjuntas a la mano de tu rival.",
         effects: [
           {
-            type: AttackEffectType.ForceSwitch,
+            type: AttackEffectType.ReturnToHand,
             target: AttackTarget.Defender,
           },
         ],

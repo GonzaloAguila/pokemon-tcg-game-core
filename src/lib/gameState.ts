@@ -1669,44 +1669,64 @@ export function executeAttack(
         const benchDamageAmount = effect.amount;
         const target = effect.benchTarget;
 
-        // Aplicar daño a la banca del oponente
-        if (target === BenchDamageTarget.Opponent || target === BenchDamageTarget.Both) {
-          newOpponentBench = newOpponentBench.map((benchPokemon) => {
-            if (!benchPokemon) return benchPokemon;
+        // Chain Lightning: skip if defender is Colorless
+        const defenderTypes = newOpponentActive && isPokemonCard(newOpponentActive.pokemon)
+          ? newOpponentActive.pokemon.types
+          : [];
+        if (effect.skipIfColorless && defenderTypes.includes(EnergyTypeEnum.Colorless)) {
+          // Effect does nothing against Colorless defenders
+        } else {
+          // Aplicar daño a la banca del oponente
+          if (target === BenchDamageTarget.Opponent || target === BenchDamageTarget.Both) {
+            newOpponentBench = newOpponentBench.map((benchPokemon) => {
+              if (!benchPokemon) return benchPokemon;
 
-            const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
-            events.push(
-              createGameEvent(
-                `${benchPokemon.pokemon.name} del rival recibió ${benchDamageAmount} de daño`,
-                "action"
-              )
-            );
+              // Filter by defender type if matchDefenderType is set
+              if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
+                const sharesType = benchPokemon.pokemon.types.some((t) => defenderTypes.includes(t));
+                if (!sharesType) return benchPokemon;
+              }
 
-            return {
-              ...benchPokemon,
-              currentDamage: newBenchDamage,
-            };
-          });
-        }
+              const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
+              events.push(
+                createGameEvent(
+                  `${benchPokemon.pokemon.name} del rival recibió ${benchDamageAmount} de daño`,
+                  "action"
+                )
+              );
 
-        // Aplicar daño a la banca del jugador
-        if (target === BenchDamageTarget.Own || target === BenchDamageTarget.Both) {
-          newPlayerBench = newPlayerBench.map((benchPokemon) => {
-            if (!benchPokemon) return benchPokemon;
+              return {
+                ...benchPokemon,
+                currentDamage: newBenchDamage,
+              };
+            });
+          }
 
-            const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
-            events.push(
-              createGameEvent(
-                `Tu ${benchPokemon.pokemon.name} recibió ${benchDamageAmount} de daño`,
-                "action"
-              )
-            );
+          // Aplicar daño a la banca del jugador
+          if (target === BenchDamageTarget.Own || target === BenchDamageTarget.Both) {
+            newPlayerBench = newPlayerBench.map((benchPokemon) => {
+              if (!benchPokemon) return benchPokemon;
 
-            return {
-              ...benchPokemon,
-              currentDamage: newBenchDamage,
-            };
-          });
+              // Filter by defender type if matchDefenderType is set
+              if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
+                const sharesType = benchPokemon.pokemon.types.some((t) => defenderTypes.includes(t));
+                if (!sharesType) return benchPokemon;
+              }
+
+              const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
+              events.push(
+                createGameEvent(
+                  `Tu ${benchPokemon.pokemon.name} recibió ${benchDamageAmount} de daño`,
+                  "action"
+                )
+              );
+
+              return {
+                ...benchPokemon,
+                currentDamage: newBenchDamage,
+              };
+            });
+          }
         }
 
         // TODO: Verificar y procesar KOs en la banca

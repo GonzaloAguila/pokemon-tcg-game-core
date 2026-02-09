@@ -56,6 +56,10 @@ export type AttackEffect = {
   maxExtraEnergy?: number;
   extraEnergyType?: EnergyType;
   requiredStatus?: StatusCondition;
+  /** Only damage bench Pokémon that share a type with the defender (e.g., Chain Lightning) */
+  matchDefenderType?: boolean;
+  /** Skip this effect entirely if the defender is Colorless */
+  skipIfColorless?: boolean;
 };
 
 export type Attack = {
