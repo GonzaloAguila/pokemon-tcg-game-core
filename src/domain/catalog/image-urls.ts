@@ -55,6 +55,9 @@ export const getJungleImageUrl = (card: {
   if (card.name === "Nidoran♀") {
     slug = "nidoran-female";
   }
+  if (card.name === "Mr. Mime") {
+    slug = "mr.-mime";
+  }
 
   return `https://pkmncards.com/wp-content/uploads/${slug}-jungle-ju-${card.number}.jpg`;
 };
