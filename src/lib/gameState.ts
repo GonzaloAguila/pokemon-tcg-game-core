@@ -8,6 +8,7 @@ import {
   EnergyType as EnergyTypeEnum,
   PokemonStage,
   AttackEffectType,
+  AttackTarget,
   BenchDamageTarget,
 } from "@/domain/constants";
 import { decks, type Deck, type DeckEntry } from "@/domain/decks";
@@ -1430,6 +1431,60 @@ export function executeAttack(
       baseDamage = baseValue;
     }
   }
+  // Apply non-coinflip BonusDamage, DamagePerCounter, and ExtraEnergy to base damage
+  if (attack.effects) {
+    for (const effect of attack.effects) {
+      if (effect.coinFlip) continue;
+
+      // BonusDamage: add damage based on source (bench count, named pokemon, etc.)
+      if (effect.type === AttackEffectType.BonusDamage && effect.amount && !effect.coinFlip) {
+        let multiplier = 1;
+        if (effect.bonusDamageSource === "benchCount") {
+          multiplier = gameState.playerBench.filter(p => p != null).length;
+        } else if (effect.bonusDamageSource === "namedPokemon" && effect.bonusDamageNameMatch) {
+          const name = effect.bonusDamageNameMatch;
+          // Count in active + bench
+          let count = 0;
+          if (attacker.pokemon.name === name) count++;
+          for (const bp of gameState.playerBench) {
+            if (bp && bp.pokemon.name === name) count++;
+          }
+          multiplier = count;
+        }
+        baseDamage += effect.amount * multiplier;
+      }
+
+      // DamagePerCounter: bonus damage per damage counter on self or defender
+      if (effect.type === AttackEffectType.DamagePerCounter && effect.amount) {
+        if (effect.target === AttackTarget.Self) {
+          // Damage counters on attacker (e.g., Rage, Rampage)
+          const counters = Math.floor((attacker.currentDamage || 0) / 10);
+          baseDamage += effect.amount * counters;
+        } else if (effect.target === AttackTarget.Defender) {
+          // Damage counters on defender (e.g., Meditate)
+          const counters = Math.floor((defender.currentDamage || 0) / 10);
+          baseDamage += effect.amount * counters;
+        }
+      }
+
+      // ExtraEnergy: bonus damage per extra energy of a type beyond attack cost
+      if (effect.type === AttackEffectType.ExtraEnergy && effect.extraDamagePerEnergy) {
+        const energyType = effect.extraEnergyType;
+        const maxExtra = effect.maxExtraEnergy ?? Infinity;
+        if (energyType) {
+          // Count total energy of this type attached
+          const totalOfType = attacker.attachedEnergy.filter(
+            e => e.kind === CardKind.Energy && "energyType" in e && e.energyType === energyType
+          ).length;
+          // Count how many are required by the attack cost
+          const requiredOfType = attack.cost.filter(c => c === energyType).length;
+          const extraCount = Math.min(Math.max(0, totalOfType - requiredOfType), maxExtra);
+          baseDamage += effect.extraDamagePerEnergy * extraCount;
+        }
+      }
+    }
+  }
+
   let damage = baseDamage;
 
   // Verificar debilidad y resistencia (using modifiedWeakness/modifiedResistance from Porygon's Conversion)
@@ -1678,8 +1733,9 @@ export function executeAttack(
         } else {
           // Aplicar daño a la banca del oponente
           if (target === BenchDamageTarget.Opponent || target === BenchDamageTarget.Both) {
+            let opponentHitsRemaining = effect.maxBenchTargets ?? Infinity;
             newOpponentBench = newOpponentBench.map((benchPokemon) => {
-              if (!benchPokemon) return benchPokemon;
+              if (!benchPokemon || opponentHitsRemaining <= 0) return benchPokemon;
 
               // Filter by defender type if matchDefenderType is set
               if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
@@ -1687,6 +1743,7 @@ export function executeAttack(
                 if (!sharesType) return benchPokemon;
               }
 
+              opponentHitsRemaining--;
               const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
               events.push(
                 createGameEvent(
@@ -1704,8 +1761,9 @@ export function executeAttack(
 
           // Aplicar daño a la banca del jugador
           if (target === BenchDamageTarget.Own || target === BenchDamageTarget.Both) {
+            let ownHitsRemaining = effect.maxBenchTargets ?? Infinity;
             newPlayerBench = newPlayerBench.map((benchPokemon) => {
-              if (!benchPokemon) return benchPokemon;
+              if (!benchPokemon || ownHitsRemaining <= 0) return benchPokemon;
 
               // Filter by defender type if matchDefenderType is set
               if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
@@ -1713,6 +1771,7 @@ export function executeAttack(
                 if (!sharesType) return benchPokemon;
               }
 
+              ownHitsRemaining--;
               const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
               events.push(
                 createGameEvent(
@@ -1730,6 +1789,31 @@ export function executeAttack(
         }
 
         // TODO: Verificar y procesar KOs en la banca
+      }
+
+      // Heal: cure damage from self (e.g., Butterfree Mega Drain, Exeggcute Leech Seed, Venonat Leech Life)
+      if (effect.type === AttackEffectType.Heal && effect.target === AttackTarget.Self && newPlayerActive) {
+        let healAmount = effect.amount || 0;
+        if (effect.healFromDamageDealt) {
+          // Heal = half the actual damage dealt to the defender
+          healAmount = Math.floor(effectiveDamage / 2);
+          // Round down to nearest 10 (damage counters are multiples of 10)
+          healAmount = Math.floor(healAmount / 10) * 10;
+        }
+        const attackerDamage: number = newPlayerActive.currentDamage || 0;
+        const actualHeal = Math.min(healAmount, attackerDamage);
+        if (actualHeal > 0) {
+          newPlayerActive = {
+            ...newPlayerActive,
+            currentDamage: attackerDamage - actualHeal,
+          };
+          events.push(
+            createGameEvent(
+              `${newPlayerActive.pokemon.name} se curó ${actualHeal} de daño`,
+              "action"
+            )
+          );
+        }
       }
 
       // Recuperación: curar todo el daño descartando energía (ej: Starmie's Recuperación)

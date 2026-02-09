@@ -60,6 +60,16 @@ export type AttackEffect = {
   matchDefenderType?: boolean;
   /** Skip this effect entirely if the defender is Colorless */
   skipIfColorless?: boolean;
+  /** For BonusDamage: source of the multiplier count */
+  bonusDamageSource?: "benchCount" | "namedPokemon";
+  /** For BonusDamage with namedPokemon: the Pokemon name to count (e.g., "Nidoking") */
+  bonusDamageNameMatch?: string;
+  /** For CoinFlipDamage: derive coin count from attached energy count instead of fixed */
+  coinCountFromEnergy?: boolean;
+  /** For BenchDamage: max number of bench targets (undefined = all) */
+  maxBenchTargets?: number;
+  /** For Heal: heal amount equals half the actual damage dealt */
+  healFromDamageDealt?: boolean;
 };
 
 export type Attack = {
