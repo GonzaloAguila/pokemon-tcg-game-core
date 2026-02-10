@@ -1365,7 +1365,7 @@ export const baseSetCards: Card[] = [
       attacks: [
         {
           name: "Golpe Karate",
-          cost: [EnergyType.Fighting, EnergyType.Colorless],
+          cost: [EnergyType.Fighting, EnergyType.Fighting, EnergyType.Colorless],
           damage: 50,
           text:
             "Este ataque hace 10 puntos de daño menos por cada contador de daño en Machoke.",
@@ -1844,7 +1844,7 @@ export const baseSetCards: Card[] = [
       set: SET,
       rarity: CardRarity.Common,
       stage: PokemonStage.Basic,
-      hp: 60,
+      hp: 50,
       types: [EnergyType.Psychic],
       attacks: [
         { name: "Destructor", cost: [EnergyType.Colorless], damage: 10 },
@@ -1866,7 +1866,7 @@ export const baseSetCards: Card[] = [
           ],
         },
       ],
-      retreatCost: 2,
+      retreatCost: 1,
       weaknesses: [EnergyType.Psychic],
       resistances: [],
     }),
@@ -1883,7 +1883,7 @@ export const baseSetCards: Card[] = [
         {
           name: "Gas de Dormir",
           cost: [EnergyType.Psychic],
-          damage: 10,
+          damage: 0,
           text:
             "Echa la moneda a cara o cruz. Si sale cara, el Pokémon a la defensa pasa a estar Dormido.",
           effects: [
@@ -1915,7 +1915,7 @@ export const baseSetCards: Card[] = [
           ],
         },
       ],
-      retreatCost: 1,
+      retreatCost: 0,
       weaknesses: [],
       resistances: [EnergyType.Fighting],
     }),
@@ -2016,7 +2016,7 @@ export const baseSetCards: Card[] = [
       ],
       retreatCost: 1,
       weaknesses: [EnergyType.Fighting],
-      resistances: [EnergyType.Psychic],
+      resistances: [],
     }),
     createPokemonCard({
       id: makeCardId(SET, 54, "Metapod"),
@@ -2274,7 +2274,7 @@ export const baseSetCards: Card[] = [
       ],
       retreatCost: 0,
       weaknesses: [EnergyType.Fighting],
-      resistances: [],
+      resistances: [EnergyType.Psychic],
     }),
     createPokemonCard({
       id: makeCardId(SET, 62, "Sandshrew"),
@@ -2463,7 +2463,7 @@ export const baseSetCards: Card[] = [
       rarity: CardRarity.Common,
       stage: PokemonStage.Basic,
       hp: 40,
-      types: [EnergyType.Colorless],
+      types: [EnergyType.Lightning],
       attacks: [
         {
           name: "Derribo",

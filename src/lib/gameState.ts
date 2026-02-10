@@ -1650,8 +1650,10 @@ export function executeAttack(
   let newPlayerActive: PokemonInPlay | null = attacker;
   let newPlayerBench = [...gameState.playerBench];
   let newPlayerDiscard = [...gameState.playerDiscard];
+  let newPlayerDeck = [...gameState.playerDeck];
   let newOpponentPrizes = [...gameState.opponentPrizes];
   let newOpponentHand = [...gameState.opponentHand];
+  let newOpponentDeck = [...gameState.opponentDeck];
   let attackerKnockedOut = false;
   let attackerNeedsToPromote = false;
 
@@ -1659,6 +1661,27 @@ export function executeAttack(
     for (const effect of attack.effects) {
       // Ignorar efectos con coinFlip (se procesan en handleCoinFlipComplete)
       if (effect.coinFlip) continue;
+
+      // Draw: robar cartas del mazo (ej: Kangaskhan's Fetch)
+      if (effect.type === AttackEffectType.Draw && effect.amount) {
+        const isPlayer = effect.target === AttackTarget.Self;
+        for (let i = 0; i < effect.amount; i++) {
+          const deck = isPlayer ? newPlayerDeck : newOpponentDeck;
+          const hand = isPlayer ? newPlayerHand : newOpponentHand;
+          const result = drawCard(deck, hand);
+          if (result.success) {
+            if (isPlayer) {
+              newPlayerDeck = result.newDeck;
+              newPlayerHand = result.newHand;
+            } else {
+              newOpponentDeck = result.newDeck;
+              newOpponentHand = result.newHand;
+            }
+          }
+        }
+        const who = isPlayer ? "Robaste" : "El rival robó";
+        events.push(createGameEvent(`${who} ${effect.amount} carta${effect.amount > 1 ? "s" : ""} por ${attack.name}`, "action"));
+      }
 
       // Daño a sí mismo (selfDamage)
       if (effect.type === AttackEffectType.SelfDamage && effect.amount && newPlayerActive) {
@@ -2102,9 +2125,11 @@ export function executeAttack(
     playerActivePokemon: attackerKnockedOut ? newPlayerActive : (newPlayerActive ?? attacker),
     playerBench: newPlayerBench,
     playerDiscard: newPlayerDiscard,
+    playerDeck: newPlayerDeck,
     opponentActivePokemon: newOpponentActive,
     opponentBench: newOpponentBench,
     opponentDiscard: newOpponentDiscard,
+    opponentDeck: newOpponentDeck,
     playerPrizes: newPlayerPrizes,
     playerHand: newPlayerHand,
     opponentPrizes: newOpponentPrizes,
