@@ -955,6 +955,7 @@ export function canUseBuzzap(
 export function getRetreatCostReduction(bench: PokemonInPlay[]): number {
   let reduction = 0;
   for (const pokemon of bench) {
+    if (!pokemon) continue;
     if (!isPokemonCard(pokemon.pokemon)) continue;
     const power = pokemon.pokemon.power;
     if (!power || power.type !== PokemonPowerType.RetreatReduction) continue;
@@ -1058,6 +1059,9 @@ export function executeBuzzap(
   const oppositeSide = side === "player" ? "opponent" : "player";
   const sideName = side === "player" ? "" : "Rival usó ";
 
+  // Filter out null slots left by removing Electrode from bench
+  const cleanBench = bench.filter((p): p is PokemonInPlay => p !== null);
+
   const events = [
     ...state.events,
     createGameEvent(
@@ -1070,9 +1074,9 @@ export function executeBuzzap(
     return {
       ...state,
       playerActivePokemon: newActivePokemon,
-      playerBench: bench,
+      playerBench: cleanBench,
       playerDiscard: discard,
-      playerNeedsToPromote: needsPromotion && bench.some(p => p !== null),
+      playerNeedsToPromote: needsPromotion && cleanBench.length > 0,
       opponentCanTakePrize: true, // Opponent takes a prize for the KO
       events,
     };
@@ -1080,7 +1084,7 @@ export function executeBuzzap(
     return {
       ...state,
       opponentActivePokemon: newActivePokemon,
-      opponentBench: bench,
+      opponentBench: cleanBench,
       opponentDiscard: discard,
       playerCanTakePrize: true, // Player takes a prize for the KO
       events,
