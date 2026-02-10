@@ -1,6 +1,6 @@
 {
   "name": "@gonzaloaguila/game-core",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "Shared game logic for Pokemon TCG multiplayer",
   "main": "dist/index.js",
   "module": "dist/index.js",

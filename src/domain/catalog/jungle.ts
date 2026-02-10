@@ -754,7 +754,7 @@ export const jungleCards: Card[] = [
       {
         name: "Big Eggsplosion",
         cost: [EnergyType.Colorless],
-        damage: "20x",
+        damage: 0,
         text: "Lanza una cantidad de monedas igual al número de Energías adjuntas a Exeggutor. Este ataque hace 20 puntos de daño multiplicado por la cantidad de caras.",
         effects: [
           {
