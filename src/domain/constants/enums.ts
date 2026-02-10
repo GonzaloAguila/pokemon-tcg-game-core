@@ -113,6 +113,7 @@ export const AttackEffectType = {
   DestinyBond: "destinyBond",
   HalfHPDamage: "halfHPDamage",
   UseOnce: "useOnce",
+  ReturnToHand: "returnToHand",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

@@ -1724,9 +1724,9 @@ export function executeAttack(
         const benchDamageAmount = effect.amount;
         const target = effect.benchTarget;
 
-        // Chain Lightning: skip if defender is Colorless
-        const defenderTypes = newOpponentActive && isPokemonCard(newOpponentActive.pokemon)
-          ? newOpponentActive.pokemon.types
+        // Chain Lightning: use original defender types (not newOpponentActive which may be promoted replacement)
+        const defenderTypes = isPokemonCard(defender.pokemon)
+          ? defender.pokemon.types
           : [];
         if (effect.skipIfColorless && defenderTypes.includes(EnergyTypeEnum.Colorless)) {
           // Effect does nothing against Colorless defenders
