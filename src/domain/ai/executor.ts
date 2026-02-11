@@ -6,8 +6,9 @@
  */
 
 import type { GameState } from "@/domain/match";
-import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition } from "@/domain/match";
+import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition, executeDeckSearch } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
+import { PokemonStage } from "@/domain/constants";
 import type { AIAction } from "./types";
 import {
   playBasicToActive,
@@ -639,8 +640,44 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
     }
   }
 
-  // Clear any remaining pending switch flags
-  finalState = { ...finalState, pendingForceSwitch: undefined, pendingSelfSwitch: undefined };
+  // Handle pending DeckSearch: AI auto-picks a valid card from deck
+  // In swapped state, pendingDeckSearch was set by attacker (AI)
+  // After swap-back: AI is opponent, so deck search applies to opponent's deck
+  if (resultState.pendingDeckSearch && finalState.opponentDeck.length > 0) {
+    const filter = resultState.pendingDeckSearch.filter;
+    // Find first valid card matching the filter
+    const validCard = finalState.opponentDeck.find(card => {
+      if (!isPokemonCard(card) || card.stage !== PokemonStage.Basic) return false;
+      if (filter.names && !filter.names.includes(card.name)) return false;
+      if (filter.type && !card.types.includes(filter.type)) return false;
+      return true;
+    });
+
+    // Swap to opponent perspective to execute deck search
+    const swappedForSearch: GameState = {
+      ...finalState,
+      playerDeck: finalState.opponentDeck,
+      playerBench: finalState.opponentBench,
+      opponentDeck: finalState.playerDeck,
+      opponentBench: finalState.playerBench,
+      pendingDeckSearch: resultState.pendingDeckSearch,
+    };
+
+    const searchResult = executeDeckSearch(swappedForSearch, validCard?.id ?? null);
+
+    // Swap back
+    finalState = {
+      ...searchResult,
+      playerDeck: searchResult.opponentDeck,
+      playerBench: searchResult.opponentBench,
+      opponentDeck: searchResult.playerDeck,
+      opponentBench: searchResult.playerBench,
+      pendingDeckSearch: undefined,
+    };
+  }
+
+  // Clear any remaining pending flags
+  finalState = { ...finalState, pendingForceSwitch: undefined, pendingSelfSwitch: undefined, pendingDeckSearch: undefined };
 
   // Si el juego no terminó, no hay premio pendiente para el oponente, y no hay promoción pendiente,
   // terminamos el turno. Esto genera los eventos con la perspectiva CORRECTA.

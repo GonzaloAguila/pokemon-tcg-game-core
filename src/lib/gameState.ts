@@ -120,6 +120,17 @@ export type GameState = {
   pendingSelfSwitch?: boolean;
   /** Track which Pokemon have used their "once per turn" powers this turn (by Pokemon ID) */
   usedPowersThisTurn?: string[];
+  /** DeckSearch: player needs to search deck for Basic Pokemon matching filter */
+  pendingDeckSearch?: {
+    filter: {
+      /** Exact name matches (e.g., ["Bellsprout"] or ["Nidoran♂", "Nidoran♀"]) */
+      names?: string[];
+      /** Pokemon type filter (e.g., "fighting" for Marowak) */
+      type?: EnergyType;
+      /** Always enforce Basic-only selection */
+      basicOnly: true;
+    };
+  };
 };
 
 // ============================================================================
@@ -657,6 +668,145 @@ export function skipPendingSwitch(gameState: GameState): GameState {
 }
 
 /**
+ * Executes a DeckSearch: player searches deck for a Basic Pokemon matching the filter.
+ * Called after executeAttack when pendingDeckSearch is set.
+ * Used by "Call for Family" attacks (Bellsprout, Oddish, Nidorina, Marowak).
+ *
+ * @param gameState - Current game state
+ * @param selectedCardId - ID of the selected Pokemon card (null to skip selection)
+ * @returns New game state with Pokemon added to bench and deck shuffled
+ */
+export function executeDeckSearch(
+  gameState: GameState,
+  selectedCardId: string | null
+): GameState {
+  const filter = gameState.pendingDeckSearch?.filter;
+
+  if (!filter) {
+    return {
+      ...gameState,
+      pendingDeckSearch: undefined,
+      events: [...gameState.events, createGameEvent("No hay búsqueda pendiente", "info")],
+    };
+  }
+
+  // If no card selected, just shuffle and end turn
+  if (!selectedCardId) {
+    const shuffledDeck = shuffle([...gameState.playerDeck]);
+    const events = [
+      ...gameState.events,
+      createGameEvent("No seleccionaste ningún Pokémon. Se mezcló el mazo", "info"),
+    ];
+
+    const newState: GameState = {
+      ...gameState,
+      playerDeck: shuffledDeck,
+      pendingDeckSearch: undefined,
+      events,
+    };
+
+    return endTurn(newState);
+  }
+
+  // Find the selected card in deck
+  const selectedCard = gameState.playerDeck.find(c => c.id === selectedCardId);
+
+  if (!selectedCard) {
+    return {
+      ...gameState,
+      pendingDeckSearch: undefined,
+      events: [...gameState.events, createGameEvent("Carta no encontrada en el mazo", "info")],
+    };
+  }
+
+  // Validate card matches filter
+  if (selectedCard.kind !== CardKind.Pokemon) {
+    return {
+      ...gameState,
+      pendingDeckSearch: undefined,
+      events: [...gameState.events, createGameEvent("La carta seleccionada no es un Pokémon", "info")],
+    };
+  }
+
+  if (selectedCard.stage !== PokemonStage.Basic) {
+    return {
+      ...gameState,
+      pendingDeckSearch: undefined,
+      events: [...gameState.events, createGameEvent("Solo puedes seleccionar Pokémon Básicos", "info")],
+    };
+  }
+
+  // Check name filter
+  if (filter.names && filter.names.length > 0) {
+    if (!filter.names.includes(selectedCard.name)) {
+      return {
+        ...gameState,
+        pendingDeckSearch: undefined,
+        events: [...gameState.events, createGameEvent(`Solo puedes seleccionar: ${filter.names.join(" o ")}`, "info")],
+      };
+    }
+  }
+
+  // Check type filter
+  if (filter.type) {
+    if (!selectedCard.types.includes(filter.type)) {
+      return {
+        ...gameState,
+        pendingDeckSearch: undefined,
+        events: [...gameState.events, createGameEvent(`Solo puedes seleccionar Pokémon de tipo ${filter.type}`, "info")],
+      };
+    }
+  }
+
+  // Check if bench is full
+  const benchCount = gameState.playerBench.filter(p => p !== null).length;
+  if (benchCount >= 5) {
+    return {
+      ...gameState,
+      pendingDeckSearch: undefined,
+      events: [...gameState.events, createGameEvent("Tu banca está llena", "info")],
+    };
+  }
+
+  // Remove card from deck
+  const newDeck = gameState.playerDeck.filter(c => c.id !== selectedCardId);
+
+  // Shuffle deck
+  const shuffledDeck = shuffle(newDeck);
+
+  // Create PokemonInPlay
+  const newPokemonInPlay: PokemonInPlay = {
+    pokemon: selectedCard,
+    attachedEnergy: [],
+    attachedTrainers: [],
+    previousEvolutions: [],
+    statusConditions: [],
+    currentDamage: 0,
+    playedOnTurn: gameState.turnNumber,
+  };
+
+  // Add to bench
+  const newBench = [...gameState.playerBench, newPokemonInPlay];
+
+  const events = [
+    ...gameState.events,
+    createGameEvent(`Encontraste ${selectedCard.name} y lo colocaste en tu banca`, "action"),
+    createGameEvent("Se mezcló el mazo", "info"),
+  ];
+
+  const newState: GameState = {
+    ...gameState,
+    playerDeck: shuffledDeck,
+    playerBench: newBench,
+    pendingDeckSearch: undefined,
+    events,
+  };
+
+  // End turn after deck search completes
+  return endTurn(newState);
+}
+
+/**
  * Construye un mazo completo desde un DeckEntry[]
  */
 export function buildDeckFromEntries(entries: DeckEntry[]): GameCard[] {
@@ -991,6 +1141,11 @@ function processStatusEffectsForPokemon(
 }
 
 export function endTurn(gameState: GameState): GameState {
+  // Block turn end if there's a pending switch or deck search
+  if (gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch) {
+    return gameState;
+  }
+
   const currentTurn = gameState.turnNumber;
   const isPlayerEndingTurn = gameState.isPlayerTurn;
   const newIsPlayerTurn = !isPlayerEndingTurn;
@@ -2345,10 +2500,11 @@ export function executeAttack(
   }
 
   // =====================================================================
-  // FORCE SWITCH / SELF SWITCH / PREVENT RETREAT — post-effects processing
+  // FORCE SWITCH / SELF SWITCH / PREVENT RETREAT / DECK SEARCH — post-effects processing
   // =====================================================================
   let pendingForceSwitch = false;
   let pendingSelfSwitch = false;
+  let pendingDeckSearch: GameState["pendingDeckSearch"] = undefined;
 
   if (attack.effects) {
     for (const effect of attack.effects) {
@@ -2441,6 +2597,26 @@ export function executeAttack(
             newPlayerDeck = shuffle(newPlayerDeck);
             events.push(createGameEvent("No se encontró ningún Pokémon con ese nombre en tu mazo", "info"));
           }
+        }
+      }
+
+      // DeckSearch: Open modal to search deck for Basic Pokemon (Call for Family)
+      // Player can browse entire deck and select one valid Basic Pokemon
+      if (effect.type === AttackEffectType.DeckSearch && effect.deckSearchFilter) {
+        const benchCount = newPlayerBench.filter(p => p !== null).length;
+        if (benchCount >= 5) {
+          events.push(createGameEvent("Tu banca está llena, no puedes buscar Pokémon", "info"));
+        } else {
+          // Set pending deck search with filter criteria
+          pendingDeckSearch = {
+            filter: effect.deckSearchFilter,
+          };
+          events.push(
+            createGameEvent(
+              `Busca en tu mazo un Pokémon Básico para colocar en tu banca`,
+              "action"
+            )
+          );
         }
       }
     }
@@ -2577,6 +2753,7 @@ export function executeAttack(
     opponentNeedsToPromote: opponentNeedsToPromote,
     pendingForceSwitch: pendingForceSwitch || undefined,
     pendingSelfSwitch: pendingSelfSwitch || undefined,
+    pendingDeckSearch: pendingDeckSearch,
     events,
   };
 
@@ -2590,8 +2767,8 @@ export function executeAttack(
     return stateAfterAttack;
   }
 
-  // Don't end turn if there's a pending force/self switch — player needs to choose first
-  if (pendingForceSwitch || pendingSelfSwitch) {
+  // Don't end turn if there's a pending force/self switch or deck search — player needs to choose first
+  if (pendingForceSwitch || pendingSelfSwitch || pendingDeckSearch) {
     return stateAfterAttack;
   }
 

@@ -115,6 +115,7 @@ export const AttackEffectType = {
   UseOnce: "useOnce",
   ReturnToHand: "returnToHand",
   PreventRetreat: "preventRetreat",
+  DeckSearch: "deckSearch",
   SearchDeck: "searchDeck",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];

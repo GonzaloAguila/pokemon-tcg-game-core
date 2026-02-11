@@ -944,6 +944,16 @@ export const jungleCards: Card[] = [
         name: "Call for Friend",
         cost: [EnergyType.Fighting, EnergyType.Fighting, EnergyType.Colorless],
         text: "Busca en tu mazo un Pokémon Básico de tipo Lucha y ponlo en tu Banca. Baraja tu mazo después. (No puedes usar este ataque si tu Banca está llena.)",
+        effects: [
+          {
+            type: AttackEffectType.DeckSearch,
+            target: null,
+            deckSearchFilter: {
+              type: EnergyType.Fighting,
+              basicOnly: true,
+            },
+          },
+        ],
       },
     ],
     retreatCost: 1,
@@ -1334,9 +1344,12 @@ export const jungleCards: Card[] = [
         text: "Busca en tu mazo un Pokémon Básico llamado Bellsprout y ponlo en tu Banca. Baraja tu mazo después. (No puedes usar este ataque si tu Banca está llena.)",
         effects: [
           {
-            type: AttackEffectType.SearchDeck,
+            type: AttackEffectType.DeckSearch,
             target: null,
-            searchPokemonNames: ["Bellsprout"],
+            deckSearchFilter: {
+              names: ["Bellsprout"],
+              basicOnly: true,
+            },
           },
         ],
       },
@@ -1612,9 +1625,12 @@ export const jungleCards: Card[] = [
         text: "Busca en tu mazo un Pokémon Básico llamado Nidoran♂ o Nidoran♀ y ponlo en tu Banca. Baraja tu mazo después. (No puedes usar este ataque si tu Banca está llena.)",
         effects: [
           {
-            type: AttackEffectType.SearchDeck,
+            type: AttackEffectType.DeckSearch,
             target: null,
-            searchPokemonNames: ["Nidoran♂", "Nidoran♀"],
+            deckSearchFilter: {
+              names: ["Nidoran♂", "Nidoran♀"],
+              basicOnly: true,
+            },
           },
         ],
       },
@@ -1654,9 +1670,12 @@ export const jungleCards: Card[] = [
         text: "Busca en tu mazo un Pokémon Básico llamado Oddish y ponlo en tu Banca. Baraja tu mazo después. (No puedes usar este ataque si tu Banca está llena.)",
         effects: [
           {
-            type: AttackEffectType.SearchDeck,
+            type: AttackEffectType.DeckSearch,
             target: null,
-            searchPokemonNames: ["Oddish"],
+            deckSearchFilter: {
+              names: ["Oddish"],
+              basicOnly: true,
+            },
           },
         ],
       },

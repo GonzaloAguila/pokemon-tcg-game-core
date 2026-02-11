@@ -72,6 +72,15 @@ export type AttackEffect = {
   healFromDamageDealt?: boolean;
   /** For SearchDeck: Pokemon names to search for (e.g., ["Bellsprout"] or ["Nidoran♂", "Nidoran♀"]) */
   searchPokemonNames?: string[];
+  /** For DeckSearch: filter criteria for valid Pokemon */
+  deckSearchFilter?: {
+    /** Exact name matches (e.g., ["Bellsprout"] or ["Nidoran♂", "Nidoran♀"]) */
+    names?: string[];
+    /** Pokemon type filter (e.g., "fighting" for Marowak) */
+    type?: EnergyType;
+    /** Always enforce Basic-only selection */
+    basicOnly: true;
+  };
 };
 
 export type Attack = {

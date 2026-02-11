@@ -104,6 +104,17 @@ export type GameState = {
   pendingSelfSwitch?: boolean;
   /** Track which Pokemon have used their "once per turn" powers this turn (by Pokemon ID) */
   usedPowersThisTurn?: string[];
+  /** DeckSearch: player needs to search deck for Basic Pokemon matching filter */
+  pendingDeckSearch?: {
+    filter: {
+      /** Exact name matches (e.g., ["Bellsprout"] or ["Nidoran♂", "Nidoran♀"]) */
+      names?: string[];
+      /** Pokemon type filter (e.g., "fighting" for Marowak) */
+      type?: EnergyType;
+      /** Always enforce Basic-only selection */
+      basicOnly: true;
+    };
+  };
 };
 
 /**

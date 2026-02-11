@@ -77,6 +77,7 @@ export {
   applyForceSwitch,
   applySelfSwitch,
   skipPendingSwitch,
+  executeDeckSearch,
 } from "@/lib/gameState";
 
 // Re-export UI helpers from lib/gameState (to be migrated to features/game/model)

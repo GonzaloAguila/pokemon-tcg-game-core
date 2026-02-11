@@ -84,6 +84,7 @@ export {
   applyForceSwitch,
   applySelfSwitch,
   skipPendingSwitch,
+  executeDeckSearch,
   doMulligan,
   setPlayerReady,
   startPlayingPhase,
