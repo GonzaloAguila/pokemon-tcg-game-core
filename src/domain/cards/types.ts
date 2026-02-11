@@ -42,8 +42,8 @@ export type AttackEffect = {
   target: AttackTarget | null;
   coinFlip?: {
     count: number;
-    onHeads?: StatusCondition | "damage" | "protection";
-    onTails?: StatusCondition | "damage" | "protection";
+    onHeads?: StatusCondition | "damage" | "protection" | "preventRetreat";
+    onTails?: StatusCondition | "damage" | "protection" | "preventRetreat";
   };
   status?: StatusCondition;
   poisonDamage?: number;

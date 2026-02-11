@@ -43,6 +43,10 @@ export type PokemonInPlay = {
   nextTurnDamageReduction?: number;
   /** Turn number when the "next turn" effect was applied (for expiration tracking) */
   nextTurnEffectAppliedOnTurn?: number;
+  /** Acid (Victreebel): prevents retreat until end of opponent's next turn. Cleared by Switch/evolve/going to bench. */
+  retreatPrevented?: boolean;
+  /** Turn number when retreat was prevented (for expiration in endTurn) */
+  retreatPreventedOnTurn?: number;
 };
 
 export type GameEvent = {
@@ -94,6 +98,10 @@ export type GameState = {
   gameResult: GameResult; // Game result (victory, defeat or null if not finished)
   activeModifiers: GameModifier[]; // Active modifiers (PlusPower, Defender, etc.)
   events: GameEvent[]; // Game event log
+  /** ForceSwitch (Lure, Whirlwind): player needs to pick an opponent bench Pokemon to bring forward */
+  pendingForceSwitch?: boolean;
+  /** SelfSwitch (Teleport): player needs to pick own bench Pokemon to switch with */
+  pendingSelfSwitch?: boolean;
 };
 
 /**

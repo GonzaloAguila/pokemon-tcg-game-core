@@ -563,6 +563,16 @@ export const jungleCards: Card[] = [
         cost: [EnergyType.Grass, EnergyType.Grass],
         damage: 20,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor no puede Retirarse durante el próximo turno de tu rival.",
+        effects: [
+          {
+            type: AttackEffectType.PreventRetreat,
+            target: AttackTarget.Defender,
+            coinFlip: {
+              count: 1,
+              onHeads: "preventRetreat",
+            },
+          },
+        ],
       },
     ],
     retreatCost: 2,
@@ -582,7 +592,7 @@ export const jungleCards: Card[] = [
       name: "Heal",
       text: "Una vez durante tu turno (antes de tu ataque), puedes lanzar una moneda. Si sale cara, retira 1 contador de daño de 1 de tus Pokémon. Este poder no puede usarse si Vileplume está Dormido, Confundido o Paralizado.",
       type: PokemonPowerType.HealFlip,
-      worksFromBench: false,
+      worksFromBench: true,
     },
     attacks: [
       {

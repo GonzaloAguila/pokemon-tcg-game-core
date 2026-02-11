@@ -74,6 +74,9 @@ export {
   takePrize,
   promoteActivePokemon,
   buildDeckFromEntries,
+  applyForceSwitch,
+  applySelfSwitch,
+  skipPendingSwitch,
 } from "@/lib/gameState";
 
 // Re-export UI helpers from lib/gameState (to be migrated to features/game/model)

@@ -1,5 +1,5 @@
 import { baseSetCards, getCardImageUrl as getCatalogImageUrl } from "@/domain/catalog";
-import type { Card, ProtectionType, EnergyType } from "@/domain/cards";
+import type { Card, ProtectionType, EnergyType, Attack, PokemonCard, AttackEffect } from "@/domain/cards";
 import { isEnergyCard, isPokemonCard } from "@/domain/cards";
 import {
   StatusCondition,
@@ -56,6 +56,10 @@ export type PokemonInPlay = {
   nextTurnDamageReduction?: number;
   /** Turn number when the "next turn" effect was applied (for expiration tracking) */
   nextTurnEffectAppliedOnTurn?: number;
+  /** Acid (Victreebel): prevents retreat until end of opponent's next turn. Cleared by Switch/evolve/going to bench. */
+  retreatPrevented?: boolean;
+  /** Turn number when retreat was prevented (for expiration in endTurn) */
+  retreatPreventedOnTurn?: number;
 };
 
 export type GameEvent = {
@@ -110,6 +114,10 @@ export type GameState = {
   activeModifiers: GameModifier[]; // Modificadores activos (PlusPower, Defender, etc.)
   gameResult: GameResult; // Resultado del juego (victoria, derrota o null si aún no termina)
   events: GameEvent[]; // Registro de eventos del juego
+  /** ForceSwitch (Lure, Whirlwind): player needs to pick an opponent bench Pokemon to bring forward */
+  pendingForceSwitch?: boolean;
+  /** SelfSwitch (Teleport): player needs to pick own bench Pokemon to switch with */
+  pendingSelfSwitch?: boolean;
 };
 
 // ============================================================================
@@ -201,6 +209,16 @@ export function hasStatusCondition(
   return pokemon.statusConditions?.includes(status) ?? false;
 }
 
+/**
+ * Exclusive status conditions: Asleep, Confused, Paralyzed replace each other.
+ * Poisoned is independent and can coexist with any of them.
+ */
+const EXCLUSIVE_STATUS_CONDITIONS: StatusCondition[] = [
+  StatusCondition.Asleep,
+  StatusCondition.Confused,
+  StatusCondition.Paralyzed,
+];
+
 export function applyStatusCondition(
   pokemon: PokemonInPlay,
   status: StatusCondition,
@@ -212,13 +230,29 @@ export function applyStatusCondition(
     return pokemon;
   }
 
+  // Exclusive conditions: Asleep/Confused/Paralyzed replace each other
+  let newStatuses: StatusCondition[];
+  if (EXCLUSIVE_STATUS_CONDITIONS.includes(status)) {
+    newStatuses = [
+      ...currentStatuses.filter(s => !EXCLUSIVE_STATUS_CONDITIONS.includes(s)),
+      status,
+    ];
+  } else {
+    newStatuses = [...currentStatuses, status];
+  }
+
   const updated: PokemonInPlay = {
     ...pokemon,
-    statusConditions: [...currentStatuses, status],
+    statusConditions: newStatuses,
   };
 
   if (status === StatusCondition.Paralyzed && turnNumber !== undefined) {
     updated.paralyzedOnTurn = turnNumber;
+  }
+
+  // Clear paralyzedOnTurn if we're replacing paralysis with another exclusive condition
+  if (status !== StatusCondition.Paralyzed && currentStatuses.includes(StatusCondition.Paralyzed)) {
+    updated.paralyzedOnTurn = undefined;
   }
 
   return updated;
@@ -312,6 +346,9 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     nextTurnBonusDamage: undefined,
     nextTurnDamageReduction: undefined,
     nextTurnEffectAppliedOnTurn: undefined,
+    // Clear retreat prevention when going to bench
+    retreatPrevented: undefined,
+    retreatPreventedOnTurn: undefined,
   };
 }
 
@@ -340,6 +377,9 @@ export function canRetreat(
   // No puede retirarse si está dormido o paralizado
   if (hasStatusCondition(pokemon, StatusCondition.Asleep)) return false;
   if (hasStatusCondition(pokemon, StatusCondition.Paralyzed)) return false;
+
+  // No puede retirarse si la retirada fue bloqueada (Acid)
+  if (pokemon.retreatPrevented) return false;
 
   return true;
 }
@@ -509,6 +549,109 @@ export function executeRetreat(
     retreatedThisTurn: true,
     events,
   };
+}
+
+/**
+ * Applies a ForceSwitch: opponent's active goes to bench, selected bench Pokemon becomes active.
+ * Called after executeAttack when pendingForceSwitch is true.
+ * Similar to Gust of Wind but triggered by an attack effect.
+ */
+export function applyForceSwitch(gameState: GameState, benchIndex: number): GameState {
+  const opponentActive = gameState.opponentActivePokemon;
+  const targetBench = gameState.opponentBench[benchIndex];
+
+  if (!opponentActive || !targetBench) {
+    return {
+      ...gameState,
+      pendingForceSwitch: undefined,
+      events: [...gameState.events, createGameEvent("No se pudo realizar el cambio forzado", "info")],
+    };
+  }
+
+  // Clear status/effects from the Pokemon going to bench
+  const goingToBench: PokemonInPlay = {
+    ...clearStatusConditionsOnRetreat(opponentActive),
+    modifiedWeakness: undefined,
+    modifiedResistance: undefined,
+  };
+
+  const newBench = [...gameState.opponentBench];
+  newBench.splice(benchIndex, 1);
+  newBench.push(goingToBench);
+
+  const events = [
+    ...gameState.events,
+    createGameEvent(`${opponentActive.pokemon.name} fue enviado a la banca del rival`, "action"),
+    createGameEvent(`${targetBench.pokemon.name} es ahora el Pokémon activo del rival`, "info"),
+  ];
+
+  const newState: GameState = {
+    ...gameState,
+    opponentActivePokemon: targetBench,
+    opponentBench: newBench,
+    pendingForceSwitch: undefined,
+    events,
+  };
+
+  // Now end the turn (attack is complete)
+  return endTurn(newState);
+}
+
+/**
+ * Applies a SelfSwitch: attacker switches with own bench Pokemon.
+ * Called after executeAttack when pendingSelfSwitch is true.
+ * Used by Exeggutor's Teleport.
+ */
+export function applySelfSwitch(gameState: GameState, benchIndex: number): GameState {
+  const playerActive = gameState.playerActivePokemon;
+  const targetBench = gameState.playerBench[benchIndex];
+
+  if (!playerActive || !targetBench) {
+    return {
+      ...gameState,
+      pendingSelfSwitch: undefined,
+      events: [...gameState.events, createGameEvent("No se pudo realizar el cambio", "info")],
+    };
+  }
+
+  // Clear effects when going to bench (like retreat)
+  const goingToBench: PokemonInPlay = {
+    ...clearStatusConditionsOnRetreat(playerActive),
+    modifiedWeakness: undefined,
+    modifiedResistance: undefined,
+  };
+
+  const newBench = [...gameState.playerBench];
+  newBench.splice(benchIndex, 1);
+  newBench.push(goingToBench);
+
+  const events = [
+    ...gameState.events,
+    createGameEvent(`${playerActive.pokemon.name} se cambió con ${targetBench.pokemon.name}`, "action"),
+  ];
+
+  const newState: GameState = {
+    ...gameState,
+    playerActivePokemon: targetBench,
+    playerBench: newBench,
+    pendingSelfSwitch: undefined,
+    events,
+  };
+
+  // Now end the turn (attack is complete)
+  return endTurn(newState);
+}
+
+/**
+ * Skips a pending ForceSwitch or SelfSwitch (when there are no valid targets)
+ * and ends the turn normally.
+ */
+export function skipPendingSwitch(gameState: GameState): GameState {
+  return endTurn({
+    ...gameState,
+    pendingForceSwitch: undefined,
+    pendingSelfSwitch: undefined,
+  });
 }
 
 /**
@@ -1048,6 +1191,28 @@ export function endTurn(gameState: GameState): GameState {
 
   updatedState.playerActivePokemon = expireProtection(updatedState.playerActivePokemon);
   updatedState.opponentActivePokemon = expireProtection(updatedState.opponentActivePokemon);
+
+  // =====================================================================
+  // EXPIRAR RETREAT PREVENTION (Acid)
+  // Retreat prevention applied on turn T expires when the affected Pokemon's
+  // next turn ends (i.e., when newTurnNumber > T + 1)
+  // =====================================================================
+  const expireRetreatPrevention = (pokemon: PokemonInPlay | null): PokemonInPlay | null => {
+    if (!pokemon?.retreatPrevented || pokemon.retreatPreventedOnTurn == null) return pokemon;
+    if (newTurnNumber > pokemon.retreatPreventedOnTurn + 1) {
+      events.push(
+        createGameEvent(
+          `${pokemon.pokemon.name} ya puede retirarse`,
+          "info"
+        )
+      );
+      return { ...pokemon, retreatPrevented: undefined, retreatPreventedOnTurn: undefined };
+    }
+    return pokemon;
+  };
+
+  updatedState.playerActivePokemon = expireRetreatPrevention(updatedState.playerActivePokemon);
+  updatedState.opponentActivePokemon = expireRetreatPrevention(updatedState.opponentActivePokemon);
 
   // =====================================================================
   // EXPIRAR MODIFIERS (PlusPower, Defender, etc.)
@@ -2114,45 +2279,125 @@ export function executeAttack(
         );
       }
 
-      // Aplicar estado sin coinFlip (ej: Ivysaur's Polvo Veneno, Nidoking's Tóxico)
-      // IMPORTANTE: Solo aplicar si el defensor NO fue noqueado (no transferir al Pokemon promovido)
-      if (effect.type === AttackEffectType.ApplyStatus && effect.status && newOpponentActive && !isKnockedOut) {
-        // Check StatusImmunity (Snorlax's Thick Skinned)
-        if (hasStatusImmunity(newOpponentActive)) {
-          const immunityPowerName = isPokemonCard(newOpponentActive.pokemon) ? newOpponentActive.pokemon.power?.name || "Piel Gruesa" : "Piel Gruesa";
-          events.push(
-            createGameEvent(
-              `¡${newOpponentActive.pokemon.name} es inmune a estados alterados gracias a ${immunityPowerName}!`,
-              "action"
-            )
-          );
-        } else {
-          const status = effect.status;
-          const currentStatuses = newOpponentActive.statusConditions || [];
+      // Aplicar estado sin coinFlip (ej: Ivysaur's Polvo Veneno, Nidoking's Tóxico, Gloom's Foul Odor)
+      if (effect.type === AttackEffectType.ApplyStatus && effect.status) {
+        const status = effect.status;
+        const statusMessages: Record<string, string> = {
+          paralyzed: "paralizado",
+          asleep: "dormido",
+          confused: "confundido",
+          poisoned: "envenenado",
+        };
 
-          // No aplicar si ya tiene el estado (los estados no son acumulativos)
-          if (!currentStatuses.includes(status)) {
-            const statusMessages: Record<string, string> = {
-              paralyzed: "paralizado",
-              asleep: "dormido",
-              confused: "confundido",
-              poisoned: "envenenado",
-            };
-
-            newOpponentActive = {
-              ...newOpponentActive,
-              statusConditions: [...currentStatuses, status],
+        if (effect.target === AttackTarget.Self) {
+          // Apply status to the ATTACKER (e.g., Vileplume Petal Dance → confused, Gloom Foul Odor → confused)
+          if (newPlayerActive && !attackerKnockedOut) {
+            const before: PokemonInPlay = newPlayerActive;
+            newPlayerActive = applyStatusCondition(newPlayerActive, status, gameState.turnNumber);
+            if (newPlayerActive !== before) {
               // Si es veneno con daño personalizado (Tóxico = 20), guardarlo
-              ...(status === StatusCondition.Poisoned && effect.poisonDamage ? { poisonDamage: effect.poisonDamage } : {}),
-            };
+              if (status === StatusCondition.Poisoned && effect.poisonDamage) {
+                newPlayerActive = { ...newPlayerActive, poisonDamage: effect.poisonDamage };
+              }
+              events.push(
+                createGameEvent(
+                  `¡${newPlayerActive.pokemon.name} está ${statusMessages[status] || status}!`,
+                  "action"
+                )
+              );
+            }
+          }
+        } else {
+          // Apply status to the DEFENDER — only if not KO'd (don't transfer to promoted Pokemon)
+          if (newOpponentActive && !isKnockedOut) {
+            // Check StatusImmunity (Snorlax's Thick Skinned)
+            if (hasStatusImmunity(newOpponentActive)) {
+              const immunityPowerName = isPokemonCard(newOpponentActive.pokemon) ? newOpponentActive.pokemon.power?.name || "Piel Gruesa" : "Piel Gruesa";
+              events.push(
+                createGameEvent(
+                  `¡${newOpponentActive.pokemon.name} es inmune a estados alterados gracias a ${immunityPowerName}!`,
+                  "action"
+                )
+              );
+            } else {
+              const before: PokemonInPlay = newOpponentActive;
+              newOpponentActive = applyStatusCondition(newOpponentActive, status, gameState.turnNumber);
+              if (newOpponentActive !== before) {
+                // Si es veneno con daño personalizado (Tóxico = 20), guardarlo
+                if (status === StatusCondition.Poisoned && effect.poisonDamage) {
+                  newOpponentActive = { ...newOpponentActive, poisonDamage: effect.poisonDamage };
+                }
+                events.push(
+                  createGameEvent(
+                    `¡${newOpponentActive.pokemon.name} está ${statusMessages[status] || status}!`,
+                    "action"
+                  )
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 
+  // =====================================================================
+  // FORCE SWITCH / SELF SWITCH / PREVENT RETREAT — post-effects processing
+  // =====================================================================
+  let pendingForceSwitch = false;
+  let pendingSelfSwitch = false;
+
+  if (attack.effects) {
+    for (const effect of attack.effects) {
+      // ForceSwitch: opponent must switch active with a bench Pokemon (Lure, Whirlwind, Ram)
+      if (effect.type === AttackEffectType.ForceSwitch && effect.target === AttackTarget.Defender) {
+        // Only if opponent has bench Pokemon and wasn't KO'd
+        if (newOpponentActive && !isKnockedOut) {
+          const opponentBench = [...newOpponentBench];
+          const hasBench = opponentBench.some(p => p != null);
+          if (hasBench) {
+            pendingForceSwitch = true;
             events.push(
               createGameEvent(
-                `¡${newOpponentActive.pokemon.name} está ${statusMessages[status] || status}!`,
+                `¡${newPlayerActive?.pokemon.name || attacker.pokemon.name} fuerza al rival a cambiar su Pokémon activo!`,
                 "action"
               )
             );
           }
+        }
+      }
+
+      // SelfSwitch: attacker switches with own bench Pokemon (Teleport)
+      if (effect.type === AttackEffectType.SelfSwitch && effect.target === AttackTarget.Self) {
+        if (newPlayerActive && !attackerKnockedOut) {
+          const hasBench = newPlayerBench.some(p => p != null);
+          if (hasBench) {
+            pendingSelfSwitch = true;
+            events.push(
+              createGameEvent(
+                `${newPlayerActive.pokemon.name} puede cambiarse con un Pokémon de la banca`,
+                "action"
+              )
+            );
+          }
+        }
+      }
+
+      // PreventRetreat: defender can't retreat next turn (Acid)
+      if (effect.type === AttackEffectType.PreventRetreat && newOpponentActive && !isKnockedOut) {
+        // No coinFlip here — the coin flip is on the effect itself, handled in coin flip handler
+        if (!effect.coinFlip) {
+          newOpponentActive = {
+            ...newOpponentActive,
+            retreatPrevented: true,
+            retreatPreventedOnTurn: gameState.turnNumber,
+          };
+          events.push(
+            createGameEvent(
+              `¡${newOpponentActive.pokemon.name} no puede retirarse durante el próximo turno!`,
+              "action"
+            )
+          );
         }
       }
     }
@@ -2287,6 +2532,8 @@ export function executeAttack(
     opponentCanTakePrize: attackerKnockedOut && newOpponentPrizes.length > 0,
     playerNeedsToPromote: attackerNeedsToPromote || gameState.playerNeedsToPromote,
     opponentNeedsToPromote: opponentNeedsToPromote,
+    pendingForceSwitch: pendingForceSwitch || undefined,
+    pendingSelfSwitch: pendingSelfSwitch || undefined,
     events,
   };
 
@@ -2300,12 +2547,94 @@ export function executeAttack(
     return stateAfterAttack;
   }
 
+  // Don't end turn if there's a pending force/self switch — player needs to choose first
+  if (pendingForceSwitch || pendingSelfSwitch) {
+    return stateAfterAttack;
+  }
+
   // Terminar el turno después de atacar (a menos que el jugador pueda tomar premio)
   if (newOpponentActive !== null && newPlayerActive !== null && !playerCanTakePrize) {
     return endTurn(stateAfterAttack);
   }
 
   return stateAfterAttack;
+}
+
+/**
+ * Ejecuta Metronomo (Clefairy/Clefable) - copia un ataque del oponente y lo ejecuta
+ * con todos sus efectos, ignorando costos de energía y descarte.
+ * @param gameState - Estado actual del juego
+ * @param copiedAttack - El ataque copiado del Pokémon rival
+ * @returns Nuevo estado del juego después de ejecutar el ataque copiado
+ */
+export function executeMetronome(
+  gameState: GameState,
+  copiedAttack: Attack
+): GameState {
+  const attacker = gameState.playerActivePokemon;
+  const defender = gameState.opponentActivePokemon;
+
+  if (!attacker || !defender) {
+    return {
+      ...gameState,
+      events: [
+        ...gameState.events,
+        createGameEvent("No hay Pokémon para atacar", "info"),
+      ],
+    };
+  }
+
+  if (attacker.pokemon.kind !== CardKind.Pokemon || defender.pokemon.kind !== CardKind.Pokemon) {
+    return gameState;
+  }
+
+  // Log del uso de Metronomo
+  const events = [
+    ...gameState.events,
+    createGameEvent(`${attacker.pokemon.name} uso Metronomo y copio ${copiedAttack.name}!`, "action"),
+  ];
+
+  // Crear un ataque temporal que use el daño y efectos del ataque copiado
+  // pero sin requisitos de energía o descarte (Metronomo ignora esos requisitos)
+  const metronomeAttack: Attack = {
+    ...copiedAttack,
+    cost: [], // Metronomo no requiere energía específica (ya fue pagada con el costo de Metronomo)
+    effects: copiedAttack.effects?.map(effect => {
+      // Ignorar efectos de descarte de energía (Metronomo no descarta)
+      if (effect.type === AttackEffectType.Discard) {
+        return { ...effect, type: AttackEffectType.Discard, discardAll: false, discardCostRequirement: [] };
+      }
+      return effect;
+    }),
+  };
+
+  // Crear un estado temporal con un Pokémon que tenga el ataque de Metronomo
+  const tempAttacker: PokemonInPlay = {
+    ...attacker,
+    pokemon: {
+      ...attacker.pokemon,
+      attacks: [metronomeAttack], // Reemplazar ataques con el ataque copiado
+    } as PokemonCard,
+  };
+
+  const tempState: GameState = {
+    ...gameState,
+    playerActivePokemon: tempAttacker,
+    events,
+  };
+
+  // Ejecutar el ataque copiado usando executeAttack
+  // skipEndTurn = false para que termine el turno normalmente
+  // skipDefenderPromotion = false para manejar KOs normalmente
+  const resultState = executeAttack(tempState, 0, false, false, undefined);
+
+  // Restaurar el Pokémon original (con sus ataques reales) después de ejecutar
+  return {
+    ...resultState,
+    playerActivePokemon: resultState.playerActivePokemon
+      ? { ...resultState.playerActivePokemon, pokemon: attacker.pokemon }
+      : null,
+  };
 }
 
 /**

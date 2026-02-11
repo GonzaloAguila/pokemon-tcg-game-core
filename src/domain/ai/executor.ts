@@ -6,7 +6,7 @@
  */
 
 import type { GameState } from "@/domain/match";
-import { executeAttack, endTurn, executeRetreat, createGameEvent } from "@/domain/match";
+import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
 import type { AIAction } from "./types";
 import {
@@ -339,6 +339,7 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
     }
 
     // applyStatus: aplicar estado basado en coin flip (ej: Electabuzz Impactrueno - parálisis en cara)
+    // In swapped state: "player" = AI attacker, "opponent" = human defender
     if (coinFlipEffect?.type === "applyStatus" && coinFlipEffect.coinFlip) {
       const headsCount = coinFlipResults.filter(r => r === "heads").length;
       const tailsCount = coinFlipResults.filter(r => r === "tails").length;
@@ -351,36 +352,57 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
         statusToApply = coinFlipEffect.coinFlip.onTails;
       }
 
-      // Aplicar estado al defensor (en swapped state, "opponent" es el jugador real)
-      if (statusToApply && resultState.opponentActivePokemon) {
-        const defender = resultState.opponentActivePokemon;
-        const currentStatuses = defender.statusConditions || [];
+      if (statusToApply) {
+        const statusMessages: Record<string, string> = {
+          paralyzed: "paralizado",
+          asleep: "dormido",
+          confused: "confundido",
+          poisoned: "envenenado",
+        };
 
-        // No aplicar si ya tiene el estado
-        if (!currentStatuses.includes(statusToApply as "paralyzed" | "poisoned" | "confused" | "asleep")) {
-          const statusMessages: Record<string, string> = {
-            paralyzed: "paralizado",
-            asleep: "dormido",
-            confused: "confundido",
-            poisoned: "envenenado",
-          };
+        // Check target: Self applies to attacker (playerActivePokemon in swapped state = AI)
+        const isSelfTarget = coinFlipEffect.target === "self";
+        const targetKey = isSelfTarget ? "playerActivePokemon" : "opponentActivePokemon";
+        const targetPokemon = resultState[targetKey];
 
-          resultState = {
-            ...resultState,
-            opponentActivePokemon: {
-              ...defender,
-              statusConditions: [...currentStatuses, statusToApply as "paralyzed" | "poisoned" | "confused" | "asleep"],
-              ...(statusToApply === "paralyzed" ? { paralyzedOnTurn: state.turnNumber } : {}),
-            },
-            events: [
-              ...resultState.events,
-              createGameEvent(
-                `¡${defender.pokemon.name} está ${statusMessages[statusToApply] || statusToApply}!`,
-                "action"
-              ),
-            ],
-          };
+        if (targetPokemon) {
+          const updated = applyStatusCondition(targetPokemon, statusToApply as "paralyzed" | "poisoned" | "confused" | "asleep", state.turnNumber);
+          if (updated !== targetPokemon) {
+            resultState = {
+              ...resultState,
+              [targetKey]: updated,
+              events: [
+                ...resultState.events,
+                createGameEvent(
+                  `¡${targetPokemon.pokemon.name} está ${statusMessages[statusToApply] || statusToApply}!`,
+                  "action"
+                ),
+              ],
+            };
+          }
         }
+      }
+    }
+
+    // preventRetreat: prevent retreat via coin flip (e.g., Acid — heads = can't retreat)
+    if (coinFlipEffect?.type === "preventRetreat" && coinFlipEffect.coinFlip) {
+      const headsCount = coinFlipResults.filter(r => r === "heads").length;
+      if (headsCount > 0 && coinFlipEffect.coinFlip.onHeads === "preventRetreat" && resultState.opponentActivePokemon) {
+        resultState = {
+          ...resultState,
+          opponentActivePokemon: {
+            ...resultState.opponentActivePokemon,
+            retreatPrevented: true,
+            retreatPreventedOnTurn: state.turnNumber,
+          },
+          events: [
+            ...resultState.events,
+            createGameEvent(
+              `¡${resultState.opponentActivePokemon.pokemon.name} no puede retirarse durante el próximo turno!`,
+              "action"
+            ),
+          ],
+        };
       }
     }
   }
@@ -529,6 +551,96 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
       };
     }
   }
+
+  // Handle pending ForceSwitch: AI auto-picks a bench Pokemon to bring forward
+  // In swapped state, pendingForceSwitch meant "attacker (AI) picks from defender (human) bench"
+  // After swap-back: human is player, so we need to switch player's active with player's bench
+  if (resultState.pendingForceSwitch && finalState.playerActivePokemon) {
+    const humanBench = finalState.playerBench.filter(p => p != null);
+    if (humanBench.length > 0) {
+      // AI picks a random bench Pokemon (or first one)
+      const pickIndex = finalState.playerBench.findIndex(p => p != null);
+      const picked = finalState.playerBench[pickIndex]!;
+      const goingToBench = {
+        ...finalState.playerActivePokemon,
+        // Clear status/effects when going to bench
+        statusConditions: (finalState.playerActivePokemon.statusConditions?.includes("poisoned")
+          ? ["poisoned" as const]
+          : []) as ("paralyzed" | "poisoned" | "confused" | "asleep")[],
+        paralyzedOnTurn: undefined,
+        protection: undefined,
+        nextTurnBonusDamage: undefined,
+        nextTurnDamageReduction: undefined,
+        nextTurnEffectAppliedOnTurn: undefined,
+        retreatPrevented: undefined,
+        retreatPreventedOnTurn: undefined,
+        modifiedWeakness: undefined,
+        modifiedResistance: undefined,
+      };
+      const newBench = [...finalState.playerBench];
+      newBench.splice(pickIndex, 1);
+      newBench.push(goingToBench);
+
+      finalState = {
+        ...finalState,
+        playerActivePokemon: picked,
+        playerBench: newBench,
+        pendingForceSwitch: undefined,
+        events: [
+          ...finalState.events,
+          createGameEvent(`${finalState.playerActivePokemon.pokemon.name} fue enviado a tu banca`, "action"),
+          createGameEvent(`${picked.pokemon.name} es ahora tu Pokémon activo`, "info"),
+        ],
+      };
+    } else {
+      finalState = { ...finalState, pendingForceSwitch: undefined };
+    }
+  }
+
+  // Handle pending SelfSwitch: AI auto-picks own bench Pokemon to swap with
+  // In swapped state, pendingSelfSwitch meant "attacker (AI) switches with own bench"
+  // After swap-back: AI is opponent
+  if (resultState.pendingSelfSwitch && finalState.opponentActivePokemon) {
+    const aiBench = finalState.opponentBench.filter(p => p != null);
+    if (aiBench.length > 0) {
+      const pickIndex = finalState.opponentBench.findIndex(p => p != null);
+      const picked = finalState.opponentBench[pickIndex]!;
+      const goingToBench = {
+        ...finalState.opponentActivePokemon,
+        statusConditions: (finalState.opponentActivePokemon.statusConditions?.includes("poisoned")
+          ? ["poisoned" as const]
+          : []) as ("paralyzed" | "poisoned" | "confused" | "asleep")[],
+        paralyzedOnTurn: undefined,
+        protection: undefined,
+        nextTurnBonusDamage: undefined,
+        nextTurnDamageReduction: undefined,
+        nextTurnEffectAppliedOnTurn: undefined,
+        retreatPrevented: undefined,
+        retreatPreventedOnTurn: undefined,
+        modifiedWeakness: undefined,
+        modifiedResistance: undefined,
+      };
+      const newBench = [...finalState.opponentBench];
+      newBench.splice(pickIndex, 1);
+      newBench.push(goingToBench);
+
+      finalState = {
+        ...finalState,
+        opponentActivePokemon: picked,
+        opponentBench: newBench,
+        pendingSelfSwitch: undefined,
+        events: [
+          ...finalState.events,
+          createGameEvent(`${finalState.opponentActivePokemon.pokemon.name} del rival se cambió con ${picked.pokemon.name}`, "action"),
+        ],
+      };
+    } else {
+      finalState = { ...finalState, pendingSelfSwitch: undefined };
+    }
+  }
+
+  // Clear any remaining pending switch flags
+  finalState = { ...finalState, pendingForceSwitch: undefined, pendingSelfSwitch: undefined };
 
   // Si el juego no terminó, no hay premio pendiente para el oponente, y no hay promoción pendiente,
   // terminamos el turno. Esto genera los eventos con la perspectiva CORRECTA.

@@ -114,6 +114,7 @@ export const AttackEffectType = {
   HalfHPDamage: "halfHPDamage",
   UseOnce: "useOnce",
   ReturnToHand: "returnToHand",
+  PreventRetreat: "preventRetreat",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

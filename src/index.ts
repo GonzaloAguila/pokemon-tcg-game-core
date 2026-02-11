@@ -78,8 +78,12 @@ export {
 // Turn Actions
 export {
   executeAttack,
+  executeMetronome,
   endTurn,
   executeRetreat,
+  applyForceSwitch,
+  applySelfSwitch,
+  skipPendingSwitch,
   doMulligan,
   setPlayerReady,
   startPlayingPhase,
