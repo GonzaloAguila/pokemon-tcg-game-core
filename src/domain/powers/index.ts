@@ -1225,3 +1225,22 @@ export function executeHealFlip(
   events.push(createGameEvent("No se pudo curar al Pokémon seleccionado", "info"));
   return { ...state, events, usedPowersThisTurn };
 }
+
+/**
+ * Mark a Pokemon's power as used this turn (without executing any effect).
+ * Used for powers that require coin flips where the power counts as used regardless of outcome.
+ * @param pokemonId - The ID of the Pokemon whose power was used
+ */
+export function markPowerAsUsed(
+  state: GameState,
+  pokemonId: string
+): GameState {
+  const usedPowersThisTurn = [...(state.usedPowersThisTurn || [])];
+  if (!usedPowersThisTurn.includes(pokemonId)) {
+    usedPowersThisTurn.push(pokemonId);
+  }
+  return {
+    ...state,
+    usedPowersThisTurn,
+  };
+}
