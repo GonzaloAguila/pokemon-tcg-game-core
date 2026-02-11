@@ -37,6 +37,12 @@ export type PokemonInPlay = {
   modifiedWeakness?: EnergyType;
   /** Conversion 2 (Porygon): overrides this Pokemon's resistance type. Clears when leaving active. */
   modifiedResistance?: EnergyType;
+  /** Swords Dance: bonus damage added to next attack. Clears after attacking, retreating, or end of owner's next turn. */
+  nextTurnBonusDamage?: number;
+  /** Minimize / Screech: reduce incoming damage by this amount. Clears after being attacked, retreating, or end of opponent's next turn. */
+  nextTurnDamageReduction?: number;
+  /** Turn number when the "next turn" effect was applied (for expiration tracking) */
+  nextTurnEffectAppliedOnTurn?: number;
 };
 
 export type GameEvent = {

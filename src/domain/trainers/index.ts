@@ -108,7 +108,12 @@ export function playSwitch(state: GameState, cardId: string, benchIndex: number)
 
   const newHand = state.playerHand.filter((c) => c.id !== cardId);
   const newDiscard = [...state.playerDiscard, card];
-  const pokemonGoingToBench = clearStatusConditionsOnRetreat(activePokemon);
+  // Clear status, attack effects, and Conversion when going to bench
+  const pokemonGoingToBench: PokemonInPlay = {
+    ...clearStatusConditionsOnRetreat(activePokemon),
+    modifiedWeakness: undefined,
+    modifiedResistance: undefined,
+  };
 
   const newBench = [...state.playerBench];
   newBench.splice(benchIndex, 1);
@@ -168,9 +173,16 @@ export function playGustOfWind(
   const newHand = state.playerHand.filter((c) => c.id !== cardId);
   const newDiscard = [...state.playerDiscard, card];
 
+  // Clear attack effects and status when forced to bench (per TCG rules: benching clears all attack effects)
+  const clearedOpponentActive: PokemonInPlay = {
+    ...clearStatusConditionsOnRetreat(opponentActive),
+    modifiedWeakness: undefined,
+    modifiedResistance: undefined,
+  };
+
   const newOpponentBench = [...state.opponentBench];
   newOpponentBench.splice(opponentBenchIndex, 1);
-  newOpponentBench.push(opponentActive);
+  newOpponentBench.push(clearedOpponentActive);
 
   const events = [
     ...state.events,

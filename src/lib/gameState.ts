@@ -50,6 +50,12 @@ export type PokemonInPlay = {
   modifiedWeakness?: EnergyType;
   /** Conversion 2 (Porygon): overrides this Pokemon's resistance type. Clears when leaving active. */
   modifiedResistance?: EnergyType;
+  /** Swords Dance: bonus damage added to next attack. Clears after attacking, retreating, or end of owner's next turn. */
+  nextTurnBonusDamage?: number;
+  /** Minimize / Screech: reduce incoming damage by this amount. Clears after being attacked, retreating, or end of opponent's next turn. */
+  nextTurnDamageReduction?: number;
+  /** Turn number when the "next turn" effect was applied (for expiration tracking) */
+  nextTurnEffectAppliedOnTurn?: number;
 };
 
 export type GameEvent = {
@@ -302,6 +308,10 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     statusConditions: keepPoisoned ? [StatusCondition.Poisoned] : [],
     paralyzedOnTurn: undefined,
     protection: undefined,
+    // Clear all "next turn" attack effects when going to bench (per TCG rules)
+    nextTurnBonusDamage: undefined,
+    nextTurnDamageReduction: undefined,
+    nextTurnEffectAppliedOnTurn: undefined,
   };
 }
 
@@ -952,8 +962,12 @@ export function endTurn(gameState: GameState): GameState {
     }
   }
 
-  // Procesar efectos para el Pokémon del jugador que TERMINA su turno
-  // Esto incluye veneno, dormir, y parálisis
+  // =====================================================================
+  // POKEMON CHECKUP — entre turnos, aplica a AMBOS Pokémon activos
+  // Reglas TCG: veneno, sueño y parálisis se chequean para ambos jugadores
+  // =====================================================================
+
+  // 1) Pokémon del jugador que TERMINA su turno
   const ownPokemon = isPlayerEndingTurn
     ? updatedState.playerActivePokemon
     : updatedState.opponentActivePokemon;
@@ -965,11 +979,30 @@ export function endTurn(gameState: GameState): GameState {
     if (result.isKnockedOut) {
       handleKnockout(result.pokemon, isPlayerEndingTurn);
     } else {
-      // Actualizar el Pokémon
       if (isPlayerEndingTurn) {
         updatedState.playerActivePokemon = result.pokemon;
       } else {
         updatedState.opponentActivePokemon = result.pokemon;
+      }
+    }
+  }
+
+  // 2) Pokémon del OPONENTE (el que no termina su turno)
+  const otherPokemon = isPlayerEndingTurn
+    ? updatedState.opponentActivePokemon
+    : updatedState.playerActivePokemon;
+
+  if (otherPokemon && gameResult === null) {
+    const result = processStatusEffectsForPokemon(otherPokemon, currentTurn);
+    events.push(...result.events);
+
+    if (result.isKnockedOut) {
+      handleKnockout(result.pokemon, !isPlayerEndingTurn);
+    } else {
+      if (isPlayerEndingTurn) {
+        updatedState.opponentActivePokemon = result.pokemon;
+      } else {
+        updatedState.playerActivePokemon = result.pokemon;
       }
     }
   }
@@ -1041,6 +1074,39 @@ export function endTurn(gameState: GameState): GameState {
     );
   }
   updatedState.activeModifiers = remainingModifiers;
+
+  // =====================================================================
+  // EXPIRE NEXT-TURN ATTACK EFFECTS (Swords Dance, Minimize, etc.)
+  // Effects applied on turn T expire when turnNumber reaches T+2
+  // =====================================================================
+  const clearExpiredNextTurnEffects = (pokemon: PokemonInPlay | null): PokemonInPlay | null => {
+    if (!pokemon) return pokemon;
+    if (pokemon.nextTurnEffectAppliedOnTurn == null) return pokemon;
+    // Effect was applied on turn T. It should be available during turn T+1 (opponent's turn).
+    // If we reach T+2 without it being consumed, it expires.
+    if (newTurnNumber > pokemon.nextTurnEffectAppliedOnTurn + 1) {
+      const hadBonus = pokemon.nextTurnBonusDamage;
+      const hadReduction = pokemon.nextTurnDamageReduction;
+      if (hadBonus || hadReduction) {
+        events.push(
+          createGameEvent(
+            `El efecto temporal de ${pokemon.pokemon.name} expiró`,
+            "info"
+          )
+        );
+      }
+      return {
+        ...pokemon,
+        nextTurnBonusDamage: undefined,
+        nextTurnDamageReduction: undefined,
+        nextTurnEffectAppliedOnTurn: undefined,
+      };
+    }
+    return pokemon;
+  };
+
+  updatedState.playerActivePokemon = clearExpiredNextTurnEffects(updatedState.playerActivePokemon);
+  updatedState.opponentActivePokemon = clearExpiredNextTurnEffects(updatedState.opponentActivePokemon);
 
   // =====================================================================
   // CLEAR ENERGY BURN (energyConversionType resets at end of turn)
@@ -1437,7 +1503,9 @@ export function executeAttack(
       if (effect.coinFlip) continue;
 
       // BonusDamage: add damage based on source (bench count, named pokemon, etc.)
-      if (effect.type === AttackEffectType.BonusDamage && effect.amount && !effect.coinFlip) {
+      // Skip Self-targeting BonusDamage without a bonusDamageSource — those are "next turn" buffs (e.g., Swords Dance)
+      if (effect.type === AttackEffectType.BonusDamage && effect.amount && !effect.coinFlip
+          && !(effect.target === AttackTarget.Self && !effect.bonusDamageSource)) {
         let multiplier = 1;
         if (effect.bonusDamageSource === "benchCount") {
           multiplier = gameState.playerBench.filter(p => p != null).length;
@@ -1485,6 +1553,16 @@ export function executeAttack(
     }
   }
 
+  // Apply stored nextTurnBonusDamage from a previous turn (e.g., Swords Dance +30)
+  // The bonus is consumed and cleared later when assembling the final state
+  let consumedBonusDamage = false;
+  let bonusDamageMessage = "";
+  if (attacker.nextTurnBonusDamage && attacker.nextTurnBonusDamage > 0) {
+    baseDamage += attacker.nextTurnBonusDamage;
+    consumedBonusDamage = true;
+    bonusDamageMessage = `¡Efecto de turno anterior! +${attacker.nextTurnBonusDamage} de daño extra`;
+  }
+
   let damage = baseDamage;
 
   // Verificar debilidad y resistencia (using modifiedWeakness/modifiedResistance from Porygon's Conversion)
@@ -1525,6 +1603,17 @@ export function executeAttack(
     damage = Math.max(0, damage - defenderReduction);
   }
 
+  // Apply stored nextTurnDamageReduction from defender (e.g., Minimize -20, Screech -10)
+  // The reduction is consumed and cleared later when assembling the final state
+  let consumedDamageReduction = false;
+  let damageReductionMessage = "";
+  if (defender.nextTurnDamageReduction && defender.nextTurnDamageReduction > 0 && damage > 0) {
+    const reduction = defender.nextTurnDamageReduction;
+    damage = Math.max(0, damage - reduction);
+    consumedDamageReduction = true;
+    damageReductionMessage = `${defender.pokemon.name} redujo el daño en ${reduction} (efecto de turno anterior)`;
+  }
+
   // Verificar si el defensor está protegido o tiene barrera de daño
   const defenderIsProtected = protectionBlocksDamage(defender);
   let effectiveDamage = damage;
@@ -1542,6 +1631,14 @@ export function executeAttack(
 
   // Crear eventos
   const events: GameEvent[] = [...gameState.events];
+
+  // Add deferred messages for next-turn effects (computed before events array was created)
+  if (bonusDamageMessage) {
+    events.push(createGameEvent(bonusDamageMessage, "action"));
+  }
+  if (damageReductionMessage) {
+    events.push(createGameEvent(damageReductionMessage, "action"));
+  }
 
   // Mensaje del ataque con detalles de debilidad/resistencia y protección
   let damageMessage = "";
@@ -1984,6 +2081,39 @@ export function executeAttack(
         }
       }
 
+      // BonusDamage (Self): store bonus for NEXT attack (e.g., Scyther's Swords Dance +30)
+      if (effect.type === AttackEffectType.BonusDamage && effect.target === AttackTarget.Self && effect.amount && newPlayerActive && !attackerKnockedOut) {
+        // Only store if it has no bonusDamageSource (those are immediate, like Nidoqueen's namedPokemon)
+        if (!effect.bonusDamageSource) {
+          newPlayerActive = {
+            ...newPlayerActive,
+            nextTurnBonusDamage: (newPlayerActive.nextTurnBonusDamage || 0) + effect.amount,
+            nextTurnEffectAppliedOnTurn: gameState.turnNumber,
+          };
+          events.push(
+            createGameEvent(
+              `${newPlayerActive.pokemon.name} se preparó para hacer +${effect.amount} de daño en su próximo ataque`,
+              "action"
+            )
+          );
+        }
+      }
+
+      // ReduceDamage (Self): store damage reduction for next opponent's attack (e.g., Clefable's Minimize -20)
+      if (effect.type === AttackEffectType.ReduceDamage && effect.target === AttackTarget.Self && effect.amount && newPlayerActive && !attackerKnockedOut) {
+        newPlayerActive = {
+          ...newPlayerActive,
+          nextTurnDamageReduction: (newPlayerActive.nextTurnDamageReduction || 0) + effect.amount,
+          nextTurnEffectAppliedOnTurn: gameState.turnNumber,
+        };
+        events.push(
+          createGameEvent(
+            `${newPlayerActive.pokemon.name} reducirá el daño recibido en ${effect.amount} durante el próximo turno`,
+            "action"
+          )
+        );
+      }
+
       // Aplicar estado sin coinFlip (ej: Ivysaur's Polvo Veneno, Nidoking's Tóxico)
       // IMPORTANTE: Solo aplicar si el defensor NO fue noqueado (no transferir al Pokemon promovido)
       if (effect.type === AttackEffectType.ApplyStatus && effect.status && newOpponentActive && !isKnockedOut) {
@@ -2115,6 +2245,25 @@ export function executeAttack(
         usedOnceAttacks: [...usedOnce, attack.name],
       };
     }
+  }
+
+  // Clear consumed next-turn effects
+  if (consumedBonusDamage && newPlayerActive && !attackerKnockedOut) {
+    const stillHasReduction = newPlayerActive.nextTurnDamageReduction;
+    newPlayerActive = {
+      ...newPlayerActive,
+      nextTurnBonusDamage: undefined,
+      // Only clear the turn tracker if no other effect remains
+      nextTurnEffectAppliedOnTurn: stillHasReduction ? newPlayerActive.nextTurnEffectAppliedOnTurn : undefined,
+    };
+  }
+  if (consumedDamageReduction && newOpponentActive) {
+    const stillHasBonus = newOpponentActive.nextTurnBonusDamage;
+    newOpponentActive = {
+      ...newOpponentActive,
+      nextTurnDamageReduction: undefined,
+      nextTurnEffectAppliedOnTurn: stillHasBonus ? newOpponentActive.nextTurnEffectAppliedOnTurn : undefined,
+    };
   }
 
   // Construir el estado después del ataque
