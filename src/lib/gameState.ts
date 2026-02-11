@@ -60,6 +60,8 @@ export type PokemonInPlay = {
   retreatPrevented?: boolean;
   /** Turn number when retreat was prevented (for expiration in endTurn) */
   retreatPreventedOnTurn?: number;
+  /** Shift (Venomoth): temporary type change until end of turn */
+  shiftedType?: EnergyType;
 };
 
 export type GameEvent = {
