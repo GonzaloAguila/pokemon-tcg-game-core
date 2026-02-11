@@ -1244,3 +1244,347 @@ export function markPowerAsUsed(
     usedPowersThisTurn,
   };
 }
+
+// ============================================================================
+// SHIFT (Venomoth) - Type Shift
+// ============================================================================
+
+/**
+ * Check if Shift can be used and get available types
+ */
+export function canUseShift(
+  state: GameState,
+  side: "player" | "opponent",
+  venomothPokemonId: string
+): { canUse: boolean; errorMessage?: string; pokemon: PokemonInPlay | null; availableTypes: EnergyType[] } {
+  const activePokemon = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
+  const bench = side === "player" ? state.playerBench : state.opponentBench;
+
+  // Find Venomoth
+  let pokemon: PokemonInPlay | null = null;
+  let isActive = false;
+
+  if (activePokemon?.pokemon.id === venomothPokemonId) {
+    pokemon = activePokemon;
+    isActive = true;
+  } else {
+    const found = bench.find(p => p?.pokemon.id === venomothPokemonId);
+    if (found) pokemon = found;
+  }
+
+  if (!pokemon || !isPokemonCard(pokemon.pokemon)) {
+    return { canUse: false, errorMessage: "Pokémon no encontrado", pokemon: null, availableTypes: [] };
+  }
+
+  const power = pokemon.pokemon.power;
+  if (!power || power.type !== PokemonPowerType.TypeShift) {
+    return { canUse: false, errorMessage: "Este Pokémon no tiene Shift", pokemon: null, availableTypes: [] };
+  }
+
+  const error = canUsePower(pokemon, isActive, state.usedPowersThisTurn);
+  if (error) {
+    return { canUse: false, errorMessage: error, pokemon: null, availableTypes: [] };
+  }
+
+  // Collect all types from Pokemon in play (both sides, excluding colorless)
+  const typesSet = new Set<EnergyType>();
+
+  const allPokemon = [
+    state.playerActivePokemon,
+    ...state.playerBench,
+    state.opponentActivePokemon,
+    ...state.opponentBench,
+  ].filter((p): p is PokemonInPlay => p !== null);
+
+  for (const p of allPokemon) {
+    if (isPokemonCard(p.pokemon)) {
+      for (const type of p.pokemon.types) {
+        if (type !== "colorless") {
+          typesSet.add(type);
+        }
+      }
+    }
+  }
+
+  const availableTypes = Array.from(typesSet);
+
+  if (availableTypes.length === 0) {
+    return {
+      canUse: false,
+      errorMessage: "No hay tipos disponibles para cambiar",
+      pokemon: null,
+      availableTypes: []
+    };
+  }
+
+  return { canUse: true, pokemon, availableTypes };
+}
+
+/**
+ * Initiate Shift: Set pending state to show type selection modal
+ */
+export function initiateShift(
+  state: GameState,
+  side: "player" | "opponent",
+  venomothPokemonId: string
+): GameState {
+  const { canUse, errorMessage, pokemon, availableTypes } = canUseShift(state, side, venomothPokemonId);
+
+  if (!canUse || !pokemon) {
+    return {
+      ...state,
+      events: [...state.events, createGameEvent(errorMessage!, "info")],
+    };
+  }
+
+  // Set pending state - frontend will show modal
+  return {
+    ...state,
+    pendingTypeShift: {
+      pokemonId: venomothPokemonId,
+      availableTypes,
+    },
+  };
+}
+
+/**
+ * Execute Shift: Apply the chosen type to Venomoth until end of turn
+ */
+export function executeShift(
+  state: GameState,
+  side: "player" | "opponent",
+  chosenType: EnergyType
+): GameState {
+  if (!state.pendingTypeShift) {
+    return {
+      ...state,
+      events: [...state.events, createGameEvent("No hay cambio de tipo pendiente", "info")],
+    };
+  }
+
+  const { pokemonId, availableTypes } = state.pendingTypeShift;
+
+  // Validate chosen type
+  if (!availableTypes.includes(chosenType)) {
+    return {
+      ...state,
+      events: [...state.events, createGameEvent("Tipo no válido", "info")],
+    };
+  }
+
+  const activePokemon = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
+  const bench = side === "player" ? state.playerBench : state.opponentBench;
+
+  // Find and update Venomoth
+  let updated = false;
+  let newActivePokemon = activePokemon;
+  let newBench = [...bench];
+
+  if (activePokemon?.pokemon.id === pokemonId) {
+    newActivePokemon = {
+      ...activePokemon,
+      shiftedType: chosenType,
+    };
+    updated = true;
+  } else {
+    const benchIndex = bench.findIndex(p => p?.pokemon.id === pokemonId);
+    if (benchIndex !== -1 && bench[benchIndex]) {
+      newBench[benchIndex] = {
+        ...bench[benchIndex]!,
+        shiftedType: chosenType,
+      };
+      updated = true;
+    }
+  }
+
+  if (!updated) {
+    return {
+      ...state,
+      pendingTypeShift: undefined,
+      events: [...state.events, createGameEvent("No se pudo cambiar el tipo", "info")],
+    };
+  }
+
+  // Mark power as used
+  const usedPowersThisTurn = [...(state.usedPowersThisTurn || [])];
+  if (!usedPowersThisTurn.includes(pokemonId)) {
+    usedPowersThisTurn.push(pokemonId);
+  }
+
+  const pokemonName = (activePokemon?.pokemon.id === pokemonId ? activePokemon : bench.find(p => p?.pokemon.id === pokemonId))?.pokemon.name || "Venomoth";
+  const event = createGameEvent(
+    `Shift: ${pokemonName} cambió su tipo a ${chosenType} hasta el final del turno`,
+    "action"
+  );
+
+  if (side === "player") {
+    return {
+      ...state,
+      playerActivePokemon: newActivePokemon,
+      playerBench: newBench,
+      pendingTypeShift: undefined,
+      usedPowersThisTurn,
+      events: [...state.events, event],
+    };
+  } else {
+    return {
+      ...state,
+      opponentActivePokemon: newActivePokemon,
+      opponentBench: newBench,
+      pendingTypeShift: undefined,
+      usedPowersThisTurn,
+      events: [...state.events, event],
+    };
+  }
+}
+
+// ============================================================================
+// PEEK (Mankey) - Peek at cards
+// ============================================================================
+
+/**
+ * Check if Peek can be used
+ */
+export function canUsePeek(
+  state: GameState,
+  side: "player" | "opponent",
+  mankeyPokemonId: string
+): { canUse: boolean; errorMessage?: string; pokemon: PokemonInPlay | null } {
+  const activePokemon = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
+  const bench = side === "player" ? state.playerBench : state.opponentBench;
+
+  // Find Mankey
+  let pokemon: PokemonInPlay | null = null;
+  let isActive = false;
+
+  if (activePokemon?.pokemon.id === mankeyPokemonId) {
+    pokemon = activePokemon;
+    isActive = true;
+  } else {
+    const found = bench.find(p => p?.pokemon.id === mankeyPokemonId);
+    if (found) pokemon = found;
+  }
+
+  if (!pokemon || !isPokemonCard(pokemon.pokemon)) {
+    return { canUse: false, errorMessage: "Pokémon no encontrado", pokemon: null };
+  }
+
+  const power = pokemon.pokemon.power;
+  if (!power || power.type !== PokemonPowerType.Peek) {
+    return { canUse: false, errorMessage: "Este Pokémon no tiene Peek", pokemon: null };
+  }
+
+  const error = canUsePower(pokemon, isActive, state.usedPowersThisTurn);
+  if (error) {
+    return { canUse: false, errorMessage: error, pokemon: null };
+  }
+
+  return { canUse: true, pokemon };
+}
+
+/**
+ * Execute Peek: Reveal a card based on the chosen option
+ * @param peekType - What to peek at
+ */
+export function executePeek(
+  state: GameState,
+  side: "player" | "opponent",
+  mankeyPokemonId: string,
+  peekType: "playerDeck" | "opponentDeck" | "opponentHand" | "playerPrize" | "opponentPrize"
+): GameState {
+  const { canUse, errorMessage, pokemon } = canUsePeek(state, side, mankeyPokemonId);
+
+  if (!canUse || !pokemon) {
+    return {
+      ...state,
+      events: [...state.events, createGameEvent(errorMessage!, "info")],
+    };
+  }
+
+  let revealedCards: GameCard[] = [];
+  let peekDescription = "";
+
+  switch (peekType) {
+    case "playerDeck":
+      if (state.playerDeck.length > 0) {
+        revealedCards = [state.playerDeck[0]];
+        peekDescription = "la carta superior del mazo del jugador";
+      } else {
+        peekDescription = "el mazo del jugador (vacío)";
+      }
+      break;
+
+    case "opponentDeck":
+      if (state.opponentDeck.length > 0) {
+        revealedCards = [state.opponentDeck[0]];
+        peekDescription = "la carta superior del mazo del rival";
+      } else {
+        peekDescription = "el mazo del rival (vacío)";
+      }
+      break;
+
+    case "opponentHand":
+      if (state.opponentHand.length > 0) {
+        // Pick a random card from opponent's hand
+        const randomIndex = Math.floor(Math.random() * state.opponentHand.length);
+        revealedCards = [state.opponentHand[randomIndex]];
+        peekDescription = "una carta aleatoria de la mano del rival";
+      } else {
+        peekDescription = "la mano del rival (vacía)";
+      }
+      break;
+
+    case "playerPrize":
+      if (state.playerPrizes.length > 0) {
+        // Pick a random prize
+        const randomIndex = Math.floor(Math.random() * state.playerPrizes.length);
+        revealedCards = [state.playerPrizes[randomIndex]];
+        peekDescription = "uno de los premios del jugador";
+      } else {
+        peekDescription = "los premios del jugador (ninguno restante)";
+      }
+      break;
+
+    case "opponentPrize":
+      if (state.opponentPrizes.length > 0) {
+        // Pick a random prize
+        const randomIndex = Math.floor(Math.random() * state.opponentPrizes.length);
+        revealedCards = [state.opponentPrizes[randomIndex]];
+        peekDescription = "uno de los premios del rival";
+      } else {
+        peekDescription = "los premios del rival (ninguno restante)";
+      }
+      break;
+  }
+
+  // Mark power as used
+  const usedPowersThisTurn = [...(state.usedPowersThisTurn || [])];
+  if (!usedPowersThisTurn.includes(mankeyPokemonId)) {
+    usedPowersThisTurn.push(mankeyPokemonId);
+  }
+
+  const event = createGameEvent(
+    `Peek: ${pokemon.pokemon.name} miró ${peekDescription}`,
+    "action"
+  );
+
+  return {
+    ...state,
+    pendingPeek: {
+      peekType,
+      revealedCards,
+    },
+    usedPowersThisTurn,
+    events: [...state.events, event],
+  };
+}
+
+/**
+ * Clear pending peek (after player has seen the revealed cards)
+ */
+export function clearPendingPeek(state: GameState): GameState {
+  return {
+    ...state,
+    pendingPeek: undefined,
+  };
+}

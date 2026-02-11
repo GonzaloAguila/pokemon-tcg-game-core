@@ -47,6 +47,8 @@ export type PokemonInPlay = {
   retreatPrevented?: boolean;
   /** Turn number when retreat was prevented (for expiration in endTurn) */
   retreatPreventedOnTurn?: number;
+  /** Shift (Venomoth): temporary type change until end of turn */
+  shiftedType?: EnergyType;
 };
 
 export type GameEvent = {
@@ -114,6 +116,20 @@ export type GameState = {
       /** Always enforce Basic-only selection */
       basicOnly: true;
     };
+  };
+  /** TypeShift (Venomoth): player needs to pick a type from Pokemon in play */
+  pendingTypeShift?: {
+    /** Pokemon ID that will receive the type change */
+    pokemonId: string;
+    /** Available types to choose from (types of all Pokemon in play, excluding colorless) */
+    availableTypes: EnergyType[];
+  };
+  /** Peek (Mankey): player chose to peek at something, show the result */
+  pendingPeek?: {
+    /** What was peeked at */
+    peekType: "playerDeck" | "opponentDeck" | "opponentHand" | "playerPrize" | "opponentPrize";
+    /** The card(s) that were peeked */
+    revealedCards: GameCard[];
   };
 };
 

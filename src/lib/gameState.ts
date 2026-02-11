@@ -1432,19 +1432,29 @@ export function endTurn(gameState: GameState): GameState {
 
   // =====================================================================
   // CLEAR ENERGY BURN (energyConversionType resets at end of turn)
+  // CLEAR SHIFT (shiftedType resets at end of turn)
   // =====================================================================
-  if (updatedState.playerActivePokemon?.energyConversionType) {
+  if (updatedState.playerActivePokemon?.energyConversionType || updatedState.playerActivePokemon?.shiftedType) {
     updatedState.playerActivePokemon = {
       ...updatedState.playerActivePokemon,
       energyConversionType: undefined,
+      shiftedType: undefined,
     };
   }
-  if (updatedState.opponentActivePokemon?.energyConversionType) {
+  if (updatedState.opponentActivePokemon?.energyConversionType || updatedState.opponentActivePokemon?.shiftedType) {
     updatedState.opponentActivePokemon = {
       ...updatedState.opponentActivePokemon,
       energyConversionType: undefined,
+      shiftedType: undefined,
     };
   }
+  // Clear shiftedType from bench Pokemon as well
+  updatedState.playerBench = updatedState.playerBench.map(p =>
+    p && p.shiftedType ? { ...p, shiftedType: undefined } : p
+  );
+  updatedState.opponentBench = updatedState.opponentBench.map(p =>
+    p && p.shiftedType ? { ...p, shiftedType: undefined } : p
+  );
 
   // Mensaje de fin de turno (después de procesar todos los efectos de fin de turno)
   events.push(
@@ -1895,8 +1905,11 @@ export function executeAttack(
   const defenderResistances = defender.modifiedResistance
     ? [defender.modifiedResistance]
     : (defender.pokemon.resistances ?? []);
-  const hasWeakness = defenderWeaknesses.includes(attacker.pokemon.types[0]);
-  const hasResistance = defenderResistances.includes(attacker.pokemon.types[0]);
+
+  // Use shiftedType (Venomoth Shift) if available, otherwise use original type
+  const attackerType = attacker.shiftedType || attacker.pokemon.types[0];
+  const hasWeakness = defenderWeaknesses.includes(attackerType);
+  const hasResistance = defenderResistances.includes(attackerType);
 
   // Aplicar debilidad (x2)
   if (hasWeakness) {
