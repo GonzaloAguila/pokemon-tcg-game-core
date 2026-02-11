@@ -118,6 +118,8 @@ export type GameState = {
   pendingForceSwitch?: boolean;
   /** SelfSwitch (Teleport): player needs to pick own bench Pokemon to switch with */
   pendingSelfSwitch?: boolean;
+  /** Track which Pokemon have used their "once per turn" powers this turn (by Pokemon ID) */
+  usedPowersThisTurn?: string[];
 };
 
 // ============================================================================
@@ -1355,6 +1357,7 @@ export function endTurn(gameState: GameState): GameState {
     retreatedThisTurn: false,
     playerCanTakePrize,
     opponentCanTakePrize,
+    usedPowersThisTurn: [], // Clear used powers for new turn
     events,
   };
 }
@@ -2398,6 +2401,46 @@ export function executeAttack(
               "action"
             )
           );
+        }
+      }
+
+      // SearchDeck: Buscar Pokemon en el deck y ponerlo en la banca (Call for Family, Sprout)
+      if (effect.type === AttackEffectType.SearchDeck && effect.searchPokemonNames && effect.searchPokemonNames.length > 0) {
+        const benchCount = newPlayerBench.filter(p => p !== null).length;
+        if (benchCount >= 5) {
+          events.push(createGameEvent("Tu banca está llena, no puedes buscar Pokémon", "info"));
+        } else {
+          // Search deck for any matching Pokemon
+          const matchingCards = newPlayerDeck.filter(card =>
+            card.kind === CardKind.Pokemon &&
+            card.stage === PokemonStage.Basic &&
+            effect.searchPokemonNames!.includes(card.name)
+          );
+
+          if (matchingCards.length > 0) {
+            // Take the first matching card
+            const foundCard = matchingCards[0];
+            // Remove from deck
+            newPlayerDeck = newPlayerDeck.filter(c => c.id !== foundCard.id);
+            // Shuffle deck
+            newPlayerDeck = shuffle(newPlayerDeck);
+            // Add to bench
+            const newPokemonInPlay: PokemonInPlay = {
+              pokemon: foundCard,
+              attachedEnergy: [],
+              attachedTrainers: [],
+              previousEvolutions: [],
+              statusConditions: [],
+              currentDamage: 0,
+              playedOnTurn: gameState.turnNumber,
+            };
+            newPlayerBench.push(newPokemonInPlay);
+            events.push(createGameEvent(`Encontraste ${foundCard.name} y lo pusiste en tu banca`, "action"));
+          } else {
+            // Shuffle deck even if not found
+            newPlayerDeck = shuffle(newPlayerDeck);
+            events.push(createGameEvent("No se encontró ningún Pokémon con ese nombre en tu mazo", "info"));
+          }
         }
       }
     }

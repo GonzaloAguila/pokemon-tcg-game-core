@@ -1332,6 +1332,13 @@ export const jungleCards: Card[] = [
         name: "Call for Family",
         cost: [EnergyType.Grass],
         text: "Busca en tu mazo un Pokémon Básico llamado Bellsprout y ponlo en tu Banca. Baraja tu mazo después. (No puedes usar este ataque si tu Banca está llena.)",
+        effects: [
+          {
+            type: AttackEffectType.SearchDeck,
+            target: null,
+            searchPokemonNames: ["Bellsprout"],
+          },
+        ],
       },
     ],
     retreatCost: 1,
@@ -1603,6 +1610,13 @@ export const jungleCards: Card[] = [
         name: "Call for Family",
         cost: [EnergyType.Grass, EnergyType.Grass],
         text: "Busca en tu mazo un Pokémon Básico llamado Nidoran♂ o Nidoran♀ y ponlo en tu Banca. Baraja tu mazo después. (No puedes usar este ataque si tu Banca está llena.)",
+        effects: [
+          {
+            type: AttackEffectType.SearchDeck,
+            target: null,
+            searchPokemonNames: ["Nidoran♂", "Nidoran♀"],
+          },
+        ],
       },
     ],
     retreatCost: 1,
@@ -1638,6 +1652,13 @@ export const jungleCards: Card[] = [
         name: "Sprout",
         cost: [EnergyType.Grass, EnergyType.Grass],
         text: "Busca en tu mazo un Pokémon Básico llamado Oddish y ponlo en tu Banca. Baraja tu mazo después. (No puedes usar este ataque si tu Banca está llena.)",
+        effects: [
+          {
+            type: AttackEffectType.SearchDeck,
+            target: null,
+            searchPokemonNames: ["Oddish"],
+          },
+        ],
       },
     ],
     retreatCost: 1,

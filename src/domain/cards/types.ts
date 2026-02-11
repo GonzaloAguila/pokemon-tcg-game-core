@@ -70,6 +70,8 @@ export type AttackEffect = {
   maxBenchTargets?: number;
   /** For Heal: heal amount equals half the actual damage dealt */
   healFromDamageDealt?: boolean;
+  /** For SearchDeck: Pokemon names to search for (e.g., ["Bellsprout"] or ["Nidoran♂", "Nidoran♀"]) */
+  searchPokemonNames?: string[];
 };
 
 export type Attack = {

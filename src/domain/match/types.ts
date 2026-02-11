@@ -102,6 +102,8 @@ export type GameState = {
   pendingForceSwitch?: boolean;
   /** SelfSwitch (Teleport): player needs to pick own bench Pokemon to switch with */
   pendingSelfSwitch?: boolean;
+  /** Track which Pokemon have used their "once per turn" powers this turn (by Pokemon ID) */
+  usedPowersThisTurn?: string[];
 };
 
 /**

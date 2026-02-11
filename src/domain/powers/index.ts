@@ -35,11 +35,13 @@ export function hasBlockingStatus(pokemon: PokemonInPlay): boolean {
  * Check if a Pokemon can use its power
  * @param pokemon - The Pokemon trying to use the power
  * @param isActive - Whether the Pokemon is the active Pokemon
+ * @param usedPowersThisTurn - Set of Pokemon IDs that have already used their power this turn
  * @returns Error message if cannot use, null if can use
  */
 export function canUsePower(
   pokemon: PokemonInPlay,
-  isActive: boolean
+  isActive: boolean,
+  usedPowersThisTurn?: string[]
 ): string | null {
   // Must have a power
   if (!isPokemonCard(pokemon.pokemon) || !pokemon.pokemon.power) {
@@ -56,6 +58,11 @@ export function canUsePower(
   // Check if power requires being active
   if (!power.worksFromBench && !isActive) {
     return `${power.name} solo puede usarse mientras ${pokemon.pokemon.name} esté activo`;
+  }
+
+  // Check if power was already used this turn (once-per-turn powers like HealFlip)
+  if (usedPowersThisTurn && usedPowersThisTurn.includes(pokemon.pokemon.id)) {
+    return `${power.name} ya fue usado este turno`;
   }
 
   return null;
@@ -722,7 +729,7 @@ export function getPokemonWithUsablePowers(
   const result: PokemonInPlay[] = [];
 
   if (activePokemon && isPokemonCard(activePokemon.pokemon) && activePokemon.pokemon.power) {
-    const error = canUsePower(activePokemon, true);
+    const error = canUsePower(activePokemon, true, state.usedPowersThisTurn);
     if (!error) {
       result.push(activePokemon);
     }
@@ -731,7 +738,7 @@ export function getPokemonWithUsablePowers(
   for (const benchPokemon of bench) {
     if (benchPokemon && isPokemonCard(benchPokemon.pokemon) && benchPokemon.pokemon.power) {
       if (benchPokemon.pokemon.power.worksFromBench) {
-        const error = canUsePower(benchPokemon, false);
+        const error = canUsePower(benchPokemon, false, state.usedPowersThisTurn);
         if (!error) {
           result.push(benchPokemon);
         }
@@ -1142,11 +1149,34 @@ export function canUseHealFlip(
 export function executeHealFlip(
   state: GameState,
   targetPokemonId: string,
-  side: "player" | "opponent" = "player"
+  side: "player" | "opponent" = "player",
+  sourcePokemonId?: string
 ): GameState {
   const active = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
   const bench = side === "player" ? state.playerBench : state.opponentBench;
   const events = [...state.events];
+
+  // Find the source Pokemon (Vileplume using the power)
+  let sourceId = sourcePokemonId;
+  if (!sourceId) {
+    // If not provided, try to find a Vileplume with Heal power
+    if (active && isPokemonCard(active.pokemon) && active.pokemon.power?.type === PokemonPowerType.HealFlip) {
+      sourceId = active.pokemon.id;
+    } else {
+      for (const p of bench) {
+        if (p && isPokemonCard(p.pokemon) && p.pokemon.power?.type === PokemonPowerType.HealFlip) {
+          sourceId = p.pokemon.id;
+          break;
+        }
+      }
+    }
+  }
+
+  // Mark power as used
+  const usedPowersThisTurn = [...(state.usedPowersThisTurn || [])];
+  if (sourceId) {
+    usedPowersThisTurn.push(sourceId);
+  }
 
   // Try healing active Pokemon
   if (active && active.pokemon.id === targetPokemonId && (active.currentDamage || 0) > 0) {
@@ -1164,6 +1194,7 @@ export function executeHealFlip(
         ? { playerActivePokemon: newActive }
         : { opponentActivePokemon: newActive }),
       events,
+      usedPowersThisTurn,
     };
   }
 
@@ -1186,10 +1217,11 @@ export function executeHealFlip(
           ? { playerBench: newBench }
           : { opponentBench: newBench }),
         events,
+        usedPowersThisTurn,
       };
     }
   }
 
   events.push(createGameEvent("No se pudo curar al Pokémon seleccionado", "info"));
-  return { ...state, events };
+  return { ...state, events, usedPowersThisTurn };
 }
