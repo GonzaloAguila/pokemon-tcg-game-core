@@ -10,6 +10,7 @@ import {
   AttackEffectType,
   AttackTarget,
   BenchDamageTarget,
+  PokemonPowerType,
 } from "@/domain/constants";
 import { decks, type Deck, type DeckEntry } from "@/domain/decks";
 import { getDamageReaction, getRetreatCostReduction, hasStatusImmunity, isDamageBlocked } from "@/domain/powers";
@@ -1806,7 +1807,18 @@ export function canUseAttack(pokemonInPlay: PokemonInPlay, attackIndex: number):
   const attachedEnergy = pokemonInPlay.attachedEnergy;
 
   // Check for Energy Burn conversion (all energy treated as one type)
-  const energyConversionType = pokemonInPlay.energyConversionType;
+  // Auto-detect from power if not explicitly set (continuous power)
+  let energyConversionType = pokemonInPlay.energyConversionType;
+  if (!energyConversionType && isPokemonCard(pokemonInPlay.pokemon)) {
+    const power = pokemonInPlay.pokemon.power;
+    if (power?.type === PokemonPowerType.EnergyConversion && power.energyType) {
+      // Check no blocking status
+      const statuses = pokemonInPlay.statusConditions ?? [];
+      if (statuses.length === 0) {
+        energyConversionType = power.energyType;
+      }
+    }
+  }
 
   // Contar energías por tipo (Double Colorless cuenta como 2 para costos de ataque)
   const energyValueCount: Record<string, number> = {};
@@ -2580,7 +2592,14 @@ export function executeAttack(
           } else {
             // Auto-select energies (fallback for AI or legacy code)
             const discardReq = effect.discardCostRequirement;
-            const energyConversionType = newPlayerActive.energyConversionType;
+            let energyConversionType = newPlayerActive.energyConversionType;
+            if (!energyConversionType && isPokemonCard(newPlayerActive.pokemon)) {
+              const power = newPlayerActive.pokemon.power;
+              if (power?.type === PokemonPowerType.EnergyConversion && power.energyType) {
+                const statuses = newPlayerActive.statusConditions ?? [];
+                if (statuses.length === 0) energyConversionType = power.energyType;
+              }
+            }
 
             for (const reqType of discardReq) {
               const idx = remainingEnergy.findIndex((e) => {

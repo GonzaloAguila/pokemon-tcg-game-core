@@ -757,6 +757,74 @@ export function hasRainDanceAvailable(state: GameState, side: "player" | "oppone
   return canUse;
 }
 
+/**
+ * Check if an energy card can be attached to a target Pokemon via any UnlimitedEnergyAttach power.
+ * Returns the matching power Pokemon if yes, null otherwise.
+ * Generic — works for Rain Dance (Water), and any future powers with different energy types.
+ */
+export function canAutoAttachEnergy(
+  state: GameState,
+  side: "player" | "opponent",
+  energyCard: GameCard,
+  targetPokemon: PokemonInPlay
+): { powerPokemon: PokemonInPlay } | null {
+  const { canUse, pokemonWithPower } = canUseRainDance(state, side);
+  if (!canUse) return null;
+
+  // Check if any available UnlimitedEnergyAttach power can handle this energy + target combo
+  for (const pp of pokemonWithPower) {
+    if (!isPokemonCard(pp.pokemon) || !pp.pokemon.power) continue;
+    const error = canAttachWithPower(pp.pokemon.power, targetPokemon, energyCard);
+    if (!error) {
+      return { powerPokemon: pp };
+    }
+  }
+  return null;
+}
+
+/**
+ * Check if the player has any UnlimitedEnergyAttach power that accepts the given energy type.
+ * Used by UI to determine if energy cards should remain selectable in hand.
+ */
+export function hasUnlimitedAttachForEnergyType(
+  state: GameState,
+  side: "player" | "opponent",
+  energyType: string
+): boolean {
+  const { canUse, pokemonWithPower } = canUseRainDance(state, side);
+  if (!canUse) return false;
+
+  return pokemonWithPower.some(pp => {
+    if (!isPokemonCard(pp.pokemon) || !pp.pokemon.power) return false;
+    const power = pp.pokemon.power;
+    // If power has no energyType restriction, it accepts all types
+    if (!power.energyType) return true;
+    return power.energyType === energyType;
+  });
+}
+
+/**
+ * Get the list of energy types that can be attached unlimited times via powers.
+ * Used by UI to highlight selectable energy cards and valid targets.
+ */
+export function getUnlimitedEnergyTypes(
+  state: GameState,
+  side: "player" | "opponent"
+): string[] {
+  const { canUse, pokemonWithPower } = canUseRainDance(state, side);
+  if (!canUse) return [];
+
+  const types = new Set<string>();
+  for (const pp of pokemonWithPower) {
+    if (!isPokemonCard(pp.pokemon) || !pp.pokemon.power) continue;
+    const power = pp.pokemon.power;
+    if (power.energyType) {
+      types.add(power.energyType);
+    }
+  }
+  return Array.from(types);
+}
+
 // ============================================================================
 // STRIKES BACK (Machamp) - Damage Reaction
 // ============================================================================
