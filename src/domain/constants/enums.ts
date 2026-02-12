@@ -80,6 +80,7 @@ export const StatusCondition = {
   Poisoned: "poisoned",
   Confused: "confused",
   Asleep: "asleep",
+  CannotAttack: "cannotAttack",
 } as const;
 export type StatusCondition = (typeof StatusCondition)[keyof typeof StatusCondition];
 

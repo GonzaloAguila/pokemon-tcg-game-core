@@ -1759,13 +1759,12 @@ export const jungleCards: Card[] = [
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor no puede atacar durante el próximo turno de tu rival.",
         effects: [
           {
-            type: AttackEffectType.Protection,
-            target: AttackTarget.Self,
+            type: AttackEffectType.ApplyStatus,
+            target: AttackTarget.Defender,
             coinFlip: {
               count: 1,
-              onHeads: "protection",
+              onHeads: StatusCondition.CannotAttack,
             },
-            protectionType: ProtectionType.DamageAndEffects,
           },
         ],
       },

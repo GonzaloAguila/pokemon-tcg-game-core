@@ -85,6 +85,7 @@ export {
   applySelfSwitch,
   skipPendingSwitch,
   executeDeckSearch,
+  executeBenchDamage,
   doMulligan,
   setPlayerReady,
   startPlayingPhase,

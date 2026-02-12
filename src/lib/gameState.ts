@@ -133,6 +133,21 @@ export type GameState = {
       basicOnly: true;
     };
   };
+  /** BenchDamage: player needs to select bench Pokemon to receive damage */
+  pendingBenchDamageSelection?: {
+    /** Amount of damage to deal to each selected Pokemon */
+    damageAmount: number;
+    /** Which side's bench to target */
+    targetSide: "player" | "opponent";
+    /** Maximum number of bench Pokemon to select */
+    maxTargets: number;
+    /** Minimum number of bench Pokemon to select (default 1) */
+    minTargets?: number;
+    /** Optional: only show Pokemon matching defender type (for Chain Lightning) */
+    matchDefenderType?: boolean;
+    /** Optional: defender types for filtering (Chain Lightning) */
+    defenderTypes?: EnergyType[];
+  };
 };
 
 // ============================================================================
@@ -301,9 +316,21 @@ export function clearAllStatusConditions(pokemon: PokemonInPlay): PokemonInPlay 
   };
 }
 
+/**
+ * Apply CannotAttack status (from attacks like Rhyhorn's Leer)
+ * This prevents the Pokemon from attacking during its next turn
+ */
+export function applyCannotAttack(
+  pokemon: PokemonInPlay,
+  currentTurnNumber: number
+): PokemonInPlay {
+  return applyStatusCondition(pokemon, StatusCondition.CannotAttack, currentTurnNumber);
+}
+
 export function canPokemonAttack(pokemon: PokemonInPlay): boolean {
   if (hasStatusCondition(pokemon, StatusCondition.Asleep)) return false;
   if (hasStatusCondition(pokemon, StatusCondition.Paralyzed)) return false;
+  if (hasStatusCondition(pokemon, StatusCondition.CannotAttack)) return false;
   return true;
 }
 
@@ -809,6 +836,111 @@ export function executeDeckSearch(
 }
 
 /**
+ * Execute bench damage on selected Pokemon
+ * @param gameState Current game state with pendingBenchDamageSelection
+ * @param selectedPokemonIds Array of Pokemon IDs to receive damage (empty array = skip/cancel)
+ * @returns New game state with damage applied and pending cleared
+ */
+export function executeBenchDamage(
+  gameState: GameState,
+  selectedPokemonIds: string[]
+): GameState {
+  const pending = gameState.pendingBenchDamageSelection;
+
+  if (!pending) {
+    return {
+      ...gameState,
+      events: [...gameState.events, createGameEvent("No hay daño de banca pendiente", "info")],
+    };
+  }
+
+  const { damageAmount, targetSide, maxTargets, minTargets = 1 } = pending;
+
+  // If no selection (cancel), just clear pending and end turn
+  if (selectedPokemonIds.length === 0) {
+    const events = [
+      ...gameState.events,
+      createGameEvent("No seleccionaste ningún Pokémon", "info"),
+    ];
+
+    const newState: GameState = {
+      ...gameState,
+      pendingBenchDamageSelection: undefined,
+      events,
+    };
+
+    return endTurn(newState);
+  }
+
+  // Validate selection count
+  if (selectedPokemonIds.length < minTargets) {
+    return {
+      ...gameState,
+      events: [...gameState.events, createGameEvent(`Debes seleccionar al menos ${minTargets} Pokémon`, "info")],
+    };
+  }
+
+  if (selectedPokemonIds.length > maxTargets) {
+    return {
+      ...gameState,
+      events: [...gameState.events, createGameEvent(`No puedes seleccionar más de ${maxTargets} Pokémon`, "info")],
+    };
+  }
+
+  // Apply damage to selected Pokemon
+  const events = [...gameState.events];
+  let newPlayerBench = [...gameState.playerBench];
+  let newOpponentBench = [...gameState.opponentBench];
+
+  if (targetSide === "opponent") {
+    newOpponentBench = newOpponentBench.map((p) => {
+      if (!p || !selectedPokemonIds.includes(p.pokemon.id)) return p;
+
+      const newDamage = (p.currentDamage || 0) + damageAmount;
+      events.push(
+        createGameEvent(
+          `${p.pokemon.name} del rival recibió ${damageAmount} de daño`,
+          "action"
+        )
+      );
+
+      return {
+        ...p,
+        currentDamage: newDamage,
+      };
+    });
+  } else {
+    newPlayerBench = newPlayerBench.map((p) => {
+      if (!p || !selectedPokemonIds.includes(p.pokemon.id)) return p;
+
+      const newDamage = (p.currentDamage || 0) + damageAmount;
+      events.push(
+        createGameEvent(
+          `Tu ${p.pokemon.name} recibió ${damageAmount} de daño`,
+          "action"
+        )
+      );
+
+      return {
+        ...p,
+        currentDamage: newDamage,
+      };
+    });
+  }
+
+  const newState: GameState = {
+    ...gameState,
+    playerBench: newPlayerBench,
+    opponentBench: newOpponentBench,
+    pendingBenchDamageSelection: undefined,
+    events,
+  };
+
+  // End turn after damage is applied
+  return endTurn(newState);
+}
+
+/**
  * Construye un mazo completo desde un DeckEntry[]
  */
 export function buildDeckFromEntries(entries: DeckEntry[]): GameCard[] {
@@ -1139,12 +1271,19 @@ function processStatusEffectsForPokemon(
     }
   }
 
+  // CannotAttack: se limpia automáticamente al final del turno del defensor
+  // (después de aplicar el ataque que lo causó, el efecto dura un turno del oponente)
+  if (hasStatusCondition(updated, StatusCondition.CannotAttack)) {
+    updated = removeStatusCondition(updated, StatusCondition.CannotAttack);
+    events.push(createGameEvent(`${updated.pokemon.name} ya puede atacar`, "info"));
+  }
+
   return { pokemon: updated, events, isKnockedOut };
 }
 
 export function endTurn(gameState: GameState): GameState {
-  // Block turn end if there's a pending switch or deck search
-  if (gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch) {
+  // Block turn end if there's a pending switch, deck search, or bench damage selection
+  if (gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch || gameState.pendingBenchDamageSelection) {
     return gameState;
   }
 
@@ -2091,6 +2230,7 @@ export function executeAttack(
   let newOpponentDeck = [...gameState.opponentDeck];
   let attackerKnockedOut = false;
   let attackerNeedsToPromote = false;
+  let pendingBenchDamageSelection: GameState["pendingBenchDamageSelection"] = undefined;
 
   if (attack.effects) {
     for (const effect of attack.effects) {
@@ -2189,60 +2329,119 @@ export function executeAttack(
         if (effect.skipIfColorless && defenderTypes.includes(EnergyTypeEnum.Colorless)) {
           // Effect does nothing against Colorless defenders
         } else {
-          // Aplicar daño a la banca del oponente
-          if (target === BenchDamageTarget.Opponent || target === BenchDamageTarget.Both) {
-            let opponentHitsRemaining = effect.maxBenchTargets ?? Infinity;
-            newOpponentBench = newOpponentBench.map((benchPokemon) => {
-              if (!benchPokemon || opponentHitsRemaining <= 0) return benchPokemon;
+          // Determine if we need manual selection
+          const maxTargets = effect.maxBenchTargets ?? Infinity;
+          const needsManualSelection = maxTargets < Infinity;
 
-              // Filter by defender type if matchDefenderType is set
-              if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
-                const sharesType = benchPokemon.pokemon.types.some((t) => defenderTypes.includes(t));
-                if (!sharesType) return benchPokemon;
+          // Count available targets
+          const getAvailableTargets = (bench: PokemonInPlay[]): PokemonInPlay[] => {
+            return bench.filter((p) => {
+              if (!p) return false;
+              if (effect.matchDefenderType && isPokemonCard(p.pokemon)) {
+                return p.pokemon.types.some((t) => defenderTypes.includes(t));
               }
+              return true;
+            });
+          };
 
-              opponentHitsRemaining--;
-              const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
+          // Check if we need manual selection (when maxTargets < available targets)
+          if (target === BenchDamageTarget.Opponent || target === BenchDamageTarget.Both) {
+            const availableOpponentTargets = getAvailableTargets(newOpponentBench);
+
+            if (needsManualSelection && availableOpponentTargets.length > 0) {
+              // Set pending state - frontend will show selection modal
+              pendingBenchDamageSelection = {
+                damageAmount: benchDamageAmount,
+                targetSide: "opponent",
+                maxTargets: maxTargets,
+                minTargets: Math.min(1, availableOpponentTargets.length),
+                matchDefenderType: effect.matchDefenderType,
+                defenderTypes: effect.matchDefenderType ? defenderTypes : undefined,
+              };
+              // Do NOT apply damage automatically - wait for player selection
+              // Do NOT call endTurn() - the pending flag will block it
               events.push(
                 createGameEvent(
-                  `${benchPokemon.pokemon.name} del rival recibió ${benchDamageAmount} de daño`,
+                  `Elige hasta ${maxTargets} Pokémon de la banca del rival para hacer ${benchDamageAmount} de daño`,
                   "action"
                 )
               );
+            } else {
+              // Automatic damage (maxTargets >= available targets OR no targets available)
+              let opponentHitsRemaining = maxTargets;
+              newOpponentBench = newOpponentBench.map((benchPokemon) => {
+                if (!benchPokemon || opponentHitsRemaining <= 0) return benchPokemon;
 
-              return {
-                ...benchPokemon,
-                currentDamage: newBenchDamage,
-              };
-            });
+                // Filter by defender type if matchDefenderType is set
+                if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
+                  const sharesType = benchPokemon.pokemon.types.some((t) => defenderTypes.includes(t));
+                  if (!sharesType) return benchPokemon;
+                }
+
+                opponentHitsRemaining--;
+                const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
+                events.push(
+                  createGameEvent(
+                    `${benchPokemon.pokemon.name} del rival recibió ${benchDamageAmount} de daño`,
+                    "action"
+                  )
+                );
+
+                return {
+                  ...benchPokemon,
+                  currentDamage: newBenchDamage,
+                };
+              });
+            }
           }
 
-          // Aplicar daño a la banca del jugador
+          // Apply to own bench (typically for attacks like Selfdestruct)
           if (target === BenchDamageTarget.Own || target === BenchDamageTarget.Both) {
-            let ownHitsRemaining = effect.maxBenchTargets ?? Infinity;
-            newPlayerBench = newPlayerBench.map((benchPokemon) => {
-              if (!benchPokemon || ownHitsRemaining <= 0) return benchPokemon;
+            const availableOwnTargets = getAvailableTargets(newPlayerBench);
 
-              // Filter by defender type if matchDefenderType is set
-              if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
-                const sharesType = benchPokemon.pokemon.types.some((t) => defenderTypes.includes(t));
-                if (!sharesType) return benchPokemon;
-              }
-
-              ownHitsRemaining--;
-              const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
+            // Own bench damage usually doesn't need selection (hits all), but support it anyway
+            if (needsManualSelection && availableOwnTargets.length > maxTargets && !pendingBenchDamageSelection) {
+              pendingBenchDamageSelection = {
+                damageAmount: benchDamageAmount,
+                targetSide: "player",
+                maxTargets: maxTargets,
+                minTargets: Math.min(1, availableOwnTargets.length),
+                matchDefenderType: effect.matchDefenderType,
+                defenderTypes: effect.matchDefenderType ? defenderTypes : undefined,
+              };
               events.push(
                 createGameEvent(
-                  `Tu ${benchPokemon.pokemon.name} recibió ${benchDamageAmount} de daño`,
+                  `Elige hasta ${maxTargets} de tus Pokémon de la banca para recibir ${benchDamageAmount} de daño`,
                   "action"
                 )
               );
+            } else {
+              // Automatic damage
+              let ownHitsRemaining = maxTargets;
+              newPlayerBench = newPlayerBench.map((benchPokemon) => {
+                if (!benchPokemon || ownHitsRemaining <= 0) return benchPokemon;
 
-              return {
-                ...benchPokemon,
-                currentDamage: newBenchDamage,
-              };
-            });
+                // Filter by defender type if matchDefenderType is set
+                if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
+                  const sharesType = benchPokemon.pokemon.types.some((t) => defenderTypes.includes(t));
+                  if (!sharesType) return benchPokemon;
+                }
+
+                ownHitsRemaining--;
+                const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
+                events.push(
+                  createGameEvent(
+                    `Tu ${benchPokemon.pokemon.name} recibió ${benchDamageAmount} de daño`,
+                    "action"
+                  )
+                );
+
+                return {
+                  ...benchPokemon,
+                  currentDamage: newBenchDamage,
+                };
+              });
+            }
           }
         }
 
@@ -2575,6 +2774,53 @@ export function executeAttack(
         }
       }
 
+      // ReturnToHand: return defender to opponent's hand (Pidgeot's Hurricane)
+      // Only if defender was NOT knocked out
+      if (effect.type === AttackEffectType.ReturnToHand && effect.target === AttackTarget.Defender) {
+        if (newOpponentActive && !isKnockedOut) {
+          // Return the defender and all attached cards to opponent's hand
+          const cardsToReturn: GameCard[] = [
+            newOpponentActive.pokemon,
+            ...newOpponentActive.attachedEnergy,
+          ];
+          if (newOpponentActive.attachedTrainers) {
+            cardsToReturn.push(...newOpponentActive.attachedTrainers);
+          }
+          // Include previous evolutions if any
+          if (newOpponentActive.previousEvolutions) {
+            cardsToReturn.push(...newOpponentActive.previousEvolutions);
+          }
+
+          // Add all cards to opponent's hand
+          newOpponentHand = [...newOpponentHand, ...cardsToReturn];
+
+          // Clear the defender
+          newOpponentActive = null;
+
+          events.push(
+            createGameEvent(
+              `¡${defender.pokemon.name} y todas sus cartas adjuntas volvieron a la mano!`,
+              "action"
+            )
+          );
+
+          // Opponent will need to promote from bench
+          if (newOpponentBench.some(p => p !== null)) {
+            // There are Pokemon on bench to promote
+            opponentNeedsToPromote = true;
+          } else {
+            // No bench Pokemon - the game will end (handled by gameResult logic later)
+            // The gameResult check at line 2774 will detect this: newOpponentActive === null && newOpponentBench.length === 0
+            events.push(
+              createGameEvent(
+                "¡El rival no tiene Pokémon en la banca!",
+                "action"
+              )
+            );
+          }
+        }
+      }
+
       // SearchDeck: Buscar Pokemon en el deck y ponerlo en la banca (Call for Family, Sprout)
       if (effect.type === AttackEffectType.SearchDeck && effect.searchPokemonNames && effect.searchPokemonNames.length > 0) {
         const benchCount = newPlayerBench.filter(p => p !== null).length;
@@ -2618,7 +2864,8 @@ export function executeAttack(
       // DeckSearch: Open modal to search deck for Basic Pokemon (Call for Family)
       // Player can browse entire deck and select one valid Basic Pokemon
       if (effect.type === AttackEffectType.DeckSearch && effect.deckSearchFilter) {
-        const benchCount = newPlayerBench.filter(p => p !== null).length;
+        // Use original gameState bench count, not newPlayerBench which may have been modified by promotion
+        const benchCount = gameState.playerBench.filter(p => p !== null).length;
         if (benchCount >= 5) {
           events.push(createGameEvent("Tu banca está llena, no puedes buscar Pokémon", "info"));
         } else {
@@ -2769,6 +3016,7 @@ export function executeAttack(
     pendingForceSwitch: pendingForceSwitch || undefined,
     pendingSelfSwitch: pendingSelfSwitch || undefined,
     pendingDeckSearch: pendingDeckSearch,
+    pendingBenchDamageSelection: pendingBenchDamageSelection,
     events,
   };
 
@@ -2782,8 +3030,8 @@ export function executeAttack(
     return stateAfterAttack;
   }
 
-  // Don't end turn if there's a pending force/self switch or deck search — player needs to choose first
-  if (pendingForceSwitch || pendingSelfSwitch || pendingDeckSearch) {
+  // Don't end turn if there's a pending force/self switch, deck search, or bench damage selection — player needs to choose first
+  if (pendingForceSwitch || pendingSelfSwitch || pendingDeckSearch || pendingBenchDamageSelection) {
     return stateAfterAttack;
   }
 
