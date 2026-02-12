@@ -131,6 +131,15 @@ export type GameState = {
     /** The card(s) that were peeked */
     revealedCards: GameCard[];
   };
+  /** BenchDamage selection: player needs to pick which bench Pokemon receive damage */
+  pendingBenchDamageSelection?: {
+    damageAmount: number;
+    targetSide: "player" | "opponent";
+    maxTargets: number;
+    minTargets?: number;
+    matchDefenderType?: boolean;
+    defenderTypes?: EnergyType[];
+  };
 };
 
 /**
