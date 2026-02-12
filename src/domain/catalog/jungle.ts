@@ -504,7 +504,7 @@ export const jungleCards: Card[] = [
       name: "Shift",
       text: "Una vez durante tu turno (antes de tu ataque), puedes cambiar el tipo de Venomoth al tipo de cualquier otro Pokémon en juego que no sea Incoloro. Este poder no puede usarse si Venomoth está Dormido, Confundido o Paralizado.",
       type: PokemonPowerType.TypeShift,
-      worksFromBench: false,
+      worksFromBench: true,
     },
     attacks: [
       {
@@ -1548,7 +1548,7 @@ export const jungleCards: Card[] = [
       name: "Peek",
       text: "Una vez durante tu turno (antes de tu ataque), puedes mirar una de las siguientes: la carta superior del mazo de cualquier jugador, una carta aleatoria de la mano de tu rival, o uno de los Premios de cualquier jugador. Este poder no puede usarse si Mankey está Dormido, Confundido o Paralizado.",
       type: PokemonPowerType.Peek,
-      worksFromBench: false,
+      worksFromBench: true,
     },
     attacks: [
       {
