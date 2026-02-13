@@ -1170,7 +1170,7 @@ export function executeBuzzap(
   const sideName = side === "player" ? "" : "Rival usó ";
 
   // Filter out null slots left by removing Electrode from bench
-  const cleanBench = bench.filter((p): p is PokemonInPlay => p !== null);
+  const cleanBench = bench.filter((p): p is PokemonInPlay => p != null);
 
   const events = [
     ...state.events,
@@ -1397,10 +1397,10 @@ export function canUseShift(
     ...state.playerBench,
     state.opponentActivePokemon,
     ...state.opponentBench,
-  ].filter((p): p is PokemonInPlay => p !== null);
+  ].filter((p): p is PokemonInPlay => p != null);
 
   for (const p of allPokemon) {
-    if (isPokemonCard(p.pokemon)) {
+    if (p && p.pokemon && isPokemonCard(p.pokemon)) {
       for (const type of p.pokemon.types) {
         if (type !== "colorless") {
           typesSet.add(type);
