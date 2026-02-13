@@ -1387,33 +1387,6 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     }
   };
 
-  // Procesar efectos para el Pokémon del OPONENTE (del jugador que termina el turno)
-  // Esto aplica veneno al Pokemon rival si está envenenado
-  const opponentPokemon = isPlayerEndingTurn
-    ? updatedState.opponentActivePokemon
-    : updatedState.playerActivePokemon;
-
-  if (opponentPokemon && gameResult === null) {
-    // Solo procesar veneno para el Pokemon del oponente (no dormir/parálisis que son del dueño)
-    if (hasStatusCondition(opponentPokemon, StatusCondition.Poisoned)) {
-      const poisonDmg = opponentPokemon.poisonDamage ?? 10;
-      const newDamage = (opponentPokemon.currentDamage ?? 0) + poisonDmg;
-      events.push(createGameEvent(`${opponentPokemon.pokemon.name} recibe ${poisonDmg} de daño por veneno`, "action"));
-
-      if (opponentPokemon.pokemon.kind === CardKind.Pokemon && newDamage >= opponentPokemon.pokemon.hp) {
-        events.push(createGameEvent(`¡${opponentPokemon.pokemon.name} fue noqueado por veneno!`, "action"));
-        handleKnockout({ ...opponentPokemon, currentDamage: newDamage }, !isPlayerEndingTurn);
-      } else {
-        // Actualizar daño
-        if (isPlayerEndingTurn) {
-          updatedState.opponentActivePokemon = { ...opponentPokemon, currentDamage: newDamage };
-        } else {
-          updatedState.playerActivePokemon = { ...opponentPokemon, currentDamage: newDamage };
-        }
-      }
-    }
-  }
-
   // =====================================================================
   // POKEMON CHECKUP — entre turnos, aplica a AMBOS Pokémon activos
   // Reglas TCG: veneno, sueño y parálisis se chequean para ambos jugadores
