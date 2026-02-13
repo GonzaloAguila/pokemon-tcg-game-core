@@ -63,6 +63,8 @@ export type PokemonInPlay = {
   retreatPreventedOnTurn?: number;
   /** Shift (Venomoth): temporary type change until end of turn */
   shiftedType?: EnergyType;
+  /** Mirror Move: stores the final damage received from the last attack (set on attack, cleared on endTurn) */
+  lastDamageReceived?: number;
 };
 
 export type GameEvent = {
@@ -1606,6 +1608,32 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     p && p.shiftedType ? { ...p, shiftedType: undefined } : p
   );
 
+  // =====================================================================
+  // CLEAR lastDamageReceived (Mirror Move) for the player ending their turn
+  // Lifecycle: A attacks B (set on B) -> B's turn (B can use Mirror Move) -> B ends turn (clear on B)
+  // =====================================================================
+  if (isPlayerEndingTurn) {
+    if (updatedState.playerActivePokemon?.lastDamageReceived != null) {
+      updatedState.playerActivePokemon = {
+        ...updatedState.playerActivePokemon,
+        lastDamageReceived: undefined,
+      };
+    }
+    updatedState.playerBench = updatedState.playerBench.map(p =>
+      p && p.lastDamageReceived != null ? { ...p, lastDamageReceived: undefined } : p
+    );
+  } else {
+    if (updatedState.opponentActivePokemon?.lastDamageReceived != null) {
+      updatedState.opponentActivePokemon = {
+        ...updatedState.opponentActivePokemon,
+        lastDamageReceived: undefined,
+      };
+    }
+    updatedState.opponentBench = updatedState.opponentBench.map(p =>
+      p && p.lastDamageReceived != null ? { ...p, lastDamageReceived: undefined } : p
+    );
+  }
+
   // Mensaje de fin de turno (después de procesar todos los efectos de fin de turno)
   events.push(
     createGameEvent(
@@ -2057,9 +2085,24 @@ export function executeAttack(
     bonusDamageMessage = `¡Efecto de turno anterior! +${attacker.nextTurnBonusDamage} de daño extra`;
   }
 
+  // Check for MirrorMove effect: replaces all damage with lastDamageReceived
+  // Mirror Move copies the FINAL damage dealt to this Pokemon last turn (already includes weakness/resistance)
+  let isMirrorMove = false;
+  const mirrorMoveEffect = attack.effects?.find(e => e.type === AttackEffectType.MirrorMove);
+  if (mirrorMoveEffect) {
+    isMirrorMove = true;
+    const lastDamage = attacker.lastDamageReceived;
+    if (lastDamage && lastDamage > 0) {
+      baseDamage = lastDamage;
+    } else {
+      baseDamage = 0;
+    }
+  }
+
   let damage = baseDamage;
 
   // Verificar debilidad y resistencia (using modifiedWeakness/modifiedResistance from Porygon's Conversion)
+  // Skip for MirrorMove — the copied damage already had weakness/resistance applied
   const defenderWeaknesses = defender.modifiedWeakness
     ? [defender.modifiedWeakness]
     : (defender.pokemon.weaknesses ?? []);
@@ -2069,8 +2112,8 @@ export function executeAttack(
 
   // Use shiftedType (Venomoth Shift) if available, otherwise use original type
   const attackerType = attacker.shiftedType || attacker.pokemon.types[0];
-  const hasWeakness = defenderWeaknesses.includes(attackerType);
-  const hasResistance = defenderResistances.includes(attackerType);
+  const hasWeakness = !isMirrorMove && defenderWeaknesses.includes(attackerType);
+  const hasResistance = !isMirrorMove && defenderResistances.includes(attackerType);
 
   // Aplicar debilidad (x2)
   if (hasWeakness) {
@@ -2135,6 +2178,21 @@ export function executeAttack(
   }
   if (damageReductionMessage) {
     events.push(createGameEvent(damageReductionMessage, "action"));
+  }
+
+  // Mirror Move result message
+  if (isMirrorMove) {
+    if (attacker.lastDamageReceived && attacker.lastDamageReceived > 0) {
+      events.push(createGameEvent(
+        `¡Movimiento Espejo! ${attacker.pokemon.name} devuelve ${attacker.lastDamageReceived} de daño`,
+        "action"
+      ));
+    } else {
+      events.push(createGameEvent(
+        `Movimiento Espejo falló: ${attacker.pokemon.name} no fue atacado el turno anterior`,
+        "info"
+      ));
+    }
   }
 
   // Mensaje del ataque con detalles de debilidad/resistencia y protección
@@ -2233,10 +2291,11 @@ export function executeAttack(
       events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
     }
   } else {
-    // Solo actualizar daño
+    // Solo actualizar daño + store lastDamageReceived for Mirror Move
     newOpponentActive = {
       ...defender,
       currentDamage: newDamage,
+      lastDamageReceived: effectiveDamage > 0 ? effectiveDamage : undefined,
     };
   }
 
@@ -2688,22 +2747,27 @@ export function executeAttack(
           poisoned: "envenenado",
         };
 
+        // Collect all statuses to apply (primary + additionalStatuses)
+        const allStatuses = [status, ...(effect.additionalStatuses || [])];
+
         if (effect.target === AttackTarget.Self) {
           // Apply status to the ATTACKER (e.g., Vileplume Petal Dance → confused, Gloom Foul Odor → confused)
           if (newPlayerActive && !attackerKnockedOut) {
-            const before: PokemonInPlay = newPlayerActive;
-            newPlayerActive = applyStatusCondition(newPlayerActive, status, gameState.turnNumber);
-            if (newPlayerActive !== before) {
-              // Si es veneno con daño personalizado (Tóxico = 20), guardarlo
-              if (status === StatusCondition.Poisoned && effect.poisonDamage) {
-                newPlayerActive = { ...newPlayerActive, poisonDamage: effect.poisonDamage };
+            for (const s of allStatuses) {
+              const before: PokemonInPlay = newPlayerActive;
+              newPlayerActive = applyStatusCondition(newPlayerActive, s, gameState.turnNumber);
+              if (newPlayerActive !== before) {
+                // Si es veneno con daño personalizado (Tóxico = 20), guardarlo
+                if (s === StatusCondition.Poisoned && effect.poisonDamage) {
+                  newPlayerActive = { ...newPlayerActive, poisonDamage: effect.poisonDamage };
+                }
+                events.push(
+                  createGameEvent(
+                    `¡${newPlayerActive.pokemon.name} está ${statusMessages[s] || s}!`,
+                    "action"
+                  )
+                );
               }
-              events.push(
-                createGameEvent(
-                  `¡${newPlayerActive.pokemon.name} está ${statusMessages[status] || status}!`,
-                  "action"
-                )
-              );
             }
           }
         } else {
@@ -2719,19 +2783,21 @@ export function executeAttack(
                 )
               );
             } else {
-              const before: PokemonInPlay = newOpponentActive;
-              newOpponentActive = applyStatusCondition(newOpponentActive, status, gameState.turnNumber);
-              if (newOpponentActive !== before) {
-                // Si es veneno con daño personalizado (Tóxico = 20), guardarlo
-                if (status === StatusCondition.Poisoned && effect.poisonDamage) {
-                  newOpponentActive = { ...newOpponentActive, poisonDamage: effect.poisonDamage };
+              for (const s of allStatuses) {
+                const before: PokemonInPlay = newOpponentActive;
+                newOpponentActive = applyStatusCondition(newOpponentActive, s, gameState.turnNumber);
+                if (newOpponentActive !== before) {
+                  // Si es veneno con daño personalizado (Tóxico = 20), guardarlo
+                  if (s === StatusCondition.Poisoned && effect.poisonDamage) {
+                    newOpponentActive = { ...newOpponentActive, poisonDamage: effect.poisonDamage };
+                  }
+                  events.push(
+                    createGameEvent(
+                      `¡${newOpponentActive.pokemon.name} está ${statusMessages[s] || s}!`,
+                      "action"
+                    )
+                  );
                 }
-                events.push(
-                  createGameEvent(
-                    `¡${newOpponentActive.pokemon.name} está ${statusMessages[status] || status}!`,
-                    "action"
-                  )
-                );
               }
             }
           }

@@ -49,6 +49,8 @@ export type PokemonInPlay = {
   retreatPreventedOnTurn?: number;
   /** Shift (Venomoth): temporary type change until end of turn */
   shiftedType?: EnergyType;
+  /** Mirror Move: stores the final damage received from the last attack (set on attack, cleared on endTurn) */
+  lastDamageReceived?: number;
 };
 
 export type GameEvent = {

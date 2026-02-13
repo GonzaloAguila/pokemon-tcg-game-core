@@ -361,25 +361,30 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
           poisoned: "envenenado",
         };
 
+        // Collect all statuses: primary + additionalStatuses (e.g., Venomoth Venom Powder: Confused + Poisoned)
+        const allStatuses = [statusToApply, ...((coinFlipEffect as { additionalStatuses?: string[] }).additionalStatuses || [])];
+
         // Check target: Self applies to attacker (playerActivePokemon in swapped state = AI)
         const isSelfTarget = coinFlipEffect.target === "self";
         const targetKey = isSelfTarget ? "playerActivePokemon" : "opponentActivePokemon";
-        const targetPokemon = resultState[targetKey];
 
-        if (targetPokemon) {
-          const updated = applyStatusCondition(targetPokemon, statusToApply as "paralyzed" | "poisoned" | "confused" | "asleep", state.turnNumber);
-          if (updated !== targetPokemon) {
-            resultState = {
-              ...resultState,
-              [targetKey]: updated,
-              events: [
-                ...resultState.events,
-                createGameEvent(
-                  `¡${targetPokemon.pokemon.name} está ${statusMessages[statusToApply] || statusToApply}!`,
-                  "action"
-                ),
-              ],
-            };
+        for (const status of allStatuses) {
+          const targetPokemon = resultState[targetKey];
+          if (targetPokemon) {
+            const updated = applyStatusCondition(targetPokemon, status as "paralyzed" | "poisoned" | "confused" | "asleep", state.turnNumber);
+            if (updated !== targetPokemon) {
+              resultState = {
+                ...resultState,
+                [targetKey]: updated,
+                events: [
+                  ...resultState.events,
+                  createGameEvent(
+                    `¡${targetPokemon.pokemon.name} está ${statusMessages[status] || status}!`,
+                    "action"
+                  ),
+                ],
+              };
+            }
           }
         }
       }

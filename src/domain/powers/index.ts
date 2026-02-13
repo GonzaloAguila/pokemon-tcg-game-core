@@ -1514,7 +1514,8 @@ export function executeShift(
     usedPowersThisTurn.push(pokemonId);
   }
 
-  const pokemonName = (activePokemon?.pokemon.id === pokemonId ? activePokemon : bench.find(p => p?.pokemon.id === pokemonId))?.pokemon.name || "Venomoth";
+  const foundPokemon = activePokemon?.pokemon.id === pokemonId ? activePokemon : bench.find(p => p?.pokemon.id === pokemonId);
+  const pokemonName = foundPokemon?.pokemon.name || "Venomoth";
   const event = createGameEvent(
     `Shift: ${pokemonName} cambió su tipo a ${chosenType} hasta el final del turno`,
     "action"

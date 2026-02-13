@@ -19,7 +19,7 @@ import {
   clearStatusConditionsOnRetreat,
 } from "@/domain/match";
 import { isPokemonCard, isEnergyCard } from "@/domain/cards";
-import { GamePhase, PokemonStage } from "@/domain/constants";
+import { GamePhase, PokemonStage, AttackEffectType } from "@/domain/constants";
 import type { Side } from "./types";
 
 /** Getters para acceder al estado según el lado */
@@ -436,6 +436,14 @@ export function canKnockOut(
   const attack = attacker.pokemon.attacks[attackIndex];
   if (!attack) return false;
 
+  // Check for MirrorMove: damage comes from lastDamageReceived, no weakness/resistance
+  const hasMirrorMove = attack.effects?.some(e => e.type === AttackEffectType.MirrorMove);
+  if (hasMirrorMove) {
+    const mirrorDamage = attacker.lastDamageReceived ?? 0;
+    const defenderRemainingHP = defender.pokemon.hp - (defender.currentDamage || 0);
+    return mirrorDamage >= defenderRemainingHP;
+  }
+
   // Calcular daño base
   let damage = 0;
   if (typeof attack.damage === "number") {
@@ -477,6 +485,12 @@ export function estimateAttackDamage(
 
   const attack = attacker.pokemon.attacks[attackIndex];
   if (!attack) return 0;
+
+  // Check for MirrorMove: damage comes from lastDamageReceived, no weakness/resistance
+  const hasMirrorMove = attack.effects?.some(e => e.type === AttackEffectType.MirrorMove);
+  if (hasMirrorMove) {
+    return attacker.lastDamageReceived ?? 0;
+  }
 
   let damage = 0;
   if (typeof attack.damage === "number") {

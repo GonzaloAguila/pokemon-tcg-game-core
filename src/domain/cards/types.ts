@@ -72,6 +72,8 @@ export type AttackEffect = {
   healFromDamageDealt?: boolean;
   /** For SearchDeck: Pokemon names to search for (e.g., ["Bellsprout"] or ["Nidoran♂", "Nidoran♀"]) */
   searchPokemonNames?: string[];
+  /** For ApplyStatus: additional statuses to apply alongside the primary status (e.g., Venomoth Venom Powder: Confused + Poisoned from one coin flip) */
+  additionalStatuses?: StatusCondition[];
   /** For DeckSearch: filter criteria for valid Pokemon */
   deckSearchFilter?: {
     /** Exact name matches (e.g., ["Bellsprout"] or ["Nidoran♂", "Nidoran♀"]) */

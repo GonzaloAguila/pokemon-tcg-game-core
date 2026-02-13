@@ -520,14 +520,7 @@ export const jungleCards: Card[] = [
               count: 1,
               onHeads: StatusCondition.Confused,
             },
-          },
-          {
-            type: AttackEffectType.ApplyStatus,
-            target: AttackTarget.Defender,
-            coinFlip: {
-              count: 1,
-              onHeads: StatusCondition.Poisoned,
-            },
+            additionalStatuses: [StatusCondition.Poisoned],
           },
         ],
       },
