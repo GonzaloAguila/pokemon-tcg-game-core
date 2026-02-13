@@ -147,9 +147,9 @@ export const baseSetCards: Card[] = [
           ],
         },
       ],
-      retreatCost: 3,
+      retreatCost: 1,
       weaknesses: [EnergyType.Fighting],
-      resistances: [],
+      resistances: [EnergyType.Psychic],
     }),
     createPokemonCard({
       id: makeCardId(SET, 4, "Charizard"),
@@ -228,7 +228,7 @@ export const baseSetCards: Card[] = [
       ],
       retreatCost: 1,
       weaknesses: [EnergyType.Fighting],
-      resistances: [],
+      resistances: [EnergyType.Psychic],
     }),
     createPokemonCard({
       id: makeCardId(SET, 6, "Gyarados"),
@@ -265,7 +265,7 @@ export const baseSetCards: Card[] = [
         },
       ],
       retreatCost: 3,
-      weaknesses: [EnergyType.Lightning],
+      weaknesses: [EnergyType.Grass],
       resistances: [EnergyType.Fighting],
     }),
     createPokemonCard({
@@ -1157,7 +1157,6 @@ export const baseSetCards: Card[] = [
         {
           name: "Hipnosis",
           cost: [EnergyType.Psychic],
-          damage: 10,
           text:
             "El Pokémon a la defensa pasa a estar dormido.",
           effects: [
@@ -1183,7 +1182,7 @@ export const baseSetCards: Card[] = [
           ],
         },
       ],
-      retreatCost: 0,
+      retreatCost: 1,
       weaknesses: [],
       resistances: [EnergyType.Fighting],
     }),
@@ -1298,7 +1297,7 @@ export const baseSetCards: Card[] = [
           damage: 50,
         },
       ],
-      retreatCost: 2,
+      retreatCost: 3,
       weaknesses: [EnergyType.Psychic],
       resistances: [],
     }),
@@ -1390,7 +1389,7 @@ export const baseSetCards: Card[] = [
           ],
         },
       ],
-      retreatCost: 2,
+      retreatCost: 3,
       weaknesses: [EnergyType.Psychic],
       resistances: [],
     }),
@@ -1473,7 +1472,7 @@ export const baseSetCards: Card[] = [
       attacks: [
         {
           name: "Doble Patada",
-          cost: [EnergyType.Grass, EnergyType.Colorless],
+          cost: [EnergyType.Grass, EnergyType.Colorless, EnergyType.Colorless],
           text:
             "Echa 2 monedas. Este ataque hace 30 puntos de daño por cada cara.",
           effects: [
@@ -1490,7 +1489,7 @@ export const baseSetCards: Card[] = [
         },
         {
           name: "Cuerno Taladro",
-          cost: [EnergyType.Grass, EnergyType.Grass, EnergyType.Colorless],
+          cost: [EnergyType.Grass, EnergyType.Grass, EnergyType.Colorless, EnergyType.Colorless],
           damage: 50,
         },
       ],
@@ -1510,20 +1509,25 @@ export const baseSetCards: Card[] = [
       evolvesFrom: "Poliwag",
       attacks: [
         {
-          name: "Pistola Agua",
-          cost: [EnergyType.Water],
-          damage: 10,
-        },
-        {
-          name: "Hipnosis",
+          name: "Amnesia",
           cost: [EnergyType.Water, EnergyType.Water],
           text:
-            "El Pokémon Defensor queda Dormido.",
+            "Elige 1 de los ataques del Pokémon Defensor. Ese Pokémon no puede usar ese ataque durante el próximo turno de tu rival.",
+        },
+        {
+          name: "Bofetón Doble",
+          cost: [EnergyType.Water, EnergyType.Water, EnergyType.Colorless],
+          text:
+            "Echa 2 monedas a cara o cruz. Este ataque hace 30 puntos de daño multiplicado por la cantidad de caras que hayan salido.",
           effects: [
             {
-              type: AttackEffectType.ApplyStatus,
+              type: AttackEffectType.CoinFlipDamage,
               target: AttackTarget.Defender,
-              status: StatusCondition.Asleep,
+              amount: 30,
+              coinFlip: {
+                count: 2,
+                onHeads: "damage",
+              },
             },
           ],
         },
@@ -1546,10 +1550,10 @@ export const baseSetCards: Card[] = [
           name: "Conversión 1",
           cost: [EnergyType.Colorless],
           text:
-            "Si el próximo ataque del Pokémon Defensor normalmente haría daño, cambia su tipo por uno elegido por ti.",
+            "Si el Pokémon Defensor tiene una Debilidad, puedes cambiarla a un tipo de tu elección distinto de Incoloro.",
           effects: [
             {
-              type: AttackEffectType.ChangeType,
+              type: AttackEffectType.ChangeWeakness,
               target: AttackTarget.Defender,
             },
           ],
@@ -1558,18 +1562,18 @@ export const baseSetCards: Card[] = [
           name: "Conversión 2",
           cost: [EnergyType.Colorless, EnergyType.Colorless],
           text:
-            "Cambia la debilidad del Pokémon Defensor por un tipo que elijas.",
+            "Cambia la Resistencia de Porygon a un tipo de tu elección distinto de Incoloro.",
           effects: [
             {
-              type: AttackEffectType.ChangeWeakness,
-              target: AttackTarget.Defender,
+              type: AttackEffectType.ChangeResistance,
+              target: AttackTarget.Self,
             },
           ],
         },
       ],
       retreatCost: 1,
       weaknesses: [EnergyType.Fighting],
-      resistances: [],
+      resistances: [EnergyType.Psychic],
     }),
     createPokemonCard({
       id: makeCardId(SET, 40, "Raticate"),
@@ -1591,7 +1595,7 @@ export const baseSetCards: Card[] = [
           name: "Supercolmillo",
           cost: [EnergyType.Colorless, EnergyType.Colorless, EnergyType.Colorless],
           text:
-            "Hace daño al Pokémon Defensor igual a la mitad de los PS restantes del Pokémon Defensor (redondeado hacia abajo a la decena más cercana).",
+            "Hace daño al Pokémon Defensor igual a la mitad de los PS restantes del Pokémon Defensor (redondeado hacia arriba a la decena más cercana).",
           effects: [
             {
               type: AttackEffectType.HalfHPDamage,
@@ -1602,7 +1606,7 @@ export const baseSetCards: Card[] = [
       ],
       retreatCost: 1,
       weaknesses: [EnergyType.Fighting],
-      resistances: [],
+      resistances: [EnergyType.Psychic],
     }),
     createPokemonCard({
       id: makeCardId(SET, 41, "Seel"),
