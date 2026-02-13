@@ -872,32 +872,55 @@ export function getDamageReaction(
  */
 export function canUseEnergyBurn(
   state: GameState,
-  side: "player" | "opponent"
+  side: "player" | "opponent",
+  pokemonId?: string
 ): { canUse: boolean; errorMessage?: string; pokemon: PokemonInPlay | null } {
   const activePokemon = side === "player"
     ? state.playerActivePokemon
     : state.opponentActivePokemon;
+  const bench = side === "player" ? state.playerBench : state.opponentBench;
 
-  if (!activePokemon || !isPokemonCard(activePokemon.pokemon)) {
-    return { canUse: false, errorMessage: "No hay Pokémon activo", pokemon: null };
+  // Find the target Pokemon (by ID or default to active)
+  let target: PokemonInPlay | null = null;
+  let isActive = false;
+
+  if (pokemonId) {
+    if (activePokemon && activePokemon.pokemon.id === pokemonId) {
+      target = activePokemon;
+      isActive = true;
+    } else {
+      for (const bp of bench) {
+        if (bp && bp.pokemon.id === pokemonId) {
+          target = bp;
+          break;
+        }
+      }
+    }
+  } else {
+    target = activePokemon;
+    isActive = true;
   }
 
-  const power = activePokemon.pokemon.power;
+  if (!target || !isPokemonCard(target.pokemon)) {
+    return { canUse: false, errorMessage: "No se encontró el Pokémon", pokemon: null };
+  }
+
+  const power = target.pokemon.power;
   if (!power || power.type !== PokemonPowerType.EnergyConversion) {
     return { canUse: false, errorMessage: "Este Pokémon no tiene Energy Burn", pokemon: null };
   }
 
   // Already active this turn?
-  if (activePokemon.energyConversionType) {
+  if (target.energyConversionType) {
     return { canUse: false, errorMessage: "Energy Burn ya está activo este turno", pokemon: null };
   }
 
-  const error = canUsePower(activePokemon, true);
+  const error = canUsePower(target, isActive);
   if (error) {
     return { canUse: false, errorMessage: error, pokemon: null };
   }
 
-  return { canUse: true, pokemon: activePokemon };
+  return { canUse: true, pokemon: target };
 }
 
 /**
@@ -905,9 +928,10 @@ export function canUseEnergyBurn(
  */
 export function activateEnergyBurn(
   state: GameState,
-  side: "player" | "opponent"
+  side: "player" | "opponent",
+  pokemonId?: string
 ): GameState {
-  const { canUse, errorMessage, pokemon } = canUseEnergyBurn(state, side);
+  const { canUse, errorMessage, pokemon } = canUseEnergyBurn(state, side, pokemonId);
 
   if (!canUse || !pokemon) {
     return {
@@ -936,19 +960,30 @@ export function activateEnergyBurn(
     "action"
   );
 
-  if (side === "player") {
+  // Check if Pokemon is active or on bench
+  const activePokemon = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
+  const benchKey = side === "player" ? "playerBench" : "opponentBench";
+  const activeKey = side === "player" ? "playerActivePokemon" : "opponentActivePokemon";
+
+  if (activePokemon && activePokemon.pokemon.id === pokemon.pokemon.id) {
     return {
       ...state,
-      playerActivePokemon: updatedPokemon,
-      events: [...state.events, event],
-    };
-  } else {
-    return {
-      ...state,
-      opponentActivePokemon: updatedPokemon,
+      [activeKey]: updatedPokemon,
       events: [...state.events, event],
     };
   }
+
+  // Pokemon is on bench
+  const bench = state[benchKey] as (PokemonInPlay | null)[];
+  const newBench = bench.map(bp =>
+    bp && bp.pokemon.id === pokemon.pokemon.id ? updatedPokemon : bp
+  );
+
+  return {
+    ...state,
+    [benchKey]: newBench,
+    events: [...state.events, event],
+  };
 }
 
 // ============================================================================

@@ -165,7 +165,7 @@ export const baseSetCards: Card[] = [
         name: "Energy Burn",
         text: "Tan frecuentemente como quieras durante tu turno (antes de atacar), puedes convertir todas las Energías adjuntas a Charizard en Energía Fuego para el resto de este turno. Este poder no puede usarse si Charizard está Dormido, Confundido o Paralizado.",
         type: PokemonPowerType.EnergyConversion,
-        worksFromBench: false,
+        worksFromBench: true,
         energyType: EnergyType.Fire,
       },
       attacks: [
