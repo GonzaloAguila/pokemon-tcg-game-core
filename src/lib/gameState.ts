@@ -1282,7 +1282,7 @@ function processStatusEffectsForPokemon(
   return { pokemon: updated, events, isKnockedOut };
 }
 
-export function endTurn(gameState: GameState): GameState {
+export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = false): GameState {
   // Block turn end if there's a pending switch, deck search, or bench damage selection
   if (gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch || gameState.pendingBenchDamageSelection) {
     return gameState;
@@ -1361,12 +1361,20 @@ export function endTurn(gameState: GameState): GameState {
       // Promover de banca
       const opponentPromoteIndex = updatedState.opponentBench.findIndex(p => p != null);
       if (opponentPromoteIndex !== -1) {
-        const promoted = updatedState.opponentBench[opponentPromoteIndex]!;
-        updatedState.opponentBench.splice(opponentPromoteIndex, 1);
-        updatedState.opponentActivePokemon = promoted;
-        events.push(
-          createGameEvent(`${promoted.pokemon.name} pasa a ser el Pokémon activo del rival`, "info")
-        );
+        if (skipOpponentPromotion) {
+          updatedState.opponentActivePokemon = null;
+          updatedState.opponentNeedsToPromote = true;
+          events.push(
+            createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")
+          );
+        } else {
+          const promoted = updatedState.opponentBench[opponentPromoteIndex]!;
+          updatedState.opponentBench.splice(opponentPromoteIndex, 1);
+          updatedState.opponentActivePokemon = promoted;
+          events.push(
+            createGameEvent(`${promoted.pokemon.name} pasa a ser el Pokémon activo del rival`, "info")
+          );
+        }
       } else {
         updatedState.opponentActivePokemon = null;
         gameResult = "victory";
@@ -3072,7 +3080,8 @@ export function executeAttack(
 export function executeMetronome(
   gameState: GameState,
   copiedAttack: Attack,
-  skipEndTurn: boolean = false
+  skipEndTurn: boolean = false,
+  skipDefenderPromotion: boolean = false
 ): GameState {
   const attacker = gameState.playerActivePokemon;
   const defender = gameState.opponentActivePokemon;
@@ -3127,8 +3136,7 @@ export function executeMetronome(
   };
 
   // Ejecutar el ataque copiado usando executeAttack
-  // skipDefenderPromotion = false para manejar KOs normalmente
-  const resultState = executeAttack(tempState, 0, skipEndTurn, false, undefined);
+  const resultState = executeAttack(tempState, 0, skipEndTurn, skipDefenderPromotion, undefined);
 
   // Restaurar el Pokémon original (con sus ataques reales) después de ejecutar
   return {
