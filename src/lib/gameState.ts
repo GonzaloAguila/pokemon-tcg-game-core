@@ -3071,7 +3071,8 @@ export function executeAttack(
  */
 export function executeMetronome(
   gameState: GameState,
-  copiedAttack: Attack
+  copiedAttack: Attack,
+  skipEndTurn: boolean = false
 ): GameState {
   const attacker = gameState.playerActivePokemon;
   const defender = gameState.opponentActivePokemon;
@@ -3126,9 +3127,8 @@ export function executeMetronome(
   };
 
   // Ejecutar el ataque copiado usando executeAttack
-  // skipEndTurn = false para que termine el turno normalmente
   // skipDefenderPromotion = false para manejar KOs normalmente
-  const resultState = executeAttack(tempState, 0, false, false, undefined);
+  const resultState = executeAttack(tempState, 0, skipEndTurn, false, undefined);
 
   // Restaurar el Pokémon original (con sus ataques reales) después de ejecutar
   return {
