@@ -44,6 +44,7 @@ export type PokemonInPlay = {
   protection?: {
     type: ProtectionType;       // "damageOnly" o "damageAndEffects"
     expiresAfterTurn: number;   // Turno después del cual expira la protección
+    threshold?: number;         // Si se establece, solo bloquea daño <= este valor (ej: Onix Endurecimiento bloquea <=30)
   };
   /** Energy Burn: treat all attached energy as this type until end of turn */
   energyConversionType?: EnergyType;
@@ -350,13 +351,15 @@ export function canPokemonRetreat(pokemon: PokemonInPlay): boolean {
 export function applyProtection(
   pokemon: PokemonInPlay,
   protectionType: ProtectionType,
-  currentTurnNumber: number
+  currentTurnNumber: number,
+  threshold?: number
 ): PokemonInPlay {
   return {
     ...pokemon,
     protection: {
       type: protectionType,
       expiresAfterTurn: currentTurnNumber + 1,
+      ...(threshold !== undefined && { threshold }),
     },
   };
 }
@@ -365,8 +368,14 @@ export function isProtected(pokemon: PokemonInPlay): boolean {
   return !!pokemon.protection;
 }
 
-export function protectionBlocksDamage(pokemon: PokemonInPlay): boolean {
-  return !!pokemon.protection;
+export function protectionBlocksDamage(pokemon: PokemonInPlay, damage?: number): boolean {
+  if (!pokemon.protection) return false;
+  // Threshold-based protection (e.g., Onix Harden): only blocks damage <= threshold
+  if (pokemon.protection.threshold !== undefined && damage !== undefined) {
+    return damage <= pokemon.protection.threshold;
+  }
+  // Full protection (no threshold): blocks all damage
+  return true;
 }
 
 export function clearProtection(pokemon: PokemonInPlay): PokemonInPlay {
@@ -2134,7 +2143,7 @@ export function executeAttack(
   }
 
   // Verificar si el defensor está protegido o tiene barrera de daño
-  const defenderIsProtected = protectionBlocksDamage(defender);
+  const defenderIsProtected = protectionBlocksDamage(defender, damage);
   let effectiveDamage = damage;
   let damageBarrierBlocked = false;
   if (defenderIsProtected && damage > 0) {
@@ -2177,7 +2186,11 @@ export function executeAttack(
   // Mensaje del ataque con detalles de debilidad/resistencia y protección
   let damageMessage = "";
   if (defenderIsProtected && damage > 0) {
-    damageMessage = ` pero ${defender.pokemon.name} está protegido. ¡El daño fue prevenido!`;
+    if (defender.protection?.threshold !== undefined) {
+      damageMessage = ` pero Endurecimiento previno ${damage} de daño (${damage} ≤ ${defender.protection.threshold})`;
+    } else {
+      damageMessage = ` pero ${defender.pokemon.name} está protegido. ¡El daño fue prevenido!`;
+    }
   } else if (damageBarrierBlocked) {
     const barrierPowerName = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.name || "Muro Invisible" : "Muro Invisible";
     damageMessage = ` pero ${defender.pokemon.name} bloqueó el daño con ${barrierPowerName}`;
@@ -2714,6 +2727,29 @@ export function executeAttack(
             "action"
           )
         );
+      }
+
+      // Protection (non-coin-flip): apply protection to self (e.g., Onix's Harden)
+      // Coin-flip protection (Kakuna, Metapod) is handled in frontend useCoinFlipHandler and AI executor
+      if (effect.type === AttackEffectType.Protection && !effect.coinFlip && effect.target === AttackTarget.Self && newPlayerActive && !attackerKnockedOut) {
+        const protType = effect.protectionType || ("damageOnly" as ProtectionType);
+        const threshold = effect.amount; // undefined for full protection, number for threshold (e.g., 30 for Onix)
+        newPlayerActive = applyProtection(newPlayerActive, protType, gameState.turnNumber, threshold);
+        if (threshold !== undefined) {
+          events.push(
+            createGameEvent(
+              `${newPlayerActive.pokemon.name} se endureció — prevendrá daño de ${threshold} o menos durante el próximo turno del rival`,
+              "action"
+            )
+          );
+        } else {
+          events.push(
+            createGameEvent(
+              `¡${newPlayerActive.pokemon.name} se protegió! El daño será prevenido durante el próximo turno del rival`,
+              "action"
+            )
+          );
+        }
       }
 
       // Aplicar estado sin coinFlip (ej: Ivysaur's Polvo Veneno, Nidoking's Tóxico, Gloom's Foul Odor)

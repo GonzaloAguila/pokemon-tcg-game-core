@@ -17,6 +17,7 @@ import {
   getRetreatCost,
   getTotalEnergyValue,
   clearStatusConditionsOnRetreat,
+  protectionBlocksDamage,
 } from "@/domain/match";
 import { isPokemonCard, isEnergyCard } from "@/domain/cards";
 import { GamePhase, PokemonStage, AttackEffectType } from "@/domain/constants";
@@ -465,6 +466,11 @@ export function canKnockOut(
     damage = Math.max(0, damage - 30);
   }
 
+  // Check defender protection (full or threshold-based)
+  if (protectionBlocksDamage(defender, damage)) {
+    return false;
+  }
+
   const defenderRemainingHP = defender.pokemon.hp - (defender.currentDamage || 0);
   return damage >= defenderRemainingHP;
 }
@@ -506,6 +512,11 @@ export function estimateAttackDamage(
 
   const hasResistance = defender.pokemon.resistances?.includes(attacker.pokemon.types[0]) ?? false;
   if (hasResistance) damage = Math.max(0, damage - 30);
+
+  // Check defender protection (full or threshold-based)
+  if (protectionBlocksDamage(defender, damage)) {
+    return 0;
+  }
 
   return damage;
 }

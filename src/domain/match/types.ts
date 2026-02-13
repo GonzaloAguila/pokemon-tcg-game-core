@@ -30,6 +30,7 @@ export type PokemonInPlay = {
   protection?: {
     type: ProtectionType;       // "damageOnly" or "damageAndEffects"
     expiresAfterTurn: number;   // Turn number after which protection expires
+    threshold?: number;         // If set, only blocks damage <= this amount (e.g., Onix Harden blocks <=30)
   };
   /** Energy Burn: treat all attached energy as this type until end of turn */
   energyConversionType?: EnergyType;
