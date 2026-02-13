@@ -1586,6 +1586,12 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   // CLEAR ENERGY BURN (energyConversionType resets at end of turn)
   // CLEAR SHIFT (shiftedType resets at end of turn)
   // =====================================================================
+  if (updatedState.playerActivePokemon?.shiftedType) {
+    events.push(createGameEvent(`Efecto de Shift terminado — ${updatedState.playerActivePokemon.pokemon.name} vuelve a su tipo original`, "info"));
+  }
+  if (updatedState.opponentActivePokemon?.shiftedType) {
+    events.push(createGameEvent(`Efecto de Shift terminado — ${updatedState.opponentActivePokemon.pokemon.name} vuelve a su tipo original`, "info"));
+  }
   if (updatedState.playerActivePokemon?.energyConversionType || updatedState.playerActivePokemon?.shiftedType) {
     updatedState.playerActivePokemon = {
       ...updatedState.playerActivePokemon,
