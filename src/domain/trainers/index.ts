@@ -273,7 +273,7 @@ export function playDefender(
     card,
     targetPokemonId,
     amount: -20,
-    expiresAfterTurn: state.turnNumber + 1,
+    expiresAfterTurn: state.turnNumber + 2,
     playerId: "player",
   };
 

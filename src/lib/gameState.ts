@@ -2331,15 +2331,33 @@ export function executeAttack(
 
       // Daño a sí mismo (selfDamage)
       if (effect.type === AttackEffectType.SelfDamage && effect.amount && newPlayerActive) {
-        const selfDamage: number = effect.amount;
+        let selfDamage: number = effect.amount;
+
+        // Apply Defender reduction to self-damage
+        const selfDefenderMods = gameState.activeModifiers.filter(
+          (m) => m.source === "defender" && m.targetPokemonId === newPlayerActive!.pokemon.id
+        );
+        const selfDefenderReduction = selfDefenderMods.reduce((sum, m) => sum + Math.abs(m.amount), 0);
+        if (selfDefenderReduction > 0) {
+          selfDamage = Math.max(0, selfDamage - selfDefenderReduction);
+          events.push(
+            createGameEvent(
+              `Defender redujo el auto-daño en ${selfDefenderReduction}`,
+              "info"
+            )
+          );
+        }
+
         const newSelfDamage: number = (newPlayerActive.currentDamage || 0) + selfDamage;
 
-        events.push(
-          createGameEvent(
-            `${newPlayerActive.pokemon.name} se hizo ${selfDamage} de daño a sí mismo`,
-            "action"
-          )
-        );
+        if (selfDamage > 0) {
+          events.push(
+            createGameEvent(
+              `${newPlayerActive.pokemon.name} se hizo ${selfDamage} de daño a sí mismo`,
+              "action"
+            )
+          );
+        }
 
         // Verificar si el atacante se noqueó
         if (newPlayerActive.pokemon.kind === CardKind.Pokemon && newSelfDamage >= newPlayerActive.pokemon.hp) {
