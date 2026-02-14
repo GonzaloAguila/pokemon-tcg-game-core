@@ -114,7 +114,7 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
       const events = [
         ...state.events,
         createGameEvent(`${attacker.pokemon.name} está confundido - Moneda: ${coinToken}`, "info"),
-        createGameEvent(`¡Cruz! ${attacker.pokemon.name} se lastima a sí mismo`, "info"),
+        createGameEvent(`[coin:tails] ${attacker.pokemon.name} se lastima a sí mismo`, "info"),
         createGameEvent(`${attacker.pokemon.name} se hizo ${CONFUSION_SELF_DAMAGE} de daño a sí mismo`, "action"),
       ];
 
@@ -201,7 +201,7 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
         events: [
           ...state.events,
           createGameEvent(`${attacker.pokemon.name} está confundido - Moneda: ${coinToken}`, "info"),
-          createGameEvent(`¡Cara! El ataque procede normalmente`, "info"),
+          createGameEvent(`[coin:heads] El ataque procede normalmente`, "info"),
         ],
       };
     }

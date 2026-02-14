@@ -1226,7 +1226,7 @@ export function startPlayingPhase(gameState: GameState, coinFlipResult: "heads" 
       ...gameState.events,
       createGameEvent("¡Comienza la partida!", "system"),
       createGameEvent(
-        `Moneda lanzada: ${coinFlipResult === "heads" ? "Cara" : "Cruz"}`,
+        `Moneda lanzada: ${coinFlipResult === "heads" ? "[coin:heads]" : "[coin:tails]"}`,
         "info"
       ),
       createGameEvent(
@@ -1268,9 +1268,9 @@ function processStatusEffectsForPokemon(
     const coinFlip = Math.random() < 0.5 ? "heads" : "tails";
     if (coinFlip === "heads") {
       updated = removeStatusCondition(updated, StatusCondition.Asleep);
-      events.push(createGameEvent(`${updated.pokemon.name} despertó (moneda: cara)`, "info"));
+      events.push(createGameEvent(`${updated.pokemon.name} despertó (moneda: [coin:heads])`, "info"));
     } else {
-      events.push(createGameEvent(`${updated.pokemon.name} sigue dormido (moneda: cruz)`, "info"));
+      events.push(createGameEvent(`${updated.pokemon.name} sigue dormido (moneda: [coin:tails])`, "info"));
     }
   }
 
