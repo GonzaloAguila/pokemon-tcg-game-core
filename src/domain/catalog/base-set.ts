@@ -2296,6 +2296,12 @@ export const baseSetCards: Card[] = [
           damage: 10,
           text:
             "Si el Pokémon Defensor intenta atacar durante el próximo turno de tu rival, tu rival echa la moneda a cara o cruz. Si sale cruz, ese ataque no hace nada.",
+          effects: [
+            {
+              type: AttackEffectType.SandAttack,
+              target: AttackTarget.Defender,
+            },
+          ],
         },
       ],
       retreatCost: 1,
@@ -2781,7 +2787,7 @@ export const baseSetCards: Card[] = [
     name: "Double Colorless Energy",
     number: 96,
     set: SET,
-    rarity: CardRarity.Common,
+    rarity: CardRarity.Uncommon,
     energyType: EnergyType.Colorless,
     isBasic: false,
   }),
