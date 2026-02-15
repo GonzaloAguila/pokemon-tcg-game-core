@@ -2037,6 +2037,21 @@ export function executeAttack(
   const attack = attacker.pokemon.attacks[attackIndex];
   if (!attack) return gameState;
 
+  // Block DeckSearch attacks when bench is full (TCG rule: "No puedes usar este ataque si tu Banca está llena.")
+  const hasDeckSearchEffect = attack.effects?.some(e => e.type === AttackEffectType.DeckSearch);
+  if (hasDeckSearchEffect) {
+    const benchCount = gameState.playerBench.filter(p => p !== null).length;
+    if (benchCount >= 5) {
+      return {
+        ...gameState,
+        events: [
+          ...gameState.events,
+          createGameEvent("Tu banca está llena, no puedes usar este ataque", "info"),
+        ],
+      };
+    }
+  }
+
   // Calcular daño base (puede ser número o string como "10x", "20+", "30-")
   let baseDamage = 0;
   let damageMultiplierDescription = "";
