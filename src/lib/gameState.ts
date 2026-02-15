@@ -66,6 +66,14 @@ export type PokemonInPlay = {
   shiftedType?: EnergyType;
   /** Mirror Move: stores the final damage received from the last attack (set on attack, cleared on endTurn) */
   lastDamageReceived?: number;
+  /** Destiny Bond: if this Pokemon is KO'd by an attack, the attacker is also KO'd. Clears at end of owner's next turn. */
+  destinyBondActive?: boolean;
+  /** Turn number when Destiny Bond was activated (for expiration) */
+  destinyBondTurn?: number;
+  /** Sand-Attack / SmokeScreen: opponent must flip coin to attack. Clears on bench/evolve. */
+  mustFlipToAttack?: boolean;
+  /** Turn number when mustFlipToAttack was set (for expiration) */
+  mustFlipToAttackTurn?: number;
 };
 
 export type GameEvent = {
@@ -403,6 +411,12 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     // Clear retreat prevention when going to bench
     retreatPrevented: undefined,
     retreatPreventedOnTurn: undefined,
+    // Clear Destiny Bond when going to bench
+    destinyBondActive: undefined,
+    destinyBondTurn: undefined,
+    // Clear Sand-Attack/SmokeScreen when going to bench
+    mustFlipToAttack: undefined,
+    mustFlipToAttackTurn: undefined,
   };
 }
 
@@ -1484,6 +1498,49 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   updatedState.opponentActivePokemon = expireProtection(updatedState.opponentActivePokemon);
 
   // =====================================================================
+  // EXPIRAR DESTINY BOND
+  // Destiny Bond set on turn T expires at end of opponent's next turn (T + 1)
+  // =====================================================================
+  const expireDestinyBond = (pokemon: PokemonInPlay | null): PokemonInPlay | null => {
+    if (!pokemon?.destinyBondActive || pokemon.destinyBondTurn == null) return pokemon;
+    if (newTurnNumber > pokemon.destinyBondTurn + 1) {
+      events.push(
+        createGameEvent(
+          `El efecto de Unión de Destino de ${pokemon.pokemon.name} expiró`,
+          "info"
+        )
+      );
+      return { ...pokemon, destinyBondActive: undefined, destinyBondTurn: undefined };
+    }
+    return pokemon;
+  };
+
+  updatedState.playerActivePokemon = expireDestinyBond(updatedState.playerActivePokemon);
+  updatedState.opponentActivePokemon = expireDestinyBond(updatedState.opponentActivePokemon);
+
+  // =====================================================================
+  // EXPIRAR SAND-ATTACK / SMOKESCREEN (mustFlipToAttack)
+  // Set on turn T, expires at end of affected Pokemon's next turn (T + 1)
+  // Also clears when going to bench or evolving (handled separately)
+  // =====================================================================
+  const expireMustFlipToAttack = (pokemon: PokemonInPlay | null): PokemonInPlay | null => {
+    if (!pokemon?.mustFlipToAttack || pokemon.mustFlipToAttackTurn == null) return pokemon;
+    if (newTurnNumber > pokemon.mustFlipToAttackTurn + 1) {
+      events.push(
+        createGameEvent(
+          `${pokemon.pokemon.name} ya puede atacar normalmente`,
+          "info"
+        )
+      );
+      return { ...pokemon, mustFlipToAttack: undefined, mustFlipToAttackTurn: undefined };
+    }
+    return pokemon;
+  };
+
+  updatedState.playerActivePokemon = expireMustFlipToAttack(updatedState.playerActivePokemon);
+  updatedState.opponentActivePokemon = expireMustFlipToAttack(updatedState.opponentActivePokemon);
+
+  // =====================================================================
   // EXPIRAR RETREAT PREVENTION (Acid)
   // Retreat prevention applied on turn T expires when the affected Pokemon's
   // next turn ends (i.e., when newTurnNumber > T + 1)
@@ -2045,6 +2102,15 @@ export function executeAttack(
         }
       }
 
+      // HalfHPDamage (Super Fang): damage = half of defender's remaining HP, rounded up to nearest 10
+      if (effect.type === AttackEffectType.HalfHPDamage && effect.target === AttackTarget.Defender) {
+        const defenderHP = defender.pokemon.hp;
+        const remainingHP = defenderHP - (defender.currentDamage || 0);
+        const halfHP = Math.ceil(remainingHP / 2);
+        // Round up to nearest 10
+        baseDamage = Math.ceil(halfHP / 10) * 10;
+      }
+
       // ExtraEnergy: bonus damage per extra energy of a type beyond attack cost
       if (effect.type === AttackEffectType.ExtraEnergy && effect.extraDamagePerEnergy) {
         const energyType = effect.extraEnergyType;
@@ -2114,11 +2180,12 @@ export function executeAttack(
   }
 
   // Aplicar bonus de PlusPower (después de debilidad/resistencia, según reglas TCG)
+  // PlusPower only adds damage if the attack does damage to the defending Pokemon (baseDamage > 0)
   const plusPowerModifiers = gameState.activeModifiers.filter(
     (m) => m.source === "plusPower" && m.playerId === "player"
   );
   const plusPowerBonus = plusPowerModifiers.reduce((sum, m) => sum + m.amount, 0);
-  if (plusPowerBonus > 0) {
+  if (plusPowerBonus > 0 && baseDamage > 0) {
     damage += plusPowerBonus;
   }
 
@@ -2144,6 +2211,8 @@ export function executeAttack(
 
   // Verificar si el defensor está protegido o tiene barrera de daño
   const defenderIsProtected = protectionBlocksDamage(defender, damage);
+  // DamageAndEffects protection (Agility, Barrier, Tail Wag) also blocks status, ForceSwitch, PreventRetreat
+  const defenderBlocksEffects = defender.protection?.type === "damageAndEffects" && defenderIsProtected;
   let effectiveDamage = damage;
   let damageBarrierBlocked = false;
   if (defenderIsProtected && damage > 0) {
@@ -2289,6 +2358,18 @@ export function executeAttack(
       currentDamage: newDamage,
       lastDamageReceived: effectiveDamage > 0 ? effectiveDamage : undefined,
     };
+  }
+
+  // Destiny Bond: if the defender was KO'd and had Destiny Bond active, KO the attacker too
+  let destinyBondTriggered = false;
+  if (isKnockedOut && defender.destinyBondActive && effectiveDamage > 0) {
+    destinyBondTriggered = true;
+    events.push(
+      createGameEvent(
+        `¡Unión de Destino! ¡${defender.pokemon.name} se lleva a ${attacker.pokemon.name} consigo!`,
+        "action"
+      )
+    );
   }
 
   // Procesar efectos del ataque que no requieren coin flip
@@ -2479,6 +2560,8 @@ export function executeAttack(
                 return {
                   ...benchPokemon,
                   currentDamage: newBenchDamage,
+                  // Mirror Move: track bench damage so it can be copied when promoted
+                  lastDamageReceived: benchDamageAmount,
                 };
               });
             }
@@ -2528,8 +2611,61 @@ export function executeAttack(
                 return {
                   ...benchPokemon,
                   currentDamage: newBenchDamage,
+                  // Mirror Move: track bench damage for potential use when promoted
+                  lastDamageReceived: benchDamageAmount,
                 };
               });
+            }
+          }
+        }
+
+        // Strikes Back: check bench Pokemon with DamageReaction powers (e.g., Machamp)
+        // Only opponent bench can trigger Strikes Back against the attacker
+        if (target === BenchDamageTarget.Opponent || target === BenchDamageTarget.Both) {
+          if (newPlayerActive && !attackerKnockedOut) {
+            for (const benchPokemon of newOpponentBench) {
+              if (!benchPokemon) continue;
+              const reaction = getDamageReaction(benchPokemon, false); // false = from bench
+              if (reaction) {
+                const counterDamage = reaction.reactionDamage;
+                const currentAttackerDamage: number = newPlayerActive.currentDamage || 0;
+                const newAttackerDamage: number = currentAttackerDamage + counterDamage;
+                events.push(
+                  createGameEvent(
+                    `¡${reaction.powerName}! ${benchPokemon.pokemon.name} contraataca con ${counterDamage} de daño desde la banca`,
+                    "action"
+                  )
+                );
+
+                if (newPlayerActive.pokemon.kind === CardKind.Pokemon && newAttackerDamage >= newPlayerActive.pokemon.hp) {
+                  attackerKnockedOut = true;
+                  events.push(
+                    createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por el contraataque de ${benchPokemon.pokemon.name}!`, "action")
+                  );
+                  newPlayerDiscard.push(newPlayerActive.pokemon);
+                  newPlayerDiscard.push(...newPlayerActive.attachedEnergy);
+                  if (newPlayerActive.attachedTrainers) newPlayerDiscard.push(...newPlayerActive.attachedTrainers);
+                  if (newPlayerActive.previousEvolutions) newPlayerDiscard.push(...newPlayerActive.previousEvolutions);
+                  if (newOpponentPrizes.length > 0) {
+                    const prize = newOpponentPrizes.pop()!;
+                    newOpponentHand.push(prize);
+                    events.push(createGameEvent("El rival tomó un premio por el contraataque", "action"));
+                  }
+                  const benchPokemonCount = newPlayerBench.filter(p => p != null).length;
+                  if (benchPokemonCount >= 1) {
+                    newPlayerActive = null;
+                    attackerNeedsToPromote = true;
+                    events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
+                  } else {
+                    newPlayerActive = null;
+                    events.push(createGameEvent("¡Derrota! No tienes más Pokémon", "system"));
+                    events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
+                  }
+                  break; // Attacker KO'd, stop checking further reactions
+                } else {
+                  newPlayerActive = { ...newPlayerActive, currentDamage: newAttackerDamage };
+                }
+              }
             }
           }
         }
@@ -2770,6 +2906,21 @@ export function executeAttack(
         }
       }
 
+      // DestinyBond: set flag on attacker (Gastly) — if KO'd by opponent's attack, attacker is also KO'd
+      if (effect.type === AttackEffectType.DestinyBond && effect.target === AttackTarget.Self && newPlayerActive && !attackerKnockedOut) {
+        newPlayerActive = {
+          ...newPlayerActive,
+          destinyBondActive: true,
+          destinyBondTurn: gameState.turnNumber,
+        };
+        events.push(
+          createGameEvent(
+            `¡${newPlayerActive.pokemon.name} activó Unión de Destino! Si es noqueado por un ataque, el atacante también será noqueado`,
+            "action"
+          )
+        );
+      }
+
       // Aplicar estado sin coinFlip (ej: Ivysaur's Polvo Veneno, Nidoking's Tóxico, Gloom's Foul Odor)
       if (effect.type === AttackEffectType.ApplyStatus && effect.status) {
         const status = effect.status;
@@ -2806,8 +2957,16 @@ export function executeAttack(
         } else {
           // Apply status to the DEFENDER — only if not KO'd (don't transfer to promoted Pokemon)
           if (newOpponentActive && !isKnockedOut) {
+            // DamageAndEffects protection (Agility/Barrier) blocks status effects
+            if (defenderBlocksEffects) {
+              events.push(
+                createGameEvent(
+                  `¡${newOpponentActive.pokemon.name} está protegido y no recibe efectos de estado!`,
+                  "action"
+                )
+              );
             // Check StatusImmunity (Snorlax's Thick Skinned)
-            if (hasStatusImmunity(newOpponentActive)) {
+            } else if (hasStatusImmunity(newOpponentActive)) {
               const immunityPowerName = isPokemonCard(newOpponentActive.pokemon) ? newOpponentActive.pokemon.power?.name || "Piel Gruesa" : "Piel Gruesa";
               events.push(
                 createGameEvent(
@@ -2850,8 +3009,16 @@ export function executeAttack(
     for (const effect of attack.effects) {
       // ForceSwitch: opponent must switch active with a bench Pokemon (Lure, Whirlwind, Ram)
       if (effect.type === AttackEffectType.ForceSwitch && effect.target === AttackTarget.Defender) {
+        // DamageAndEffects protection blocks ForceSwitch
+        if (defenderBlocksEffects) {
+          events.push(
+            createGameEvent(
+              `¡${newOpponentActive?.pokemon.name || defender.pokemon.name} está protegido y no puede ser forzado a cambiar!`,
+              "action"
+            )
+          );
         // Only if opponent has bench Pokemon and wasn't KO'd
-        if (newOpponentActive && !isKnockedOut) {
+        } else if (newOpponentActive && !isKnockedOut) {
           const opponentBench = [...newOpponentBench];
           const hasBench = opponentBench.some(p => p != null);
           if (hasBench) {
@@ -2884,8 +3051,16 @@ export function executeAttack(
 
       // PreventRetreat: defender can't retreat next turn (Acid)
       if (effect.type === AttackEffectType.PreventRetreat && newOpponentActive && !isKnockedOut) {
+        // DamageAndEffects protection blocks PreventRetreat
+        if (defenderBlocksEffects) {
+          events.push(
+            createGameEvent(
+              `¡${newOpponentActive.pokemon.name} está protegido y no se le puede impedir retirarse!`,
+              "action"
+            )
+          );
         // No coinFlip here — the coin flip is on the effect itself, handled in coin flip handler
-        if (!effect.coinFlip) {
+        } else if (!effect.coinFlip) {
           newOpponentActive = {
             ...newOpponentActive,
             retreatPrevented: true,
@@ -2987,6 +3162,32 @@ export function executeAttack(
         }
       }
 
+      // SandAttack: defender must flip coin to attack next turn (Sandshrew's Sand-Attack)
+      if (effect.type === AttackEffectType.SandAttack && effect.target === AttackTarget.Defender) {
+        if (newOpponentActive && !isKnockedOut) {
+          if (defenderBlocksEffects) {
+            events.push(
+              createGameEvent(
+                `¡${newOpponentActive.pokemon.name} está protegido y no es afectado por ${attack.name}!`,
+                "action"
+              )
+            );
+          } else {
+            newOpponentActive = {
+              ...newOpponentActive,
+              mustFlipToAttack: true,
+              mustFlipToAttackTurn: gameState.turnNumber,
+            };
+            events.push(
+              createGameEvent(
+                `¡${newOpponentActive.pokemon.name} deberá lanzar una moneda para atacar en su próximo turno!`,
+                "action"
+              )
+            );
+          }
+        }
+      }
+
       // DeckSearch: Open modal to search deck for Basic Pokemon (Call for Family)
       // Player can browse entire deck and select one valid Basic Pokemon
       if (effect.type === AttackEffectType.DeckSearch && effect.deckSearchFilter) {
@@ -3007,6 +3208,39 @@ export function executeAttack(
           );
         }
       }
+    }
+  }
+
+  // DESTINY BOND: KO the attacker if Destiny Bond was triggered
+  if (destinyBondTriggered && newPlayerActive && !attackerKnockedOut) {
+    attackerKnockedOut = true;
+    events.push(
+      createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por Unión de Destino!`, "action")
+    );
+
+    // Move attacker to discard
+    newPlayerDiscard.push(newPlayerActive.pokemon);
+    newPlayerDiscard.push(...newPlayerActive.attachedEnergy);
+    if (newPlayerActive.attachedTrainers) newPlayerDiscard.push(...newPlayerActive.attachedTrainers);
+    if (newPlayerActive.previousEvolutions) newPlayerDiscard.push(...newPlayerActive.previousEvolutions);
+
+    // Opponent takes a prize for the Destiny Bond KO
+    if (newOpponentPrizes.length > 0) {
+      const prize = newOpponentPrizes.pop()!;
+      newOpponentHand.push(prize);
+      events.push(createGameEvent("El rival tomó un premio por Unión de Destino", "action"));
+    }
+
+    // Player needs to promote from bench
+    const benchPokemonCount = newPlayerBench.filter(p => p != null).length;
+    if (benchPokemonCount >= 1) {
+      newPlayerActive = null;
+      attackerNeedsToPromote = true;
+      events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
+    } else {
+      newPlayerActive = null;
+      events.push(createGameEvent("¡Derrota! No tienes más Pokémon", "system"));
+      events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
     }
   }
 

@@ -52,6 +52,14 @@ export type PokemonInPlay = {
   shiftedType?: EnergyType;
   /** Mirror Move: stores the final damage received from the last attack (set on attack, cleared on endTurn) */
   lastDamageReceived?: number;
+  /** Destiny Bond: if this Pokemon is KO'd by an attack, the attacker is also KO'd. Clears at end of owner's next turn. */
+  destinyBondActive?: boolean;
+  /** Turn number when Destiny Bond was activated (for expiration) */
+  destinyBondTurn?: number;
+  /** Sand-Attack / SmokeScreen: opponent must flip coin to attack. Clears on bench/evolve. */
+  mustFlipToAttack?: boolean;
+  /** Turn number when mustFlipToAttack was set (for expiration) */
+  mustFlipToAttackTurn?: number;
 };
 
 export type GameEvent = {

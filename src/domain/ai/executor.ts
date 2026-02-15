@@ -6,9 +6,9 @@
  */
 
 import type { GameState } from "@/domain/match";
-import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition, executeDeckSearch } from "@/domain/match";
+import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition, executeDeckSearch, applyProtection } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
-import { PokemonStage } from "@/domain/constants";
+import { PokemonStage, ProtectionType } from "@/domain/constants";
 import type { AIAction } from "./types";
 import {
   playBasicToActive,
@@ -97,6 +97,43 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
 
   const attack = attacker.pokemon.attacks[attackIndex];
   if (!attack) return state;
+
+  // Check if attacker must flip to attack (Sand-Attack / SmokeScreen)
+  if (attacker.mustFlipToAttack) {
+    const sandAttackFlip = Math.random() < 0.5 ? "heads" : "tails";
+    const coinToken = `[coin:${sandAttackFlip}]`;
+
+    // Clear mustFlipToAttack regardless of result (it's consumed on attempt)
+    const clearedAttacker = {
+      ...attacker,
+      mustFlipToAttack: undefined,
+      mustFlipToAttackTurn: undefined,
+    };
+
+    if (sandAttackFlip === "tails") {
+      // Tails: attack does nothing
+      return {
+        ...state,
+        opponentActivePokemon: clearedAttacker,
+        events: [
+          ...state.events,
+          createGameEvent(`${attacker.pokemon.name} intenta atacar pero está afectado por Ataque Arena - Moneda: ${coinToken}`, "info"),
+          createGameEvent(`[coin:tails] ¡El ataque no hace nada!`, "action"),
+        ],
+      };
+    } else {
+      // Heads: attack proceeds normally
+      state = {
+        ...state,
+        opponentActivePokemon: clearedAttacker,
+        events: [
+          ...state.events,
+          createGameEvent(`${attacker.pokemon.name} está afectado por Ataque Arena - Moneda: ${coinToken}`, "info"),
+          createGameEvent(`[coin:heads] El ataque procede normalmente`, "info"),
+        ],
+      };
+    }
+  }
 
   // Check if attacker is confused - must flip coin before attacking
   const isConfused = attacker.statusConditions?.includes("confused") ?? false;
@@ -411,6 +448,29 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
         };
       }
     }
+
+    // protection: apply protection via coin flip (e.g., Harden, Agility, Metapod Stiffen, Kakuna Stiffen)
+    // In swapped state: "player" = AI attacker. Protection applies to AI's active (playerActivePokemon)
+    if (coinFlipEffect?.type === "protection" && coinFlipEffect.coinFlip) {
+      const headsCount = coinFlipResults.filter(r => r === "heads").length;
+      if (headsCount > 0 && coinFlipEffect.coinFlip.onHeads === "protection" && resultState.playerActivePokemon) {
+        const protType = (coinFlipEffect as { protectionType?: string }).protectionType as ProtectionType || ProtectionType.DamageOnly;
+        const threshold = coinFlipEffect.amount; // e.g., 30 for Onix Harden
+        resultState = {
+          ...resultState,
+          playerActivePokemon: applyProtection(resultState.playerActivePokemon, protType, state.turnNumber, threshold),
+          events: [
+            ...resultState.events,
+            createGameEvent(
+              threshold !== undefined
+                ? `${resultState.playerActivePokemon.pokemon.name} se endureció — prevendrá daño de ${threshold} o menos`
+                : `¡${resultState.playerActivePokemon.pokemon.name} se protegió! El daño será prevenido durante el próximo turno`,
+              "action"
+            ),
+          ],
+        };
+      }
+    }
   }
 
   // Swap de vuelta
@@ -582,6 +642,10 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
         retreatPreventedOnTurn: undefined,
         modifiedWeakness: undefined,
         modifiedResistance: undefined,
+        destinyBondActive: undefined,
+        destinyBondTurn: undefined,
+        mustFlipToAttack: undefined,
+        mustFlipToAttackTurn: undefined,
       };
       const newBench = [...finalState.playerBench];
       newBench.splice(pickIndex, 1);
@@ -625,6 +689,10 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
         retreatPreventedOnTurn: undefined,
         modifiedWeakness: undefined,
         modifiedResistance: undefined,
+        destinyBondActive: undefined,
+        destinyBondTurn: undefined,
+        mustFlipToAttack: undefined,
+        mustFlipToAttackTurn: undefined,
       };
       const newBench = [...finalState.opponentBench];
       newBench.splice(pickIndex, 1);
