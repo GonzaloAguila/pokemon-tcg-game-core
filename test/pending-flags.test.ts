@@ -37,3 +37,18 @@ describe("endTurn and pending flags", () => {
     expect(after.pendingPeek).toBeUndefined();
   });
 });
+
+describe("endTurn waits for the opponent's promotion", () => {
+  it("Spark Knocks Out the Defending Pokémon and then damages the bench: the turn can't pass until the opponent promotes", () => {
+    const state = makeState({
+      player: { active: inPlay("Pikachu", { set: "jungle" }) },
+      opponent: { active: null, bench: [inPlay("Machop"), inPlay("Abra")] },
+      opponentNeedsToPromote: true,
+      attackedThisTurn: true,
+    });
+    const paused = endTurn(state);
+    expect(paused.isPlayerTurn).toBe(true);
+    expect(paused.turnNumber).toBe(state.turnNumber);
+    expect(paused.checkupDoneOnTurn).toBe(state.turnNumber);
+  });
+});

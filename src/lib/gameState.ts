@@ -1142,6 +1142,69 @@ export function knockOutPlayerActive(state: GameState, prizeMessage: string = "E
 }
 
 /**
+ * Knock out the opponent's Active Pokémon outside an attack (Gengar's Curse moved a damage
+ * counter onto it...). Its cards go to the opponent's discard pile, the player automatically
+ * takes one Prize (none for a Mysterious Fossil / Clefairy Doll), then the opponent must
+ * promote a benched Pokémon (`opponentNeedsToPromote`; the player's turn goes on afterwards)
+ * or loses when nothing is left. Taking the last Prize wins.
+ */
+export function knockOutOpponentActive(state: GameState): GameState {
+  const active = state.opponentActivePokemon;
+  if (!active) return state;
+  const events: GameEvent[] = [...state.events, createGameEvent(`¡${active.pokemon.name} del rival fue noqueado!`, "action")];
+  let playerPrizes = state.playerPrizes;
+  let playerHand = state.playerHand;
+  let tookPrize = false;
+  if (playerPrizes.length > 0 && givesPrizeWhenKnockedOut(active)) {
+    playerHand = [playerPrizes[0], ...playerHand];
+    playerPrizes = playerPrizes.slice(1);
+    tookPrize = true;
+    events.push(createGameEvent(`Se toma 1 premio por noquear a ${active.pokemon.name}`, "action"));
+  }
+  const next: GameState = {
+    ...state,
+    opponentActivePokemon: null,
+    opponentDiscard: [...state.opponentDiscard, ...cardsLeavingPlay(active)],
+    playerPrizes,
+    playerHand,
+    opponentNeedsToPromote: state.opponentBench.length > 0,
+    events,
+  };
+  if (tookPrize && playerPrizes.length === 0) {
+    return {
+      ...next,
+      gameResult: "victory",
+      gamePhase: GamePhase.GameOver,
+      opponentNeedsToPromote: false,
+      events: [
+        ...events,
+        createGameEvent("¡Se tomó el último premio! Fin de la partida", "system"),
+        createGameEvent("Ya puedes salir de la mesa", "info"),
+      ],
+    };
+  }
+  if (next.opponentNeedsToPromote) {
+    return { ...next, events: [...events, createGameEvent("El rival debe elegir un nuevo Pokémon activo", "info")] };
+  }
+  return endGameIfNoPokemonLeft(next);
+}
+
+/**
+ * Knock Outs after an effect that is not an attack moved or placed damage counters (Gengar's
+ * Curse...): both benches (processBenchKnockouts, Prizes taken automatically), then the
+ * opponent's and the player's Active Pokémon (knockOutOpponentActive / knockOutPlayerActive),
+ * then the "no Pokémon left" check. Pure: returns the same object when nothing happened.
+ */
+export function checkKnockouts(state: GameState): GameState {
+  let next = processBenchKnockouts(state);
+  const isOut = (p: PokemonInPlay | null): boolean =>
+    !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= p.pokemon.hp;
+  if (next.gameResult === null && isOut(next.opponentActivePokemon)) next = knockOutOpponentActive(next);
+  if (next.gameResult === null && isOut(next.playerActivePokemon)) next = knockOutPlayerActive(next);
+  return next === state ? state : endGameIfNoPokemonLeft(next);
+}
+
+/**
  * A side with no Active and an empty bench loses (checked after damage that can remove the
  * last Pokémon outside the normal attack flow). Promotion flags of a side with nothing left
  * on the bench are cleared. The "player" side is checked second, like executeAttack.
@@ -1763,8 +1826,9 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     };
   }
 
-  // Si alguien puede tomar premio o promover, no avanzar el turno aún
-  if (playerCanTakePrize || opponentCanTakePrize || updatedState.playerNeedsToPromote) {
+  // Si alguien puede tomar premio o promover, no avanzar el turno aún (either side may still
+  // need a new Active: an attack that Knocked Out the Defending Pokémon with skipDefenderPromotion)
+  if (playerCanTakePrize || opponentCanTakePrize || updatedState.playerNeedsToPromote || updatedState.opponentNeedsToPromote) {
     return {
       ...updatedState,
       playerCanTakePrize,

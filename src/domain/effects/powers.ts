@@ -13,14 +13,24 @@
  * | Heal (Vileplume) | 1 | heads: [[damagedPokemonId]]; tails: [] |
  * | Shift (Venomoth) | – | [[energyType]] |
  * | Peek (Mankey) | – | [["playerDeck"|"opponentDeck"|"opponentHand"|"playerPrize"|"opponentPrize"]] |
+ * | Entrada / Step In (Dragonite, from the Bench, once per turn) | – | [] |
+ * | Maldición / Curse (Gengar, once per turn) | – | [[opponentPokemonWithDamageId], [otherOpponentPokemonId]] |
+ * | Comportamiento Extraño / Strange Behavior (Slowbro, repeatable) | – | [[ownDamagedPokemonId]] |
+ * | Cobardía / Cowardice (Tentacool) | – | [] |
  *
- * Passive powers (Strikes Back, Invisible Wall, Thick Skinned, Retreat Aid) have no entry:
- * the engine applies them (see isPowerActive).
+ * Passive powers (Strikes Back, Invisible Wall, Thick Skinned, Retreat Aid, Toxic Gas,
+ * Prehistoric Power, Transform, Transparency, Kabuto Armor, Clairvoyance) have no entry: the
+ * engine applies them (see isPowerActive).
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
-import { createGameEvent, getEnergyTypeInSpanish } from "@/lib/gameState";
-import { isEnergyCard, isPokemonCard, type PokemonPower } from "@/domain/cards";
+import {
+  checkKnockouts,
+  clearStatusConditionsOnRetreat,
+  createGameEvent,
+  getEnergyTypeInSpanish,
+} from "@/lib/gameState";
+import { cardOutOfPlay, isEnergyCard, isPokemonCard, type PokemonPower } from "@/domain/cards";
 import { EnergyType, PokemonPowerType } from "@/domain/constants";
 import {
   canAttachWithPower,
@@ -110,6 +120,38 @@ function damageRoom(target: PokemonInPlay): number {
 
 function damageSwapTargets(state: GameState, source: PokemonInPlay): PokemonInPlay[] {
   return allOwnPokemon(state).filter((p) => p.pokemon.id !== source.pokemon.id && damageRoom(p) >= 10);
+}
+
+// ---------------------------------------------------------------------------- Curse
+
+function opponentOption(state: GameState, pokemon: PokemonInPlay): SelectionOption {
+  return pokemonOption(pokemon, state.opponentActivePokemon?.pokemon.id === pokemon.pokemon.id ? "Activo rival" : "Banca rival", true);
+}
+
+const isDamaged = (p: PokemonInPlay) => (p.currentDamage ?? 0) > 0;
+
+function opponentPokemon(state: GameState): PokemonInPlay[] {
+  return [state.opponentActivePokemon, ...state.opponentBench].filter((p): p is PokemonInPlay => p != null);
+}
+
+/** Replace one of the opponent's Pokémon (by id) with `updated`. */
+function replaceOpponent(state: GameState, pokemonId: string, updated: PokemonInPlay): GameState {
+  if (state.opponentActivePokemon?.pokemon.id === pokemonId) return { ...state, opponentActivePokemon: updated };
+  return { ...state, opponentBench: state.opponentBench.map((p) => (p?.pokemon.id === pokemonId ? updated : p)) };
+}
+
+// ---------------------------------------------------------------------------- Strange Behavior
+
+/** Damaged Pokémon of the player (other than Slowbro) that can give it a counter. */
+function strangeBehaviorSources(state: GameState, pokemonId: string): PokemonInPlay[] {
+  const slowbro = ownPokemonById(state, pokemonId);
+  if (!slowbro || damageRoom(slowbro) < 10) return [];
+  return allOwnPokemon(state).filter((p) => p.pokemon.id !== pokemonId && isDamaged(p));
+}
+
+/** The player's only Pokémon in play can't leave it (the player would have none). */
+function isOnlyPokemon(state: GameState): boolean {
+  return allOwnPokemon(state).length <= 1;
 }
 
 // ============================================================================
@@ -393,6 +435,155 @@ export const POWER_EFFECTS: Record<string, CardEffectDef> = {
   },
 };
 
+// ============================================================================
+// Fossil
+// ============================================================================
+
+const FOSSIL_POWER_EFFECTS: Record<string, CardEffectDef> = {
+  "Entrada": {
+    canUse: (state, pokemonId) => {
+      const found = findInPlay(state, "player", pokemonId);
+      if (!found || found.location !== "bench") return "Solo puede usarse mientras está en tu Banca";
+      return state.playerActivePokemon ? null : "No tienes Pokémon activo";
+    },
+    getSteps: () => null,
+    resolve: (state, pokemonId) => {
+      const found = findInPlay(state, "player", pokemonId)!;
+      const power = powerOf(state, pokemonId)!;
+      const oldActive = state.playerActivePokemon!;
+      const toBench: PokemonInPlay = { ...clearStatusConditionsOnRetreat(oldActive), modifiedWeakness: undefined, modifiedResistance: undefined };
+      const switched: GameState = {
+        ...state,
+        playerActivePokemon: found.pokemon,
+        playerBench: state.playerBench.map((p, i) => (i === found.benchIndex ? toBench : p)),
+        events: [
+          ...state.events,
+          createGameEvent(`${power.name}: ${found.pokemon.pokemon.name} se cambió con ${oldActive.pokemon.name}`, "action"),
+        ],
+      };
+      return markPowerAsUsed(switched, pokemonId);
+    },
+  },
+
+  "Maldición": {
+    canUse: (state) => {
+      const opponents = opponentPokemon(state);
+      if (opponents.length < 2) return "El rival necesita al menos 2 Pokémon en juego";
+      return opponents.some(isDamaged) ? null : "Ningún Pokémon del rival tiene contadores de daño";
+    },
+    getSteps: (state, _pokemonId, selections) => {
+      const opponents = opponentPokemon(state);
+      if (selections.length === 0) {
+        const sources = opponents.filter(isDamaged);
+        return {
+          title: "Maldición",
+          description: "Elige el Pokémon del rival del que mover 1 contador de daño",
+          options: sources.map((p) => opponentOption(state, p)),
+          maxSelections: 1,
+          thumbnails: sources.map((p) => p.pokemon),
+        };
+      }
+      if (selections.length === 1) {
+        const targets = opponents.filter((p) => p.pokemon.id !== selections[0][0]);
+        return {
+          title: "Maldición",
+          description: "Elige el Pokémon del rival que recibe el contador (puede quedar Fuera de Combate)",
+          options: targets.map((p) => opponentOption(state, p)),
+          maxSelections: 1,
+          thumbnails: targets.map((p) => p.pokemon),
+        };
+      }
+      return null;
+    },
+    resolve: (state, pokemonId, selections) => {
+      const power = powerOf(state, pokemonId)!;
+      const source = findInPlay(state, "opponent", selections[0][0])!.pokemon;
+      const fromSource = replaceOpponent(state, source.pokemon.id, { ...source, currentDamage: (source.currentDamage ?? 0) - 10 });
+      const target = findInPlay(fromSource, "opponent", selections[1][0])!.pokemon;
+      const moved = replaceOpponent(fromSource, target.pokemon.id, { ...target, currentDamage: (target.currentDamage ?? 0) + 10 });
+      const logged: GameState = {
+        ...moved,
+        events: [
+          ...state.events,
+          createGameEvent(`${power.name}: movió 1 contador de daño de ${source.pokemon.name} a ${target.pokemon.name}`, "action"),
+        ],
+      };
+      // "even if it would Knock Out the other Pokémon"
+      return checkKnockouts(markPowerAsUsed(logged, pokemonId));
+    },
+  },
+
+  "Comportamiento Extraño": {
+    canUse: (state, pokemonId) => {
+      const slowbro = ownPokemonById(state, pokemonId);
+      if (slowbro && damageRoom(slowbro) < 10) return `${slowbro.pokemon.name} quedaría Fuera de Combate`;
+      return strangeBehaviorSources(state, pokemonId).length > 0 ? null : "Ninguno de tus otros Pokémon tiene contadores de daño";
+    },
+    getSteps: (state, pokemonId, selections) => {
+      if (selections.length > 0) return null;
+      const sources = strangeBehaviorSources(state, pokemonId);
+      return {
+        title: "Comportamiento Extraño",
+        description: "Elige el Pokémon del que mover 1 contador de daño a Slowbro",
+        options: sources.map((p) => ownOption(state, p, true)),
+        maxSelections: 1,
+        thumbnails: sources.map((p) => p.pokemon),
+      };
+    },
+    resolve: (state, pokemonId, selections) => {
+      const power = powerOf(state, pokemonId)!;
+      const source = ownPokemonById(state, selections[0][0])!;
+      const fromSource = replaceOwn(state, source.pokemon.id, { ...source, currentDamage: (source.currentDamage ?? 0) - 10 });
+      const slowbro = ownPokemonById(fromSource, pokemonId)!;
+      const moved = replaceOwn(fromSource, pokemonId, { ...slowbro, currentDamage: (slowbro.currentDamage ?? 0) + 10 });
+      return {
+        ...moved,
+        events: [
+          ...state.events,
+          createGameEvent(`${power.name}: movió 1 contador de daño de ${source.pokemon.name} a ${slowbro.pokemon.name}`, "action"),
+        ],
+      };
+    },
+  },
+
+  "Cobardía": {
+    canUse: (state, pokemonId) => {
+      const tentacool = ownPokemonById(state, pokemonId);
+      if (!tentacool) return "Debes elegir uno de tus Pokémon en juego";
+      if (tentacool.playedOnTurn === state.turnNumber) return `No puedes usarlo el turno en que pusiste a ${tentacool.pokemon.name} en juego`;
+      if (isOnlyPokemon(state)) return `${tentacool.pokemon.name} es tu único Pokémon en juego`;
+      return null;
+    },
+    getSteps: () => null,
+    resolve: (state, pokemonId) => {
+      const found = findInPlay(state, "player", pokemonId)!;
+      const power = powerOf(state, pokemonId)!;
+      const tentacool = found.pokemon;
+      const discarded = [
+        ...tentacool.attachedEnergy,
+        ...(tentacool.attachedTrainers ?? []),
+        ...(tentacool.previousEvolutions ?? []),
+      ].map(cardOutOfPlay);
+      const isActive = found.location === "active";
+      return {
+        ...state,
+        playerHand: [cardOutOfPlay(tentacool.pokemon), ...state.playerHand],
+        playerDiscard: [...state.playerDiscard, ...discarded],
+        ...(isActive
+          ? { playerActivePokemon: null, playerNeedsToPromote: true }
+          : { playerBench: state.playerBench.filter((_, i) => i !== found.benchIndex) }),
+        events: [
+          ...state.events,
+          createGameEvent(`${power.name}: ${tentacool.pokemon.name} volvió a tu mano`, "action"),
+          ...(isActive ? [createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")] : []),
+        ],
+      };
+    },
+  },
+};
+
+Object.assign(POWER_EFFECTS, FOSSIL_POWER_EFFECTS);
+
 /** Power types whose effect the player activates (each must have a POWER_EFFECTS entry). */
 export const ACTIVATED_POWER_TYPES: readonly PokemonPowerType[] = [
   PokemonPowerType.UnlimitedEnergyAttach,
@@ -403,5 +594,9 @@ export const ACTIVATED_POWER_TYPES: readonly PokemonPowerType[] = [
   PokemonPowerType.HealFlip,
   PokemonPowerType.TypeShift,
   PokemonPowerType.Peek,
+  PokemonPowerType.SwitchFromBench,
+  PokemonPowerType.MoveOpponentDamage,
+  PokemonPowerType.MoveDamageToSelf,
+  PokemonPowerType.ReturnSelfToHand,
 ];
 
