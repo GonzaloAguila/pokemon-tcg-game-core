@@ -102,6 +102,64 @@ export function isHandRevealed(state: GameState, side: "player" | "opponent"): b
   return [otherActive, ...otherBench].some((p) => !!p && !!activePowerOfType(state, p, PokemonPowerType.RevealHand));
 }
 
+// ============================================================================
+// TRANSFORM (Ditto) — derived "effective card"
+// ============================================================================
+
+/** The Active Pokémon facing `pokemon` when `pokemon` is an Active, else undefined. */
+function facingActive(state: GameState, pokemon: PokemonInPlay): PokemonInPlay | null | undefined {
+  const id = pokemon.pokemon.id;
+  if (state.playerActivePokemon?.pokemon.id === id) return state.opponentActivePokemon;
+  if (state.opponentActivePokemon?.pokemon.id === id) return state.playerActivePokemon;
+  return undefined;
+}
+
+/**
+ * Transform (Ditto): the printed card Ditto is a copy of right now, or undefined. Ditto copies
+ * the opposing Active Pokémon while Ditto itself is an Active Pokémon and its power works (not
+ * Asleep/Confused/Paralyzed, no Toxic Gas). The copy is always of the printed card (a Ditto
+ * facing another Ditto is just a Ditto).
+ */
+export function getTransformTarget(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonCard | undefined {
+  if (!state || !isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.Transform) return undefined;
+  const facing = facingActive(state, pokemon);
+  if (!facing || !isPokemonCard(facing.pokemon)) return undefined;
+  if (!isPowerActive(state, pokemon)) return undefined;
+  return facing.pokemon;
+}
+
+/**
+ * The card the engine uses for a Pokémon in play: its own card, or for a transformed Ditto
+ * the Defending Pokémon's card (type, HP, Weakness, Resistance, attacks, Retreat Cost, stage)
+ * keeping Ditto's identity (id, name, number, set) and its Transform power, with
+ * `transformedFrom` = Ditto's card. Consumers use it to show the attacks / HP of a Ditto.
+ * Derived on demand: never store it in the state.
+ */
+export function getEffectivePokemonCard(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonCard | undefined {
+  if (!isPokemonCard(pokemon.pokemon)) return undefined;
+  const target = getTransformTarget(state, pokemon);
+  if (!target) return pokemon.pokemon;
+  const ditto = pokemon.pokemon;
+  return {
+    ...target,
+    id: ditto.id,
+    name: ditto.name,
+    number: ditto.number,
+    set: ditto.set,
+    rarity: ditto.rarity,
+    imageSetVersion: ditto.imageSetVersion,
+    power: ditto.power,
+    evolvesFrom: undefined,
+    trainerCard: undefined,
+    transformedFrom: ditto,
+  };
+}
+
+/** HP of a Pokémon in play right now (a transformed Ditto has the copied HP). */
+export function getEffectiveHp(state: GameState | null | undefined, pokemon: PokemonInPlay): number {
+  return getEffectivePokemonCard(state, pokemon)?.hp ?? 0;
+}
+
 /**
  * Kabuto Armor: damage an attack (even your own) does to this Pokémon — Active or Benched,
  * after Weakness and Resistance — is halved, rounded down to the nearest 10. Returns the

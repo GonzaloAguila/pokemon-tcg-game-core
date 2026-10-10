@@ -30,6 +30,7 @@ import {
   swapSides,
 } from "@/domain/board";
 import type { Side } from "./types";
+import { getEffectivePokemonCard } from "@/domain/powers";
 
 /** Getters para acceder al estado según el lado */
 function getHand(state: GameState, side: Side): GameCard[] {
@@ -258,30 +259,33 @@ export function canKnockOut(
   const defender = getActivePokemon(state, side === "player" ? "opponent" : "player");
 
   if (!attacker || !defender) return false;
-  if (!isPokemonCard(attacker.pokemon) || !isPokemonCard(defender.pokemon)) return false;
+  // Effective cards: a transformed Ditto is a copy of the other Active
+  const attackerCard = getEffectivePokemonCard(state, attacker);
+  const defenderCard = getEffectivePokemonCard(state, defender);
+  if (!attackerCard || !defenderCard) return false;
 
-  const attack = attacker.pokemon.attacks[attackIndex];
+  const attack = attackerCard.attacks[attackIndex];
   if (!attack) return false;
 
   // Check for MirrorMove: damage comes from lastDamageReceived, no weakness/resistance
   const hasMirrorMove = attack.effects?.some(e => e.type === AttackEffectType.MirrorMove);
   if (hasMirrorMove) {
     const mirrorDamage = attacker.lastDamageReceived ?? 0;
-    const defenderRemainingHP = defender.pokemon.hp - (defender.currentDamage || 0);
+    const defenderRemainingHP = defenderCard.hp - (defender.currentDamage || 0);
     return mirrorDamage >= defenderRemainingHP;
   }
 
   // Calcular daño base
-  let damage = estimateBaseDamage(state, side, attacker, defender, attack);
+  let damage = estimateBaseDamage(state, side, { ...attacker, pokemon: attackerCard }, { ...defender, pokemon: defenderCard }, attack);
 
   // Aplicar debilidad
-  const hasWeakness = defender.pokemon.weaknesses?.includes(attacker.pokemon.types[0]) ?? false;
+  const hasWeakness = defenderCard.weaknesses?.includes(attackerCard.types[0]) ?? false;
   if (hasWeakness) {
     damage *= 2;
   }
 
   // Aplicar resistencia
-  const hasResistance = defender.pokemon.resistances?.includes(attacker.pokemon.types[0]) ?? false;
+  const hasResistance = defenderCard.resistances?.includes(attackerCard.types[0]) ?? false;
   if (hasResistance) {
     damage = Math.max(0, damage - 30);
   }
@@ -291,7 +295,7 @@ export function canKnockOut(
     return false;
   }
 
-  const defenderRemainingHP = defender.pokemon.hp - (defender.currentDamage || 0);
+  const defenderRemainingHP = defenderCard.hp - (defender.currentDamage || 0);
   return damage >= defenderRemainingHP;
 }
 
@@ -307,9 +311,11 @@ export function estimateAttackDamage(
   const defender = getActivePokemon(state, side === "player" ? "opponent" : "player");
 
   if (!attacker || !defender) return 0;
-  if (!isPokemonCard(attacker.pokemon) || !isPokemonCard(defender.pokemon)) return 0;
+  const attackerCard = getEffectivePokemonCard(state, attacker);
+  const defenderCard = getEffectivePokemonCard(state, defender);
+  if (!attackerCard || !defenderCard) return 0;
 
-  const attack = attacker.pokemon.attacks[attackIndex];
+  const attack = attackerCard.attacks[attackIndex];
   if (!attack) return 0;
 
   // Check for MirrorMove: damage comes from lastDamageReceived, no weakness/resistance
@@ -318,13 +324,13 @@ export function estimateAttackDamage(
     return attacker.lastDamageReceived ?? 0;
   }
 
-  let damage = estimateBaseDamage(state, side, attacker, defender, attack);
+  let damage = estimateBaseDamage(state, side, { ...attacker, pokemon: attackerCard }, { ...defender, pokemon: defenderCard }, attack);
 
   // Debilidad/resistencia
-  const hasWeakness = defender.pokemon.weaknesses?.includes(attacker.pokemon.types[0]) ?? false;
+  const hasWeakness = defenderCard.weaknesses?.includes(attackerCard.types[0]) ?? false;
   if (hasWeakness) damage *= 2;
 
-  const hasResistance = defender.pokemon.resistances?.includes(attacker.pokemon.types[0]) ?? false;
+  const hasResistance = defenderCard.resistances?.includes(attackerCard.types[0]) ?? false;
   if (hasResistance) damage = Math.max(0, damage - 30);
 
   // Check defender protection (full or threshold-based)
@@ -343,14 +349,15 @@ export function getUsableAttacks(
   side: Side
 ): Array<{ index: number; damage: number; knocksOut: boolean }> {
   const activePokemon = getActivePokemon(state, side);
-  if (!activePokemon || !isPokemonCard(activePokemon.pokemon)) return [];
+  const activeCard = activePokemon ? getEffectivePokemonCard(state, activePokemon) : undefined;
+  if (!activePokemon || !activeCard) return [];
 
   const usableAttacks: Array<{ index: number; damage: number; knocksOut: boolean }> = [];
   // Passing the defender also enforces attack requirements (Dream Eater needs it Asleep)
   const defender = getActivePokemon(state, side === "player" ? "opponent" : "player");
 
-  for (let i = 0; i < activePokemon.pokemon.attacks.length; i++) {
-    if (canUseAttack(activePokemon, i, defender)) {
+  for (let i = 0; i < activeCard.attacks.length; i++) {
+    if (canUseAttack(activePokemon, i, defender, state)) {
       const damage = estimateAttackDamage(state, side, i);
       const knocksOut = canKnockOut(state, side, i);
       usableAttacks.push({ index: i, damage, knocksOut });

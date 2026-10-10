@@ -18,6 +18,7 @@
  */
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
+import { checkKnockouts } from "@/lib/gameState";
 import type { CoinFlipResult } from "@/domain/constants";
 import { isPokemonCard } from "@/domain/cards";
 import { canUsePower } from "@/domain/powers";
@@ -56,7 +57,8 @@ function runEffect(
   const next = def.resolve(state, sourceId, selections, { coinResults: coins });
   // The wrapped legacy functions return the same object when their own checks fail
   if (next === state) throw new IllegalActionError("No se pudo aplicar el efecto");
-  return next;
+  // State-based Knock Outs (e.g. Gust of Wind changed what a transformed Ditto copies)
+  return checkKnockouts(next);
 }
 
 // ============================================================================

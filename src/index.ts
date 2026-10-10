@@ -17,7 +17,7 @@ export type {
   GameEvent,
 } from "./domain/match";
 
-export type { ExecuteAttackOptions, PowerSuppression } from "./lib/gameState";
+export type { ExecuteAttackOptions, PowerSuppression, PendingResolutionOptions } from "./lib/gameState";
 
 export type {
   Card,
@@ -93,6 +93,7 @@ export {
   getEvolutionTargets,
   canDiscardFromPlay,
   discardFromPlay,
+  getEvolutionBlocker,
   evolvePokemonInPlay,
   ENERGY_ATTACH_EFFECTS,
   getTurnActionBlocker,
@@ -135,6 +136,8 @@ export {
   startPlayingPhase,
   advanceToSetup,
   knockOutPlayerActive,
+  knockOutOpponentActive,
+  checkKnockouts,
   endGameIfNoPokemonLeft,
 } from "./lib/gameState";
 

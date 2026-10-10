@@ -21,7 +21,17 @@ import {
   type CoinFlipResult,
 } from "@/domain/constants";
 import { decks, findCardBySetAndNumber, type Deck, type DeckEntry } from "@/domain/decks";
-import { applyDamageHalving, getDamageReaction, getRetreatCostReduction, hasBlockingStatus, hasStatusImmunity, isDamageBlocked } from "@/domain/powers";
+import {
+  applyDamageHalving,
+  getDamageReaction,
+  getEffectiveHp,
+  getEffectivePokemonCard,
+  getRetreatCostReduction,
+  hasBlockingStatus,
+  hasStatusImmunity,
+  isDamageBlocked,
+  isPowerActive,
+} from "@/domain/powers";
 import { getTurnActionBlocker } from "@/domain/board";
 import { assertLegal } from "@/shared/errors";
 
@@ -564,7 +574,8 @@ export function getTotalEnergyValue(cards: GameCard[]): number {
 export function hasEnoughEnergyToRetreat(pokemon: PokemonInPlay, bench?: PokemonInPlay[], state?: GameState): boolean {
   if (pokemon.pokemon.kind !== CardKind.Pokemon) return false;
 
-  let retreatCost = pokemon.pokemon.retreatCost;
+  // A transformed Ditto has the copied card's Retreat Cost
+  let retreatCost = (state ? getEffectivePokemonCard(state, pokemon)?.retreatCost : undefined) ?? pokemon.pokemon.retreatCost;
   if (bench) {
     retreatCost = Math.max(0, retreatCost - getRetreatCostReduction(bench, state));
   }
@@ -583,7 +594,8 @@ export function hasEnoughEnergyToRetreat(pokemon: PokemonInPlay, bench?: Pokemon
  */
 export function getRetreatCost(pokemon: PokemonInPlay, bench?: PokemonInPlay[], state?: GameState): number {
   if (pokemon.pokemon.kind !== CardKind.Pokemon) return 0;
-  let cost = pokemon.pokemon.retreatCost;
+  // A transformed Ditto has the copied card's Retreat Cost
+  let cost = (state ? getEffectivePokemonCard(state, pokemon)?.retreatCost : undefined) ?? pokemon.pokemon.retreatCost;
   if (bench) {
     cost = Math.max(0, cost - getRetreatCostReduction(bench, state));
   }
@@ -684,14 +696,15 @@ export function executeRetreat(
     ),
   ];
 
-  return {
+  // The new Active may change what a transformed Ditto copies (Knock Out if its new HP is too low)
+  return checkKnockouts({
     ...gameState,
     playerActivePokemon: benchPokemon,
     playerBench: newBench,
     playerDiscard: [...gameState.playerDiscard, ...energiesToDiscard],
     retreatedThisTurn: true,
     events,
-  };
+  });
 }
 
 /** Options of the resolvers of an attack's pending choice (switch, deck search, bench damage...). */
@@ -1197,8 +1210,9 @@ export function knockOutOpponentActive(state: GameState): GameState {
  */
 export function checkKnockouts(state: GameState): GameState {
   let next = processBenchKnockouts(state);
+  // Actives use their current HP (a transformed Ditto's copy changes with the other Active)
   const isOut = (p: PokemonInPlay | null): boolean =>
-    !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= p.pokemon.hp;
+    !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= getEffectiveHp(next, p);
   if (next.gameResult === null && isOut(next.opponentActivePokemon)) next = knockOutOpponentActive(next);
   if (next.gameResult === null && isOut(next.playerActivePokemon)) next = knockOutPlayerActive(next);
   return next === state ? state : endGameIfNoPokemonLeft(next);
@@ -1622,7 +1636,8 @@ export function startPlayingPhase(gameState: GameState, coinFlipResult: "heads" 
 function processStatusEffectsForPokemon(
   pokemon: PokemonInPlay,
   currentTurn: number,
-  isOwnersTurnEnding: boolean
+  isOwnersTurnEnding: boolean,
+  hp: number
 ): { pokemon: PokemonInPlay; events: GameEvent[]; isKnockedOut: boolean } {
   let updated = { ...pokemon };
   const events: GameEvent[] = [];
@@ -1635,7 +1650,7 @@ function processStatusEffectsForPokemon(
     updated.currentDamage = newDamage;
     events.push(createGameEvent(`${updated.pokemon.name} recibe ${poisonDmg} de daño por veneno`, "action"));
 
-    if (updated.pokemon.kind === CardKind.Pokemon && newDamage >= updated.pokemon.hp) {
+    if (updated.pokemon.kind === CardKind.Pokemon && newDamage >= hp) {
       isKnockedOut = true;
       events.push(createGameEvent(`¡${updated.pokemon.name} fue noqueado por veneno!`, "action"));
     }
@@ -1679,6 +1694,10 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   if (gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch || gameState.pendingBenchDamageSelection) {
     return gameState;
   }
+
+  // State-based Knock Outs first (a transformed Ditto whose copy no longer fits its damage)
+  gameState = checkKnockouts(gameState);
+  if (gameState.gameResult !== null) return gameState;
 
   const currentTurn = gameState.turnNumber;
   const isPlayerEndingTurn = gameState.isPlayerTurn;
@@ -1780,7 +1799,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     : updatedState.opponentActivePokemon;
 
   if (ownPokemon && gameResult === null && !checkupAlreadyDone) {
-    const result = processStatusEffectsForPokemon(ownPokemon, currentTurn, true);
+    const result = processStatusEffectsForPokemon(ownPokemon, currentTurn, true, getEffectiveHp(gameState, ownPokemon));
     events.push(...result.events);
 
     if (result.isKnockedOut) {
@@ -1800,7 +1819,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     : updatedState.playerActivePokemon;
 
   if (otherPokemon && gameResult === null && !checkupAlreadyDone) {
-    const result = processStatusEffectsForPokemon(otherPokemon, currentTurn, false);
+    const result = processStatusEffectsForPokemon(otherPokemon, currentTurn, false, getEffectiveHp(gameState, otherPokemon));
     events.push(...result.events);
 
     if (result.isKnockedOut) {
@@ -1824,6 +1843,15 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
       opponentCanTakePrize,
       events,
     };
+  }
+
+  // State-based Knock Outs after the checkup: an auto-promoted Pokémon changed what a transformed
+  // Ditto copies (it can't wait for the next turn: the turn change must leave nothing pending)
+  const swept = checkKnockouts({ ...updatedState, playerCanTakePrize, opponentCanTakePrize, events: [...events] });
+  if (swept.gameResult !== null) return swept;
+  if (swept.events.length !== events.length) {
+    updatedState = { ...swept };
+    events.splice(0, events.length, ...swept.events);
   }
 
   // Si alguien puede tomar premio o promover, no avanzar el turno aún (either side may still
@@ -2267,9 +2295,11 @@ export function meetsAttackRequirements(attack: Attack, defender: PokemonInPlay 
 export function canUseAttack(
   pokemonInPlay: PokemonInPlay,
   attackIndex: number,
-  defender?: PokemonInPlay | null
+  defender?: PokemonInPlay | null,
+  state?: GameState
 ): boolean {
-  const pokemon = pokemonInPlay.pokemon;
+  // With the state, a transformed Ditto uses the copied card's attacks and Energy of any type
+  const pokemon = (state ? getEffectivePokemonCard(state, pokemonInPlay) : undefined) ?? pokemonInPlay.pokemon;
   if (pokemon.kind !== CardKind.Pokemon) return false;
 
   const attack = pokemon.attacks[attackIndex];
@@ -2287,14 +2317,22 @@ export function canUseAttack(
 
   const attachedEnergy = pokemonInPlay.attachedEnergy;
 
+  // Transform (Ditto): any Energy attached counts as Energy of any type
+  if (pokemon.transformedFrom) {
+    const total = getTotalEnergyValue(attachedEnergy);
+    const cards = attachedEnergy.filter((e) => e.kind === CardKind.Energy || e.buzzapEnergyType).length;
+    const discardNeeded = Math.max(0, ...(attack.effects ?? []).map((e) => e.discardCostRequirement?.length ?? 0));
+    return total >= attack.cost.length && cards >= discardNeeded;
+  }
+
   // Check for Energy Burn conversion (all energy treated as one type)
   // Auto-detect from power if not explicitly set (continuous power)
   let energyConversionType = pokemonInPlay.energyConversionType;
   if (!energyConversionType && isPokemonCard(pokemonInPlay.pokemon)) {
     const power = pokemonInPlay.pokemon.power;
     if (power?.type === PokemonPowerType.EnergyConversion && power.energyType) {
-      // Only Asleep/Confused/Paralyzed stop the power (Poison does not)
-      if (!hasBlockingStatus(pokemonInPlay)) {
+      // Only Asleep/Confused/Paralyzed stop the power (Poison does not); with the state, Toxic Gas too
+      if (state ? isPowerActive(state, pokemonInPlay) : !hasBlockingStatus(pokemonInPlay)) {
         energyConversionType = power.energyType;
       }
     }
@@ -2495,9 +2533,10 @@ export function calculateBaseDamage(
       const energyType = effect.extraEnergyType;
       const maxExtra = effect.maxExtraEnergy ?? Infinity;
       if (energyType) {
-        // Count total energy of this type attached
+        // Count total energy of this type attached (a transformed Ditto's Energy is any type)
+        const anyType = isPokemonCard(attacker.pokemon) && !!attacker.pokemon.transformedFrom;
         const totalOfType = attacker.attachedEnergy.filter(
-          e => e.kind === CardKind.Energy && "energyType" in e && e.energyType === energyType
+          e => e.kind === CardKind.Energy && (anyType || ("energyType" in e && e.energyType === energyType))
         ).length;
         // Count how many are required by the attack cost
         const requiredOfType = attack.cost.filter(c => c === energyType).length;
@@ -2554,8 +2593,9 @@ function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack): number {
  */
 export function getAttackCoinFlipCount(state: GameState, attack: number | Attack): number {
   const attacker = state.playerActivePokemon;
-  if (!attacker || attacker.pokemon.kind !== CardKind.Pokemon) return 0;
-  const resolved = typeof attack === "number" ? attacker.pokemon.attacks[attack] : attack;
+  const card = attacker ? getEffectivePokemonCard(state, attacker) : undefined;
+  if (!attacker || !card) return 0;
+  const resolved = typeof attack === "number" ? card.attacks[attack] : attack;
   if (!resolved) return 0;
   return smokescreenCoins(attacker) + coinFlipCountFor(attacker, resolved);
 }
@@ -2591,8 +2631,10 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   const attacker = state.playerActivePokemon;
   const defender = state.opponentActivePokemon;
   if (!attacker || !defender) return "No hay Pokémon para atacar";
-  if (attacker.pokemon.kind !== CardKind.Pokemon) return "Tu Pokémon activo no puede atacar";
-  const attack = attacker.pokemon.attacks[attackIndex];
+  // A transformed Ditto uses the Defending Pokémon's attacks
+  const attackerCard = getEffectivePokemonCard(state, attacker);
+  if (!attackerCard) return "Tu Pokémon activo no puede atacar";
+  const attack = attackerCard.attacks[attackIndex];
   if (!attack) return "Ese ataque no existe";
   const name = attacker.pokemon.name;
   if (hasStatusCondition(attacker, StatusCondition.Asleep)) return `${name} está dormido y no puede atacar`;
@@ -2603,7 +2645,7 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   }
   const isUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (isUseOnce && attacker.usedOnceAttacks?.includes(attack.name)) return `${attack.name} ya fue usado`;
-  if (!canUseAttack(attacker, attackIndex)) return `${name} no tiene la energía necesaria para ${attack.name}`;
+  if (!canUseAttack(attacker, attackIndex, undefined, state)) return `${name} no tiene la energía necesaria para ${attack.name}`;
   const searchesDeck = attack.effects?.some((e) => e.type === AttackEffectType.DeckSearch);
   if (searchesDeck && state.playerBench.filter((p) => p != null).length >= 5) {
     return "Tu banca está llena, no puedes usar este ataque";
@@ -2614,8 +2656,9 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
 /** Index of the Metronome-style (CopyAttack) attack of the player's Active Pokémon, or -1. */
 function copyAttackIndex(state: GameState): number {
   const attacker = state.playerActivePokemon;
-  if (!attacker || attacker.pokemon.kind !== CardKind.Pokemon) return -1;
-  return attacker.pokemon.attacks.findIndex((a) => a.effects?.some((e) => e.type === AttackEffectType.CopyAttack));
+  const card = attacker ? getEffectivePokemonCard(state, attacker) : undefined;
+  if (!card) return -1;
+  return card.attacks.findIndex((a) => a.effects?.some((e) => e.type === AttackEffectType.CopyAttack));
 }
 
 /**
@@ -2629,7 +2672,8 @@ export function canExecuteMetronome(state: GameState, copiedAttack: Attack): str
   const reason = canExecuteAttack(state, index);
   if (reason) return reason;
   const defender = state.opponentActivePokemon!;
-  const copyable = defender.pokemon.kind === CardKind.Pokemon && defender.pokemon.attacks.some((a) => a.name === copiedAttack.name);
+  const defenderCard = getEffectivePokemonCard(state, defender);
+  const copyable = !!defenderCard && defenderCard.attacks.some((a) => a.name === copiedAttack.name);
   if (!copyable) return "Metrónomo solo puede copiar un ataque del Pokémon Defensor";
   if (!meetsAttackRequirements(copiedAttack, defender)) {
     return `No puedes usar ${copiedAttack.name}: el Pokémon defensor no cumple el requisito del ataque`;
@@ -2775,11 +2819,16 @@ function executeAttackUnchecked(
     };
   }
 
-  if (attacker.pokemon.kind !== CardKind.Pokemon || defender.pokemon.kind !== CardKind.Pokemon) {
+  // The cards the rules see: a transformed Ditto is a copy of the other Active (Transform)
+  const attackerCard = getEffectivePokemonCard(gameState, attacker);
+  const defenderCard = getEffectivePokemonCard(gameState, defender);
+  if (!attackerCard || !defenderCard) {
     return gameState;
   }
+  const attackerView: PokemonInPlay = { ...attacker, pokemon: attackerCard };
+  const defenderView: PokemonInPlay = { ...defender, pokemon: defenderCard };
 
-  const printedAttack = attacker.pokemon.attacks[attackIndex];
+  const printedAttack = attackerCard.attacks[attackIndex];
   if (!printedAttack) return gameState;
 
   // Coin flips: in the options form the engine resolves coin effects from the caller's coins.
@@ -2843,7 +2892,7 @@ function executeAttackUnchecked(
   }
 
   // Daño base: printed damage + non-coin-flip damage effects (see calculateBaseDamage)
-  const base = calculateBaseDamage(attacker, defender, attack, gameState.playerBench);
+  const base = calculateBaseDamage(attackerView, defenderView, attack, gameState.playerBench);
   let baseDamage = base.damage;
   const damageMultiplierDescription = base.description;
 
@@ -2877,13 +2926,13 @@ function executeAttackUnchecked(
   // Skip for MirrorMove — the copied damage already had weakness/resistance applied
   const defenderWeaknesses = defender.modifiedWeakness
     ? [defender.modifiedWeakness]
-    : (defender.pokemon.weaknesses ?? []);
+    : (defenderCard.weaknesses ?? []);
   const defenderResistances = defender.modifiedResistance
     ? [defender.modifiedResistance]
-    : (defender.pokemon.resistances ?? []);
+    : (defenderCard.resistances ?? []);
 
   // Use shiftedType (Venomoth Shift) if available, otherwise use original type
-  const attackerType = attacker.shiftedType || attacker.pokemon.types[0];
+  const attackerType = attacker.shiftedType || attackerCard.types[0];
   const hasWeakness = !isMirrorMove && defenderWeaknesses.includes(attackerType);
   const hasResistance = !isMirrorMove && defenderResistances.includes(attackerType);
 
@@ -2947,7 +2996,7 @@ function executeAttackUnchecked(
 
   // Aplicar daño al defensor
   const newDamage = (defender.currentDamage || 0) + effectiveDamage;
-  const defenderHP = defender.pokemon.hp;
+  const defenderHP = defenderCard.hp;
 
   // Crear eventos
   const events: GameEvent[] = [...gameState.events];
@@ -3173,7 +3222,7 @@ function executeAttackUnchecked(
         }
 
         // Verificar si el atacante se noqueó
-        if (newPlayerActive.pokemon.kind === CardKind.Pokemon && newSelfDamage >= newPlayerActive.pokemon.hp) {
+        if (newSelfDamage >= attackerCard.hp) {
           attackerKnockedOut = true;
           events.push(
             createGameEvent(`¡${newPlayerActive.pokemon.name} se noqueó a sí mismo!`, "action")
@@ -3196,9 +3245,7 @@ function executeAttackUnchecked(
         const target = effect.benchTarget;
 
         // Chain Lightning: use original defender types (not newOpponentActive which may be promoted replacement)
-        const defenderTypes = isPokemonCard(defender.pokemon)
-          ? defender.pokemon.types
-          : [];
+        const defenderTypes = defenderCard.types;
         if (effect.skipIfColorless && defenderTypes.includes(EnergyTypeEnum.Colorless)) {
           // Effect does nothing against Colorless defenders
         } else {
@@ -3342,7 +3389,7 @@ function executeAttackUnchecked(
                   )
                 );
 
-                if (newPlayerActive.pokemon.kind === CardKind.Pokemon && newAttackerDamage >= newPlayerActive.pokemon.hp) {
+                if (newAttackerDamage >= attackerCard.hp) {
                   attackerKnockedOut = true;
                   events.push(
                     createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por el contraataque de ${benchPokemon.pokemon.name}!`, "action")
@@ -3919,7 +3966,7 @@ function executeAttackUnchecked(
       );
 
       // Verificar si el atacante es noqueado por el contraataque
-      if (newPlayerActive.pokemon.kind === CardKind.Pokemon && newAttackerDamage >= newPlayerActive.pokemon.hp) {
+      if (newAttackerDamage >= attackerCard.hp) {
         attackerKnockedOut = true;
         events.push(
           createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por el contraataque!`, "action")
@@ -4076,8 +4123,12 @@ function executeAttackUnchecked(
     opponentNeedsToPromote: opponentNeedsToPromote,
   };
 
+  // Knock Outs the attack caused indirectly: a transformed Ditto whose copy changed (new
+  // Defending Pokémon) or that stopped being a copy (Asleep...) with damage >= its new HP
+  stateAfterAttack = checkKnockouts(stateAfterAttack);
+
   // No terminar el turno si el juego terminó o si el jugador puede tomar premio
-  if (gameResult !== null) {
+  if (stateAfterAttack.gameResult !== null) {
     return stateAfterAttack;
   }
 
@@ -4147,7 +4198,8 @@ export function resolveConfusionFlip(
   events.push(createGameEvent(`${name} se hizo ${CONFUSION_SELF_DAMAGE} de daño a sí mismo`, "action"));
 
   const newDamage = (active.currentDamage ?? 0) + CONFUSION_SELF_DAMAGE;
-  const knockedOut = active.pokemon.kind === CardKind.Pokemon && newDamage >= active.pokemon.hp;
+  // A confused Ditto isn't a copy: its own HP
+  const knockedOut = active.pokemon.kind === CardKind.Pokemon && newDamage >= getEffectiveHp(state, active);
 
   if (!knockedOut) {
     const damaged: GameState = {
@@ -4257,10 +4309,14 @@ export function executeMetronome(
   };
 
   // Crear un estado temporal con un Pokémon que tenga el ataque de Metronomo
+  // A transformed Ditto uses Metronome as the copied card (its type, HP...); the temporary card
+  // drops Transform so the copy isn't recomputed from the attack below
+  const attackerCard = getEffectivePokemonCard(gameState, attacker) ?? (attacker.pokemon as PokemonCard);
   const tempAttacker: PokemonInPlay = {
     ...attacker,
     pokemon: {
-      ...attacker.pokemon,
+      ...attackerCard,
+      ...(attackerCard.transformedFrom && { power: undefined }),
       attacks: [metronomeAttack], // Reemplazar ataques con el ataque copiado
     } as PokemonCard,
   };
@@ -4418,21 +4474,22 @@ export function promoteActivePokemon(
     ),
   ];
 
+  // The new Active may change what a transformed Ditto copies (Knock Out if its new HP is too low)
   if (isPlayer) {
-    return {
+    return checkKnockouts({
       ...gameState,
       playerActivePokemon: pokemonToPromote,
       playerBench: newBench,
       playerNeedsToPromote: false,
       events,
-    };
+    });
   } else {
-    return {
+    return checkKnockouts({
       ...gameState,
       opponentActivePokemon: pokemonToPromote,
       opponentBench: newBench,
       opponentNeedsToPromote: false,
       events,
-    };
+    });
   }
 }

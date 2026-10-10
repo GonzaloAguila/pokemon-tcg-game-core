@@ -53,6 +53,7 @@ import {
   type SelectionStep,
 } from "@/domain/effects";
 import { decideOpponentTurn, decideOpponentSetup, executeAIAction, type AIAction } from "@/domain/ai";
+import { getEffectivePokemonCard } from "@/domain/powers";
 import { swapSides } from "@/domain/board";
 import { flipCoin, pick, pickSome, randomInt, shuffled, type Rng } from "./rng";
 
@@ -184,12 +185,10 @@ export function attackAction(attackIndex: number, rng: Rng): ViewAction {
         if (!confusion.canAttack) return confusion.state;
         state = confusion.state;
       }
-      const attack = isPokemonCard(active.pokemon) ? active.pokemon.attacks[attackIndex] : undefined;
+      const attack = getEffectivePokemonCard(state, active)?.attacks[attackIndex];
       if (attack && isCopyAttack(attack)) {
         const defender = state.opponentActivePokemon!;
-        const copyable = isPokemonCard(defender.pokemon)
-          ? defender.pokemon.attacks.filter((a) => canExecuteMetronome(state, a) === null)
-          : [];
+        const copyable = (getEffectivePokemonCard(state, defender)?.attacks ?? []).filter((a) => canExecuteMetronome(state, a) === null);
         if (copyable.length === 0) return endTurn({ ...state, attackedThisTurn: true }, true);
         const copied = pick(rng, copyable);
         const coins = flipFor(getAttackCoinFlipCount(state, copied), rng);
@@ -257,8 +256,9 @@ export function legalActions(view: GameState, rng: Rng, answer: (step: Selection
   const retreat = retreatAction(view, rng);
   if (retreat) add("retreat", retreat);
   const active = view.playerActivePokemon;
-  if (active && isPokemonCard(active.pokemon)) {
-    active.pokemon.attacks.forEach((_, index) => {
+  const activeCard = active ? getEffectivePokemonCard(view, active) : undefined;
+  if (activeCard) {
+    activeCard.attacks.forEach((_, index) => {
       if (canExecuteAttack(view, index) === null) add("attack", attackAction(index, rng));
     });
   }

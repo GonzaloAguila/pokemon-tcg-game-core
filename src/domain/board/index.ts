@@ -10,6 +10,7 @@
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import {
   createGameEvent,
+  checkKnockouts,
   canEvolveInto,
   findValidEvolutionTargets,
   getEnergyTypeInSpanish,
@@ -333,7 +334,8 @@ export function evolvePokemonCard(state: GameState, evolutionCardId: string, tar
   const target = findInPlay(state, "player", targetPokemonId)!;
   const evolved = evolvePokemonInPlay(target.pokemon, card, state.turnNumber);
 
-  return {
+  // The evolved Active may change what a transformed Ditto copies (checkKnockouts)
+  return checkKnockouts({
     ...state,
     playerHand: state.playerHand.filter((c) => c.id !== evolutionCardId),
     ...(target.location === "active"
@@ -343,5 +345,5 @@ export function evolvePokemonCard(state: GameState, evolutionCardId: string, tar
       ...state.events,
       createGameEvent(`${target.pokemon.pokemon.name} evolucionó a ${card.name}`, "action"),
     ],
-  };
+  });
 }

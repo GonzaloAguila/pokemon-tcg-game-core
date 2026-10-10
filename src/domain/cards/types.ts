@@ -163,6 +163,12 @@ export type PokemonCard = CardBase & {
    * again as soon as it leaves play (discard, hand, deck).
    */
   trainerCard?: TrainerCard;
+  /**
+   * Only on a derived "effective card" (never stored in the state): Ditto's printed card when
+   * this card is Ditto transformed into the Defending Pokémon (getEffectivePokemonCard). Its
+   * Energy counts as Energy of any type.
+   */
+  transformedFrom?: PokemonCard;
 };
 
 export type EnergyCard = CardBase & {
