@@ -28,7 +28,7 @@ describe("registry coverage", () => {
       (name) => !TRAINER_EFFECTS[name] && !UNSUPPORTED_TRAINERS.includes(name) && !isPlayedAsBasic(name)
     );
     expect(missing).toEqual([]);
-    expect(UNSUPPORTED_TRAINERS).toEqual(["Mr. Fuji", "Energy Search", "Gambler", "Recycle"]);
+    expect(UNSUPPORTED_TRAINERS).toEqual([]);
     expect(isPlayedAsBasic("Mysterious Fossil") && isPlayedAsBasic("Clefairy Doll")).toBe(true);
   });
 

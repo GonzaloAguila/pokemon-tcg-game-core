@@ -6,7 +6,7 @@
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { GamePhase } from "@/domain/constants";
 import { isPokemonCard } from "@/domain/cards";
-import { getEffectiveHp } from "@/domain/powers";
+import { getEffectiveHp, isAwaitingTransformTarget } from "@/domain/powers";
 
 /** Ids of every card a side owns, wherever it is (Buzzap energy counts as its Electrode). */
 export function ownedCardIds(state: GameState, side: "player" | "opponent"): string[] {
@@ -75,7 +75,7 @@ export function checkInvariants(state: GameState, context: InvariantContext): st
     if (damage < 0 || damage % 10 !== 0) problems.push(`${where} ${p.pokemon.name} has damage ${damage}`);
     if (!isPokemonCard(p.pokemon)) {
       problems.push(`${where} is not a Pokémon card (${p.pokemon.name})`);
-    } else if (damage >= getEffectiveHp(state, p) && state.gamePhase !== GamePhase.GameOver) {
+    } else if (damage >= getEffectiveHp(state, p) && state.gamePhase !== GamePhase.GameOver && !isAwaitingTransformTarget(state, p)) {
       problems.push(`${where} ${p.pokemon.name} has ${damage} damage >= ${getEffectiveHp(state, p)} HP and is still in play`);
     }
   }

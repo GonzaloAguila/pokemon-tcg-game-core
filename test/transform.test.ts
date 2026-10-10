@@ -133,3 +133,18 @@ describe("Transform: Knock Out when the copy's HP drops below Ditto's damage", (
     expect(next.opponentDiscard.some((c) => c.name === "Ditto")).toBe(true);
   });
 });
+
+describe("Transform while the other side has no Active", () => {
+  it("is not Knocked Out while waiting for the new Defending Pokémon; the HP check happens after the promotion", async () => {
+    const { resolveConfusionFlip } = await import("@/lib/gameState");
+    const lapras = inPlay("Lapras", { set: "fossil", damage: 70, statuses: [StatusCondition.Confused] });
+    const d = ditto({ damage: 70 });
+    const state = makeState({ player: { active: lapras, bench: [inPlay("Abra")] }, opponent: { active: d } });
+    const flipped = resolveConfusionFlip(state, false).state; // tails: Lapras Knocks itself Out
+    expect(flipped.playerActivePokemon).toBeNull();
+    expect(flipped.opponentActivePokemon!.pokemon.name).toBe("Ditto");
+    const promoted = promoteActivePokemon(flipped, 0, true); // Abra (30 HP) is the new copy
+    expect(promoted.opponentActivePokemon).toBeNull();
+    expect(promoted.opponentDiscard.some((c) => c.name === "Ditto")).toBe(true);
+  });
+});

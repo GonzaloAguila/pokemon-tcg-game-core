@@ -20,15 +20,19 @@
  * | Pokédex | [[new order of the top cards as "0".."n-1"]] |
  * | Revive | [[discardBasicId]] · Pokémon Flute: [[opponentDiscardBasicId]] |
  * | Bill, Professor Oak, Imposter Professor Oak, Lass, PlusPower, Full Heal, Pokémon Center | [] |
+ * | Mr. Fuji (Fossil) | [[benchPokemonId]] |
+ * | Energy Search (Fossil) | [[deckBasicEnergyId]] (no step when the deck has none) |
+ * | Gambler (Fossil) | 1 coin; [] |
+ * | Recycle (Fossil) | 1 coin; heads (and a non-empty discard pile): [[discardCardId]] |
  *
  * Mysterious Fossil and Clefairy Doll have no entry: they are played as Basic Pokémon
  * (playBasicPokemon; see isPlayedAsBasic).
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
-import { getEnergyTypeInSpanish } from "@/lib/gameState";
+import { createGameEvent, drawCard, getEnergyTypeInSpanish, shuffle } from "@/lib/gameState";
 import { ALL_CARDS } from "@/domain/catalog";
-import { isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
+import { cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { CardKind, PokemonStage } from "@/domain/constants";
 import { MAX_BENCH_SIZE, findInPlay, getEvolutionBlocker } from "@/domain/board";
 import {
@@ -656,13 +660,141 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  * Trainer cards in the catalog that are intentionally NOT playable yet. Every other Trainer
  * in ALL_CARDS must have a TRAINER_EFFECTS entry (enforced by a test).
  */
-export const UNSUPPORTED_TRAINERS: readonly string[] = [
-  // Fossil: implemented in the next commits
-  "Mr. Fuji",
-  "Energy Search",
-  "Gambler",
-  "Recycle",
-];
+export const UNSUPPORTED_TRAINERS: readonly string[] = [];
+
+// ============================================================================
+// Fossil
+// ============================================================================
+
+/** The Trainer leaves the hand for the discard pile (after its effect). */
+function discardPlayed(state: GameState, cardId: string, message: string): GameState {
+  const card = state.playerHand.find((c) => c.id === cardId)!;
+  return {
+    ...state,
+    playerHand: state.playerHand.filter((c) => c.id !== cardId),
+    playerDiscard: [...state.playerDiscard, card],
+    events: [...state.events, createGameEvent(message, "action")],
+  };
+}
+
+function drawCards(state: GameState, count: number): { state: GameState; drawn: number } {
+  let deck = state.playerDeck;
+  let hand = state.playerHand;
+  let drawn = 0;
+  for (let i = 0; i < count; i++) {
+    const result = drawCard(deck, hand);
+    if (!result.success) break;
+    deck = result.newDeck;
+    hand = result.newHand;
+    drawn++;
+  }
+  return { state: { ...state, playerDeck: deck, playerHand: hand }, drawn };
+}
+
+Object.assign(TRAINER_EFFECTS, {
+  "Mr. Fuji": singleStep(
+    (state) => {
+      const bench = state.playerBench.filter((p): p is PokemonInPlay => p != null);
+      return {
+        title: "Mr. Fuji",
+        description: "Elige un Pokémon de tu Banca: se baraja en tu mazo con todas sus cartas",
+        options: bench.map((p) => pokemonOption(p, "Banca")),
+        maxSelections: 1,
+        thumbnails: bench.map((p) => p.pokemon),
+        disableAutoSelect: true,
+      };
+    },
+    (state) => (state.playerBench.some((p) => p != null) ? null : "No tienes Pokémon en la Banca"),
+    (state, cardId, [pokemonId]) => {
+      const index = state.playerBench.findIndex((p) => p?.pokemon.id === pokemonId);
+      const target = state.playerBench[index];
+      const played = discardPlayed(state, cardId, "Jugaste Mr. Fuji");
+      return {
+        ...played,
+        playerBench: state.playerBench.filter((_, i) => i !== index),
+        playerDeck: shuffle([...state.playerDeck, ...cardsLeavingPlay(target)]),
+        events: [...played.events, createGameEvent(`${target.pokemon.name} y sus cartas se barajaron en tu mazo`, "info")],
+      };
+    }
+  ),
+
+  "Energy Search": {
+    canUse: (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length > 0) return null;
+      const basics = state.playerDeck.filter(isBasicEnergy);
+      if (basics.length === 0) return null;
+      return {
+        title: "Energy Search",
+        description: "Elige una carta de Energía básica de tu mazo",
+        options: basics.map(energyOption),
+        maxSelections: 1,
+        cards: basics,
+      };
+    },
+    resolve: (state, cardId, selections) => {
+      const chosenId = selections[0]?.[0];
+      const found = chosenId ? state.playerDeck.find((c) => c.id === chosenId) : undefined;
+      const played = discardPlayed(state, cardId, "Jugaste Energy Search");
+      return {
+        ...played,
+        playerHand: found ? [found, ...played.playerHand] : played.playerHand,
+        playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== chosenId)),
+        events: [
+          ...played.events,
+          createGameEvent(found ? `Tomaste ${energyOption(found).label} de tu mazo` : "No había Energía básica en tu mazo", "info"),
+          createGameEvent("Se mezcló el mazo", "info"),
+        ],
+      };
+    },
+  },
+
+  "Gambler": {
+    canUse: () => null,
+    coinFlips: () => 1,
+    getSteps: () => null,
+    resolve: (state, cardId, _selections, { coinResults }) => {
+      const heads = coinResults?.[0] === "heads";
+      const played = discardPlayed(state, cardId, "Jugaste Gambler");
+      const shuffled: GameState = { ...played, playerDeck: shuffle([...played.playerDeck, ...played.playerHand]), playerHand: [] };
+      const { state: drew, drawn } = drawCards(shuffled, heads ? 8 : 1);
+      return {
+        ...drew,
+        events: [
+          ...drew.events,
+          createGameEvent(`Barajaste tu mano en tu mazo - Moneda: [coin:${heads ? "heads" : "tails"}]`, "info"),
+          createGameEvent(`Robaste ${drawn} carta${drawn === 1 ? "" : "s"}`, "info"),
+        ],
+      };
+    },
+  },
+
+  "Recycle": {
+    canUse: () => null,
+    coinFlips: () => 1,
+    getSteps: (state, _cardId, selections, coinResults) => {
+      if (coinResults?.[0] !== "heads" || selections.length > 0 || state.playerDiscard.length === 0) return null;
+      return {
+        title: "Recycle",
+        description: "Elige una carta de tu pila de descartes para ponerla encima de tu mazo",
+        options: state.playerDiscard.map(cardOption),
+        maxSelections: 1,
+        cards: state.playerDiscard,
+      };
+    },
+    resolve: (state, cardId, selections, { coinResults }) => {
+      const heads = coinResults?.[0] === "heads";
+      const chosen = heads ? state.playerDiscard.find((c) => c.id === selections[0]?.[0]) : undefined;
+      const withoutChosen: GameState = chosen
+        ? { ...state, playerDiscard: state.playerDiscard.filter((c) => c.id !== chosen.id), playerDeck: [chosen, ...state.playerDeck] }
+        : state;
+      const played = discardPlayed(withoutChosen, cardId, `Jugaste Recycle - Moneda: [coin:${heads ? "heads" : "tails"}]`);
+      return chosen
+        ? { ...played, events: [...played.events, createGameEvent(`Pusiste ${chosen.name} encima de tu mazo`, "info")] }
+        : played;
+    },
+  },
+} satisfies Record<string, CardEffectDef>);
 
 /**
  * Trainers printed "play this card as if it were a Basic Pokémon" (`playsAsBasic`: Mysterious

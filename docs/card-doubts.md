@@ -49,3 +49,8 @@ Each entry: card, the question, what was implemented meanwhile. Agents append he
 - **Leech Life — Venonat (JU #63) fix**: healed a fixed 10; it now heals the damage actually done (after W/R; 0 if prevented), like Golbat/Zubat.
 - **Mega Drain (Butterfree, JU #33)**: the printed card most likely says "(rounded up to the nearest 10)" like Absorb; the engine still rounds down (no source data for Jungle here). Kept; please confirm.
 - **Agility-type protection vs Hurricane (Pidgeot, JU #8)**: fixed on the way — "prevent all effects of attacks" now also stops the return to the hand (it used to happen).
+- **Transform while the other side has no Active** (after a Knock Out, before the promotion): Ditto is a plain Ditto meanwhile but is not Knocked Out by the HP change; the check runs once the new Active is promoted (and then uses the new copy).
+- **Energy Search (FO #59)**: refused only with an empty deck; with no basic Energy in the deck it is played and finds nothing (the deck is shuffled). When there is one, picking it is required (no "fail to find").
+- **Recycle (FO #61)**: any card of the discard pile (Energy included); playable with an empty discard pile (the coin is still flipped).
+- **Gambler (FO #60)**: the Gambler itself is not shuffled in (it goes to the discard pile); with a short deck you draw what is left.
+- **Mr. Fuji (FO #58)**: a Mysterious Fossil under a Kabuto goes back into the deck as the Trainer card.

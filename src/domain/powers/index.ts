@@ -155,6 +155,16 @@ export function getEffectivePokemonCard(state: GameState | null | undefined, pok
   };
 }
 
+/**
+ * A Ditto (Transform) Active while the other side has no Active (Knocked Out, waiting for the
+ * promotion): it is just a Ditto meanwhile, but it is not Knocked Out for that — the HP check
+ * waits for the new Defending Pokémon (checkKnockouts after the promotion).
+ */
+export function isAwaitingTransformTarget(state: GameState, pokemon: PokemonInPlay): boolean {
+  if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.Transform) return false;
+  return facingActive(state, pokemon) === null;
+}
+
 /** HP of a Pokémon in play right now (a transformed Ditto has the copied HP). */
 export function getEffectiveHp(state: GameState | null | undefined, pokemon: PokemonInPlay): number {
   return getEffectivePokemonCard(state, pokemon)?.hp ?? 0;

@@ -29,6 +29,7 @@ import {
   getRetreatCostReduction,
   hasBlockingStatus,
   hasStatusImmunity,
+  isAwaitingTransformTarget,
   isDamageBlocked,
   isPowerActive,
 } from "@/domain/powers";
@@ -1242,7 +1243,8 @@ export function checkKnockouts(state: GameState): GameState {
   let next = processBenchKnockouts(state);
   // Actives use their current HP (a transformed Ditto's copy changes with the other Active)
   const isOut = (p: PokemonInPlay | null): boolean =>
-    !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= getEffectiveHp(next, p);
+    !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= getEffectiveHp(next, p) &&
+    !isAwaitingTransformTarget(next, p);
   if (next.gameResult === null && isOut(next.opponentActivePokemon)) next = knockOutOpponentActive(next);
   if (next.gameResult === null && isOut(next.playerActivePokemon)) next = knockOutPlayerActive(next);
   return next === state ? state : endGameIfNoPokemonLeft(next);

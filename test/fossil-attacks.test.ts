@@ -351,3 +351,12 @@ describe("Metronome copying a Fossil attack", () => {
     expect(next.opponentActivePokemon!.currentDamage).toBe(10);
   });
 });
+
+describe("Agility-type protection stops every effect, Hurricane's return to the hand included (fix)", () => {
+  it("Pidgeot's Hurricane does nothing to a Raichu protected by Agility", () => {
+    const raichu = inPlay("Raichu", { protection: { type: "damageAndEffects", expiresAfterTurn: 9 } });
+    const next = attack(vs(inPlay("Pidgeot", { set: "jungle" }), raichu), "Huracán");
+    expect(next.opponentActivePokemon?.pokemon.name).toBe("Raichu");
+    expect(next.opponentHand).toEqual([]);
+  });
+});
