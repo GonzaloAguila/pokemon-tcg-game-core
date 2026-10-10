@@ -6,10 +6,10 @@ Pure TypeScript engine for **Nostalgic TCG** (classic Pokémon TCG: Base Set 102
 
 | Repo | How it consumes this package |
 |------|------------------------------|
-| `pokemon-tcg` (Next.js frontend) | From GitHub Packages (`^0.4.x` in package.json). Runs the engine locally for single-player vs AI. |
-| `pokemon-tcg-api` (Express + Socket.io) | `"file:../pokemon-tcg-game-core"` — runs whatever is built here, published or not. Authoritative for multiplayer. |
+| `pokemon-tcg` (Next.js frontend) | GitHub Packages, exact version. Runs the engine in the browser for single-player vs AI. |
+| `pokemon-tcg-api` (Express + Socket.io) | GitHub Packages, exact version. Authoritative for multiplayer. |
 
-Because of this, single-player and multiplayer can run different engine versions. After changing the engine: build, publish, bump the frontend, and redeploy the API.
+Both must pin the SAME version, otherwise single-player and multiplayer run different rules. After changing the engine: build, `npm version patch`, publish, then bump both consumers and redeploy the API.
 
 ## Commands
 
@@ -64,4 +64,3 @@ Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ER
 - RNG is `Math.random` everywhere (shuffle, checkups, IDs, AI flips) — not seedable, so no deterministic tests or replays. `state.events` grows unbounded.
 - AI is greedy: never retreats, never uses powers, only plays Bill/Potion/PlusPower (inline copies). `strategy.ts` has `console.log`s.
 - Jungle cards: only 4/48 verified against the real card text.
-- 5 commits after `v0.4.32` are unpublished (API runs them, frontend doesn't).
