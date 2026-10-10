@@ -145,6 +145,26 @@ export type GameState = {
       basicOnly: true;
     };
   };
+  /**
+   * TypeShift (Venomoth Shift power): the player is choosing a type. Optional power UI:
+   * it does NOT block endTurn (ending the turn cancels it). Kept in sync with domain/match/types.ts.
+   */
+  pendingTypeShift?: {
+    /** Pokemon ID that will receive the type change */
+    pokemonId: string;
+    /** Available types to choose from (types of all Pokemon in play, excluding colorless) */
+    availableTypes: EnergyType[];
+  };
+  /**
+   * Peek (Mankey power): result being shown to the player. Informational only:
+   * it does NOT block endTurn (ending the turn clears it).
+   */
+  pendingPeek?: {
+    /** What was peeked at */
+    peekType: "playerDeck" | "opponentDeck" | "opponentHand" | "playerPrize" | "opponentPrize";
+    /** The card(s) that were peeked */
+    revealedCards: GameCard[];
+  };
   /** BenchDamage: player needs to select bench Pokemon to receive damage */
   pendingBenchDamageSelection?: {
     /** Amount of damage to deal to each selected Pokemon */
@@ -1415,7 +1435,10 @@ function processStatusEffectsForPokemon(
 }
 
 export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = false): GameState {
-  // Block turn end if there's a pending switch, deck search, or bench damage selection
+  // Block turn end while an ATTACK is still resolving (switch, deck search, bench damage selection).
+  // pendingTypeShift / pendingPeek are optional Pokémon Power prompts opened during the turn:
+  // they never block (blocking would deadlock a closed modal or a client that never sends
+  // clearPeek) and are discarded below so they can't leak into the next turn.
   if (gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch || gameState.pendingBenchDamageSelection) {
     return gameState;
   }
@@ -1426,7 +1449,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   const newTurnNumber = currentTurn + 1;
   const events: GameEvent[] = [...gameState.events];
 
-  let updatedState = { ...gameState };
+  let updatedState: GameState = { ...gameState, pendingTypeShift: undefined, pendingPeek: undefined };
 
   // Variables para trackear KO y premios
   let gameResult: GameResult = null;
