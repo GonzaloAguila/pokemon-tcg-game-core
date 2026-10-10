@@ -63,7 +63,38 @@ export {
   isEnergyCard,
   isTrainerCard,
   isBasicEnergy,
+  isPlayableAsBasic,
 } from "./domain/cards";
+
+// =============================================================================
+// Errors (thrown by actions called when their canX query says no)
+// =============================================================================
+
+export { IllegalActionError, assertLegal } from "./shared/errors";
+
+// =============================================================================
+// Board actions (engine-owned: put Basics into play, attach Energy, evolve)
+// =============================================================================
+
+export type { BoardPosition, OnAttachFromHand, InPlayLocation } from "./domain/board";
+export {
+  canPlayBasicPokemon,
+  playBasicPokemon,
+  canAttachEnergy,
+  attachEnergyCard,
+  canEvolve,
+  evolvePokemonCard,
+  getEvolutionTargets,
+  evolvePokemonInPlay,
+  ENERGY_ATTACH_EFFECTS,
+  getTurnActionBlocker,
+  isSetupPhase,
+  findInPlay,
+  findOwnPokemon,
+  allOwnPokemon,
+  MAX_BENCH_SIZE,
+  swapSides,
+} from "./domain/board";
 
 // =============================================================================
 // Game Engine (lib/gameState.ts)

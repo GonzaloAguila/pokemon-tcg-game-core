@@ -150,6 +150,12 @@ export type TrainerCard = CardBase & {
   kind: "trainer";
   trainerType: TrainerType;
   effect: string;
+  /**
+   * "Play this card as if it were a Basic Pokémon" (Mysterious Fossil, Clefairy Doll):
+   * it can be placed as Active/Benched like a Basic (see isPlayableAsBasic). Only set it
+   * on a card whose in-play rules (HP, no retreat, prizes...) are implemented.
+   */
+  playsAsBasic?: boolean;
 };
 
 export type Card = PokemonCard | EnergyCard | TrainerCard;

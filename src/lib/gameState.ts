@@ -1,6 +1,6 @@
 import { getCardImageUrl as getCatalogImageUrl } from "@/domain/catalog";
 import type { Card, ProtectionType, EnergyType, Attack, PokemonCard, AttackEffect } from "@/domain/cards";
-import { isEnergyCard, isPokemonCard } from "@/domain/cards";
+import { isEnergyCard, isPokemonCard, isPlayableAsBasic } from "@/domain/cards";
 import {
   StatusCondition,
   GamePhase,
@@ -349,6 +349,8 @@ export function clearAllStatusConditions(pokemon: PokemonInPlay): PokemonInPlay 
     ...pokemon,
     statusConditions: [],
     paralyzedOnTurn: undefined,
+    // Toxic's 20-damage poison ends with the condition (a later Poison does 10)
+    poisonDamage: undefined,
   };
 }
 
@@ -1321,10 +1323,7 @@ export function startGame(gameState: GameState): GameState {
  * Verifica si hay al menos un Pokémon básico en la mano
  */
 export function hasBasicPokemon(hand: GameCard[]): boolean {
-  return hand.some((card) => {
-    if (card.kind !== CardKind.Pokemon) return false;
-    return card.stage === PokemonStage.Basic;
-  });
+  return hand.some(isPlayableAsBasic);
 }
 
 /**

@@ -7,10 +7,6 @@
 
 import type { GameState, GameCard, PokemonInPlay } from "@/domain/match";
 import {
-  createGameEvent,
-  getEnergyTypeInSpanish,
-  canEvolveInto,
-  findValidEvolutionTargets,
   canUseAttack,
   hasEnoughEnergyToRetreat,
   canRetreat,
@@ -22,7 +18,17 @@ import {
 } from "@/domain/match";
 import type { Attack } from "@/domain/cards";
 import { isPokemonCard, isEnergyCard } from "@/domain/cards";
-import { GamePhase, PokemonStage, AttackEffectType } from "@/domain/constants";
+import { PokemonStage, AttackEffectType } from "@/domain/constants";
+import {
+  canPlayBasicPokemon,
+  playBasicPokemon,
+  canAttachEnergy,
+  attachEnergyCard,
+  canEvolve,
+  evolvePokemonCard,
+  getEvolutionTargets,
+  swapSides,
+} from "@/domain/board";
 import type { Side } from "./types";
 
 /** Getters para acceder al estado según el lado */
@@ -43,219 +49,88 @@ function getDiscard(state: GameState, side: Side): GameCard[] {
 }
 
 /**
- * Jugar un Pokemon básico como activo
+ * Run an engine board action (which always acts for "player") for `side`: swap
+ * perspective for the opponent, then rewrite the new log lines from the human's point of
+ * view. Illegal actions leave the state unchanged (the AI plans on a simulated state).
+ */
+function actAs(
+  state: GameState,
+  side: Side,
+  isLegal: (s: GameState) => string | null,
+  action: (s: GameState) => GameState
+): GameState {
+  const acting = side === "player" ? state : swapSides(state);
+  if (isLegal(acting) !== null) return state;
+  if (side === "player") return action(acting);
+  const result = swapSides(action(acting));
+  const before = state.events.length;
+  return {
+    ...result,
+    events: [...result.events.slice(0, before), ...result.events.slice(before).map((event) => ({
+      ...event,
+      message: toOpponentMessage(event.message),
+    }))],
+  };
+}
+
+/** Board-action log lines written for "player", as seen by the human when the AI acts. */
+function toOpponentMessage(message: string): string {
+  if (message.startsWith("Colocaste ")) return `Rival colocó ${message.slice("Colocaste ".length)}`;
+  if (message.startsWith("Adjuntaste ")) return `Rival adjuntó ${message.slice("Adjuntaste ".length)}`;
+  if (message.startsWith("Rain Dance:")) return `Rival usó ${message}`;
+  return message;
+}
+
+/**
+ * Jugar un Pokemon básico como activo (engine rules: only during setup)
  */
 export function playBasicToActive(
   state: GameState,
   side: Side,
   cardId: string
 ): GameState {
-  const hand = getHand(state, side);
-  const activePokemon = getActivePokemon(state, side);
-
-  // Verificar que no hay Pokemon activo
-  if (activePokemon) {
-    return state;
-  }
-
-  // Encontrar la carta en la mano
-  const card = hand.find((c) => c.id === cardId);
-  if (!card || !isPokemonCard(card) || card.stage !== PokemonStage.Basic) {
-    return state;
-  }
-
-  const sideName = side === "player" ? "Tú colocaste" : "Rival colocó";
-  const newEvent = createGameEvent(
-    `${sideName} ${card.name} como Pokémon activo`,
-    "action"
+  return actAs(
+    state,
+    side,
+    (s) => canPlayBasicPokemon(s, cardId, "active"),
+    (s) => playBasicPokemon(s, cardId, "active")
   );
-
-  // During SETUP phase, use turn 1 for playedOnTurn so Pokemon can't evolve on turn 1
-  const effectiveTurnNumber = state.gamePhase === GamePhase.Setup ? 1 : state.turnNumber;
-
-  const newPokemonInPlay: PokemonInPlay = {
-    pokemon: card,
-    attachedEnergy: [],
-    attachedTrainers: [],
-    previousEvolutions: [],
-    currentDamage: 0,
-    playedOnTurn: effectiveTurnNumber,
-  };
-
-  const newHand = hand.filter((c) => c.id !== cardId);
-
-  if (side === "player") {
-    return {
-      ...state,
-      playerHand: newHand,
-      playerActivePokemon: newPokemonInPlay,
-      events: [...state.events, newEvent],
-    };
-  } else {
-    return {
-      ...state,
-      opponentHand: newHand,
-      opponentActivePokemon: newPokemonInPlay,
-      events: [...state.events, newEvent],
-    };
-  }
 }
 
 /**
- * Jugar un Pokemon básico en la banca
+ * Jugar un Pokemon básico en la banca (se agrega al final; benchIndex se conserva por compatibilidad)
  */
 export function playBasicToBench(
   state: GameState,
   side: Side,
   cardId: string,
-  benchIndex: number
+  _benchIndex?: number
 ): GameState {
-  const hand = getHand(state, side);
-  const bench = getBench(state, side);
-
-  // Verificar índice válido
-  if (benchIndex < 0 || benchIndex >= 5) return state;
-
-  // Verificar que el slot está vacío
-  if (bench[benchIndex]) return state;
-
-  // Encontrar la carta en la mano
-  const card = hand.find((c) => c.id === cardId);
-  if (!card || !isPokemonCard(card) || card.stage !== PokemonStage.Basic) {
-    return state;
-  }
-
-  const sideName = side === "player" ? "Tú colocaste" : "Rival colocó";
-  const newEvent = createGameEvent(
-    `${sideName} ${card.name} en la banca`,
-    "action"
+  return actAs(
+    state,
+    side,
+    (s) => canPlayBasicPokemon(s, cardId, "bench"),
+    (s) => playBasicPokemon(s, cardId, "bench")
   );
-
-  // During SETUP phase, use turn 1 for playedOnTurn so Pokemon can't evolve on turn 1
-  const effectiveTurnNumber = state.gamePhase === GamePhase.Setup ? 1 : state.turnNumber;
-
-  const newPokemonInPlay: PokemonInPlay = {
-    pokemon: card,
-    attachedEnergy: [],
-    attachedTrainers: [],
-    previousEvolutions: [],
-    currentDamage: 0,
-    playedOnTurn: effectiveTurnNumber,
-  };
-
-  const newBench = [...bench];
-  newBench[benchIndex] = newPokemonInPlay;
-
-  const newHand = hand.filter((c) => c.id !== cardId);
-
-  if (side === "player") {
-    return {
-      ...state,
-      playerHand: newHand,
-      playerBench: newBench,
-      events: [...state.events, newEvent],
-    };
-  } else {
-    return {
-      ...state,
-      opponentHand: newHand,
-      opponentBench: newBench,
-      events: [...state.events, newEvent],
-    };
-  }
 }
 
 /**
- * Adjuntar una energía a un Pokemon
+ * Adjuntar una energía a un Pokemon (engine rules: one per turn, Rain Dance)
  */
 export function attachEnergy(
   state: GameState,
   side: Side,
   energyCardId: string,
   targetPokemonId: string,
-  isBench: boolean,
-  benchIndex?: number
+  _isBench?: boolean,
+  _benchIndex?: number
 ): GameState {
-  // Solo se puede adjuntar energía en fase PLAYING
-  if (state.gamePhase !== GamePhase.Playing) return state;
-
-  // Verificar límite de una energía por turno
-  if (state.energyAttachedThisTurn) return state;
-
-  const hand = getHand(state, side);
-  const activePokemon = getActivePokemon(state, side);
-  const bench = getBench(state, side);
-
-  // Encontrar la carta de energía
-  const energyCard = hand.find((c) => c.id === energyCardId);
-  if (!energyCard || !isEnergyCard(energyCard)) return state;
-
-  const newHand = hand.filter((c) => c.id !== energyCardId);
-  const sideName = side === "player" ? "Tú adjuntaste" : "Rival adjuntó";
-
-  if (isBench && benchIndex !== undefined) {
-    const benchPokemon = bench[benchIndex];
-    if (!benchPokemon) return state;
-
-    const newEvent = createGameEvent(
-      `${sideName} energía ${getEnergyTypeInSpanish(energyCard.energyType)} a ${benchPokemon.pokemon.name}`,
-      "action"
-    );
-
-    const newBench = [...bench];
-    newBench[benchIndex] = {
-      ...benchPokemon,
-      attachedEnergy: [...benchPokemon.attachedEnergy, energyCard],
-    };
-
-    if (side === "player") {
-      return {
-        ...state,
-        playerHand: newHand,
-        playerBench: newBench,
-        energyAttachedThisTurn: true,
-        events: [...state.events, newEvent],
-      };
-    } else {
-      return {
-        ...state,
-        opponentHand: newHand,
-        opponentBench: newBench,
-        energyAttachedThisTurn: true,
-        events: [...state.events, newEvent],
-      };
-    }
-  } else {
-    if (!activePokemon) return state;
-
-    const newEvent = createGameEvent(
-      `${sideName} energía ${getEnergyTypeInSpanish(energyCard.energyType)} a ${activePokemon.pokemon.name}`,
-      "action"
-    );
-
-    const updatedActive: PokemonInPlay = {
-      ...activePokemon,
-      attachedEnergy: [...activePokemon.attachedEnergy, energyCard],
-    };
-
-    if (side === "player") {
-      return {
-        ...state,
-        playerHand: newHand,
-        playerActivePokemon: updatedActive,
-        energyAttachedThisTurn: true,
-        events: [...state.events, newEvent],
-      };
-    } else {
-      return {
-        ...state,
-        opponentHand: newHand,
-        opponentActivePokemon: updatedActive,
-        energyAttachedThisTurn: true,
-        events: [...state.events, newEvent],
-      };
-    }
-  }
+  return actAs(
+    state,
+    side,
+    (s) => canAttachEnergy(s, energyCardId, targetPokemonId),
+    (s) => attachEnergyCard(s, energyCardId, targetPokemonId)
+  );
 }
 
 /**
@@ -267,97 +142,15 @@ export function evolve(
   evolutionCardId: string,
   targetIndex: number // -1 = activo, 0-4 = banca
 ): GameState {
-  const hand = getHand(state, side);
-  const activePokemon = getActivePokemon(state, side);
-  const bench = getBench(state, side);
-
-  // Encontrar la carta de evolución
-  const evolutionCard = hand.find((c) => c.id === evolutionCardId);
-  if (!evolutionCard || !isPokemonCard(evolutionCard)) return state;
-
-  // Verificar targets válidos
-  const isPlayerTurn = side === "player";
-  const validTargets = findValidEvolutionTargets(
-    evolutionCard,
-    activePokemon,
-    bench,
-    state.turnNumber,
-    state.startingPlayer,
-    isPlayerTurn
+  const target = targetIndex === -1 ? getActivePokemon(state, side) : getBench(state, side)[targetIndex];
+  if (!target) return state;
+  const targetPokemonId = target.pokemon.id;
+  return actAs(
+    state,
+    side,
+    (s) => canEvolve(s, evolutionCardId, targetPokemonId),
+    (s) => evolvePokemonCard(s, evolutionCardId, targetPokemonId)
   );
-
-  if (!validTargets.includes(targetIndex)) return state;
-
-  let targetPokemon: PokemonInPlay | null = null;
-  if (targetIndex === -1) {
-    targetPokemon = activePokemon;
-  } else {
-    targetPokemon = bench[targetIndex];
-  }
-
-  if (!targetPokemon) return state;
-
-  const sideName = side === "player" ? "" : "del rival ";
-  const newEvent = createGameEvent(
-    `${targetPokemon.pokemon.name} ${sideName}evolucionó a ${evolutionCard.name}`,
-    "action"
-  );
-
-  // Construir cadena de evoluciones
-  const previousEvolutions = [
-    ...(targetPokemon.previousEvolutions || []),
-    targetPokemon.pokemon,
-  ];
-
-  const evolvedPokemon: PokemonInPlay = {
-    ...targetPokemon,
-    pokemon: evolutionCard,
-    previousEvolutions,
-    statusConditions: [], // Evolucionar limpia estados
-    paralyzedOnTurn: undefined,
-    protection: undefined,
-    playedOnTurn: state.turnNumber, // Evolution always uses current turn (not SETUP-adjusted)
-  };
-
-  const newHand = hand.filter((c) => c.id !== evolutionCardId);
-
-  if (side === "player") {
-    if (targetIndex === -1) {
-      return {
-        ...state,
-        playerHand: newHand,
-        playerActivePokemon: evolvedPokemon,
-        events: [...state.events, newEvent],
-      };
-    } else {
-      const newBench = [...bench];
-      newBench[targetIndex] = evolvedPokemon;
-      return {
-        ...state,
-        playerHand: newHand,
-        playerBench: newBench,
-        events: [...state.events, newEvent],
-      };
-    }
-  } else {
-    if (targetIndex === -1) {
-      return {
-        ...state,
-        opponentHand: newHand,
-        opponentActivePokemon: evolvedPokemon,
-        events: [...state.events, newEvent],
-      };
-    } else {
-      const newBench = [...bench];
-      newBench[targetIndex] = evolvedPokemon;
-      return {
-        ...state,
-        opponentHand: newHand,
-        opponentBench: newBench,
-        events: [...state.events, newEvent],
-      };
-    }
-  }
 }
 
 /**
@@ -377,32 +170,24 @@ export function getEnergiesInHand(state: GameState, side: Side): GameCard[] {
 }
 
 /**
- * Obtener evoluciones jugables en la mano
+ * Obtener evoluciones jugables en la mano (targets: -1 = activo, 0-4 = banca)
  */
 export function getPlayableEvolutions(
   state: GameState,
   side: Side
 ): Array<{ card: GameCard; targets: number[] }> {
-  const hand = getHand(state, side);
-  const activePokemon = getActivePokemon(state, side);
-  const bench = getBench(state, side);
-
+  const acting = side === "player" ? state : swapSides(state);
   const evolutions: Array<{ card: GameCard; targets: number[] }> = [];
 
-  for (const card of hand) {
+  for (const card of acting.playerHand) {
     if (!isPokemonCard(card)) continue;
     if (card.stage !== PokemonStage.Stage1 && card.stage !== PokemonStage.Stage2) continue;
 
-    const isPlayerTurnForEvolution = side === "player";
-    const targets = findValidEvolutionTargets(
-      card,
-      activePokemon,
-      bench,
-      state.turnNumber,
-      state.startingPlayer,
-      isPlayerTurnForEvolution
+    const targets = getEvolutionTargets(acting, card.id).map((pokemonId) =>
+      acting.playerActivePokemon?.pokemon.id === pokemonId
+        ? -1
+        : acting.playerBench.findIndex((p) => p?.pokemon.id === pokemonId)
     );
-
     if (targets.length > 0) {
       evolutions.push({ card, targets });
     }

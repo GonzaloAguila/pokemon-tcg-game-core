@@ -14,6 +14,7 @@ import {
 import { ALL_CARDS } from "@/domain/catalog";
 import { isBasicEnergy, isPokemonCard } from "@/domain/cards";
 import { GamePhase, CardKind, PokemonStage } from "@/domain/constants";
+import { evolvePokemonInPlay } from "@/domain/board";
 
 
 // ============================================================================
@@ -1385,25 +1386,13 @@ export function canPlayPokemonBreeder(
   stage2CardId: string,
   targetIndex: number // -1 = active, 0+ = bench
 ): boolean {
-  if (!canPlayTrainer(state, cardId)) {
-    console.log("[Breeder] canPlayTrainer failed");
-    return false;
-  }
+  if (!canPlayTrainer(state, cardId)) return false;
 
   // Stage 2 card must be in hand
   const stage2 = state.playerHand.find((c) => c.id === stage2CardId);
-  if (!stage2) {
-    console.log("[Breeder] stage2 not found in hand");
-    return false;
-  }
-  if (stage2.kind !== CardKind.Pokemon) {
-    console.log("[Breeder] stage2 is not pokemon");
-    return false;
-  }
-  if (stage2.stage !== PokemonStage.Stage2) {
-    console.log("[Breeder] stage2 is not stage-2, it is:", stage2.stage);
-    return false;
-  }
+  if (!stage2) return false;
+  if (stage2.kind !== CardKind.Pokemon) return false;
+  if (stage2.stage !== PokemonStage.Stage2) return false;
 
   // Target must be a basic Pokemon (not Stage 1)
   const target =
@@ -1411,57 +1400,24 @@ export function canPlayPokemonBreeder(
       ? state.playerActivePokemon
       : state.playerBench[targetIndex];
 
-  if (!target) {
-    console.log("[Breeder] target not found at index:", targetIndex);
-    return false;
-  }
-  if (target.pokemon.kind !== CardKind.Pokemon) {
-    console.log("[Breeder] target.pokemon is not pokemon");
-    return false;
-  }
-  if (target.pokemon.stage !== PokemonStage.Basic) {
-    console.log("[Breeder] target is not basic, it is:", target.pokemon.stage);
-    return false;
-  }
+  if (!target) return false;
+  if (target.pokemon.kind !== CardKind.Pokemon) return false;
+  if (target.pokemon.stage !== PokemonStage.Basic) return false;
 
-  // Can't evolve on first turn of the game
-  if (state.turnNumber === 1) {
-    console.log("[Breeder] Can't evolve on turn 1");
-    return false;
-  }
+  // Counts as evolving: not on either player's first turn (turns 1 and 2)
+  if (state.turnNumber <= 2) return false;
 
   // Can't evolve on same turn it was played
-  if (target.playedOnTurn === state.turnNumber) {
-    console.log("[Breeder] Can't evolve on same turn it was played");
-    return false;
-  }
+  if (target.playedOnTurn === state.turnNumber) return false;
 
   // Validate evolution chain: Stage 2 → Stage 1 → Basic
   // Use catalog to find intermediate Stage 1 and verify chain connects.
-  if (!stage2.evolvesFrom) {
-    console.log("[Breeder] stage2.evolvesFrom is missing");
-    return false;
-  }
+  if (!stage2.evolvesFrom) return false;
   const stage1InCatalog = ALL_CARDS.find(
     (c) => c.kind === CardKind.Pokemon && c.name === stage2.evolvesFrom
   );
-  if (!stage1InCatalog || stage1InCatalog.kind !== CardKind.Pokemon) {
-    console.log("[Breeder] stage1InCatalog not found for:", stage2.evolvesFrom);
-    return false;
-  }
-  console.log("[Breeder] Checking chain:", {
-    stage2: stage2.name,
-    stage2EvolvesFrom: stage2.evolvesFrom,
-    stage1Found: stage1InCatalog.name,
-    stage1EvolvesFrom: stage1InCatalog.kind === CardKind.Pokemon ? stage1InCatalog.evolvesFrom : undefined,
-    targetName: target.pokemon.name,
-  });
-  if (stage1InCatalog.evolvesFrom !== target.pokemon.name) {
-    console.log("[Breeder] Evolution chain doesn't match");
-    return false;
-  }
-
-  console.log("[Breeder] All validations passed!");
+  if (!stage1InCatalog || stage1InCatalog.kind !== CardKind.Pokemon) return false;
+  if (stage1InCatalog.evolvesFrom !== target.pokemon.name) return false;
   return true;
 }
 
@@ -1487,21 +1443,8 @@ export function playPokemonBreeder(
       ? state.playerActivePokemon!
       : state.playerBench[targetIndex];
 
-  // Evolve: basic → stage 2 (skipping stage 1)
-  const previousEvolutions = [
-    ...(target.previousEvolutions || []),
-    target.pokemon,
-  ];
-
-  const evolvedPokemon: PokemonInPlay = {
-    ...target,
-    pokemon: stage2Card,
-    previousEvolutions,
-    statusConditions: [],
-    paralyzedOnTurn: undefined,
-    protection: undefined,
-    playedOnTurn: state.turnNumber,
-  };
+  // Evolve: basic → stage 2 (skipping stage 1); same reset as a normal evolution
+  const evolvedPokemon = evolvePokemonInPlay(target, stage2Card, state.turnNumber);
 
   let newActive = state.playerActivePokemon;
   let newBench = [...state.playerBench];
