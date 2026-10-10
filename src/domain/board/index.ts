@@ -16,7 +16,7 @@ import {
 } from "@/lib/gameState";
 import { cardsLeavingPlay, isEnergyCard, isPlayableAsBasic, isPokemonCard, isTrainerInPlay, toInPlayCard } from "@/domain/cards";
 import { GamePhase, PokemonStage } from "@/domain/constants";
-import { attachEnergyWithRainDance, canAutoAttachEnergy } from "@/domain/powers";
+import { attachEnergyWithRainDance, canAutoAttachEnergy, getEvolutionBlockingPokemon } from "@/domain/powers";
 import { assertLegal } from "@/shared/errors";
 import { allOwnPokemon, findInPlay, MAX_BENCH_SIZE } from "./locate";
 
@@ -281,11 +281,14 @@ export function clearEffectsAsIfEvolved(target: PokemonInPlay): PokemonInPlay {
 }
 
 /**
- * Whether evolution is globally blocked for the player right now (Aerodactyl's Prehistoric
- * Power, Fossil). Returns the Spanish reason or null. Extension point for Stage B.
+ * Whether evolution is globally blocked right now (Aerodactyl's Prehistoric Power, on either
+ * side, while it works). Returns the Spanish reason or null. Every way of playing an
+ * Evolution card (canEvolve, Pokémon Breeder, future Rapid Evolution-like effects) checks it.
  */
-export function getEvolutionBlocker(_state: GameState): string | null {
-  return null;
+export function getEvolutionBlocker(state: GameState): string | null {
+  const blocking = getEvolutionBlockingPokemon(state);
+  if (!blocking || !isPokemonCard(blocking.pokemon)) return null;
+  return `${blocking.pokemon.power?.name ?? "Un Poder Pokémon"} de ${blocking.pokemon.name}: no se pueden jugar cartas de Evolución`;
 }
 
 /**

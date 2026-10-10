@@ -21,7 +21,7 @@ import {
   type CoinFlipResult,
 } from "@/domain/constants";
 import { decks, findCardBySetAndNumber, type Deck, type DeckEntry } from "@/domain/decks";
-import { getDamageReaction, getRetreatCostReduction, hasBlockingStatus, hasStatusImmunity, isDamageBlocked } from "@/domain/powers";
+import { applyDamageHalving, getDamageReaction, getRetreatCostReduction, hasBlockingStatus, hasStatusImmunity, isDamageBlocked } from "@/domain/powers";
 import { getTurnActionBlocker } from "@/domain/board";
 import { assertLegal } from "@/shared/errors";
 
@@ -1010,10 +1010,11 @@ export function executeBenchDamage(
     newOpponentBench = newOpponentBench.map((p) => {
       if (!p || !selectedPokemonIds.includes(p.pokemon.id)) return p;
 
-      const newDamage = (p.currentDamage || 0) + damageAmount;
+      const dealt = applyDamageHalving(p, damageAmount, gameState);
+      const newDamage = (p.currentDamage || 0) + dealt;
       events.push(
         createGameEvent(
-          `${p.pokemon.name} del rival recibió ${damageAmount} de daño`,
+          `${p.pokemon.name} del rival recibió ${dealt} de daño`,
           "action"
         )
       );
@@ -1027,10 +1028,11 @@ export function executeBenchDamage(
     newPlayerBench = newPlayerBench.map((p) => {
       if (!p || !selectedPokemonIds.includes(p.pokemon.id)) return p;
 
-      const newDamage = (p.currentDamage || 0) + damageAmount;
+      const dealt = applyDamageHalving(p, damageAmount, gameState);
+      const newDamage = (p.currentDamage || 0) + dealt;
       events.push(
         createGameEvent(
-          `Tu ${p.pokemon.name} recibió ${damageAmount} de daño`,
+          `Tu ${p.pokemon.name} recibió ${dealt} de daño`,
           "action"
         )
       );
@@ -2861,6 +2863,11 @@ function executeAttackUnchecked(
     damageReductionMessage = `${defender.pokemon.name} redujo el daño en ${reduction} (efecto de turno anterior)`;
   }
 
+  // Kabuto Armor: half the damage (after Weakness/Resistance and the modifiers above), rounded down
+  const damageBeforeArmor = damage;
+  damage = applyDamageHalving(defender, damage, gameState);
+  const halvedByArmor = damage < damageBeforeArmor;
+
   // Verificar si el defensor está protegido o tiene barrera de daño
   const defenderIsProtected = protectionBlocksDamage(defender, damage);
   // DamageAndEffects protection (Agility, Barrier, Tail Wag) also blocks status, ForceSwitch, PreventRetreat
@@ -2922,7 +2929,10 @@ function executeAttackUnchecked(
     const barrierPowerName = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.name || "Muro Invisible" : "Muro Invisible";
     damageMessage = ` pero ${defender.pokemon.name} bloqueó el daño con ${barrierPowerName}`;
   } else if (effectiveDamage > 0) {
-    if (hasWeakness) {
+    const armorNote = halvedByArmor ? " (la mitad por Armadura Kabuto)" : "";
+    if (halvedByArmor) {
+      damageMessage = ` e hizo ${effectiveDamage} de daño${damageMultiplierDescription}${armorNote}`;
+    } else if (hasWeakness) {
       damageMessage = ` e hizo ${effectiveDamage} de daño${damageMultiplierDescription} (x2 debilidad)`;
     } else if (hasResistance) {
       damageMessage = ` e hizo ${effectiveDamage} de daño${damageMultiplierDescription} (-30 resistencia)`;
@@ -2941,6 +2951,8 @@ function executeAttackUnchecked(
   } else if (defenderReduction > 0 && baseDamage > 0) {
     // El ataque fue reducido a 0 por Defender
     damageMessage = ` e hizo 0 de daño (bloqueado por Defender)`;
+  } else if (halvedByArmor) {
+    damageMessage = ` e hizo 0 de daño (la mitad por Armadura Kabuto)`;
   }
 
   events.push(
@@ -3083,6 +3095,8 @@ function executeAttackUnchecked(
           );
         }
 
+        // Kabuto Armor also halves damage an attack does to its own user ("even your own")
+        selfDamage = applyDamageHalving(newPlayerActive, selfDamage, gameState);
         const newSelfDamage: number = (newPlayerActive.currentDamage || 0) + selfDamage;
 
         if (selfDamage > 0) {
@@ -3174,10 +3188,11 @@ function executeAttackUnchecked(
                 }
 
                 opponentHitsRemaining--;
-                const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
+                const dealt = applyDamageHalving(benchPokemon, benchDamageAmount, gameState);
+                const newBenchDamage = (benchPokemon.currentDamage || 0) + dealt;
                 events.push(
                   createGameEvent(
-                    `${benchPokemon.pokemon.name} del rival recibió ${benchDamageAmount} de daño`,
+                    `${benchPokemon.pokemon.name} del rival recibió ${dealt} de daño`,
                     "action"
                   )
                 );
@@ -3186,7 +3201,7 @@ function executeAttackUnchecked(
                   ...benchPokemon,
                   currentDamage: newBenchDamage,
                   // Mirror Move: track bench damage so it can be copied when promoted
-                  lastDamageReceived: benchDamageAmount,
+                  lastDamageReceived: dealt > 0 ? dealt : undefined,
                 };
               });
             }
@@ -3225,10 +3240,11 @@ function executeAttackUnchecked(
                 }
 
                 ownHitsRemaining--;
-                const newBenchDamage = (benchPokemon.currentDamage || 0) + benchDamageAmount;
+                const dealt = applyDamageHalving(benchPokemon, benchDamageAmount, gameState);
+                const newBenchDamage = (benchPokemon.currentDamage || 0) + dealt;
                 events.push(
                   createGameEvent(
-                    `Tu ${benchPokemon.pokemon.name} recibió ${benchDamageAmount} de daño`,
+                    `Tu ${benchPokemon.pokemon.name} recibió ${dealt} de daño`,
                     "action"
                   )
                 );
@@ -3237,7 +3253,7 @@ function executeAttackUnchecked(
                   ...benchPokemon,
                   currentDamage: newBenchDamage,
                   // Mirror Move: track bench damage for potential use when promoted
-                  lastDamageReceived: benchDamageAmount,
+                  lastDamageReceived: dealt > 0 ? dealt : undefined,
                 };
               });
             }

@@ -37,13 +37,79 @@ export function hasBlockingStatus(pokemon: PokemonInPlay): boolean {
   return (pokemon.statusConditions ?? []).some((s) => POWER_BLOCKING_STATUSES.includes(s));
 }
 
+/** Every Pokémon in play, both sides (Actives first). */
+export function allPokemonInPlay(state: GameState): PokemonInPlay[] {
+  return [state.playerActivePokemon, state.opponentActivePokemon, ...state.playerBench, ...state.opponentBench].filter(
+    (p): p is PokemonInPlay => p != null
+  );
+}
+
+/** Timed suppression in the state (Goop Gas Attack, Dark Arbok's Stare...). */
+function hasTimedSuppression(state: GameState, pokemon: PokemonInPlay): boolean {
+  return (state.powersSuppressed ?? []).some((s) => s.pokemonId === undefined || s.pokemonId === pokemon.pokemon.id);
+}
+
 /**
- * Is this Pokémon's power suppressed by a timed effect in the state (Goop Gas Attack, Dark
- * Arbok's Stare...)? Board-derived suppression (Muk's Toxic Gas) is added here in Stage B.
+ * A Pokémon whose Toxic Gas (SuppressPowers) is working right now — Active or Benched, either
+ * side, not Asleep/Confused/Paralyzed, not stopped by a timed suppression — or undefined.
+ * Toxic Gases never stop each other ("ignore all Pokémon Powers other than Toxic Gases").
+ */
+export function getToxicGasSource(state: GameState | null | undefined): PokemonInPlay | undefined {
+  if (!state) return undefined;
+  return allPokemonInPlay(state).find(
+    (p) =>
+      isPokemonCard(p.pokemon) &&
+      p.pokemon.power?.type === PokemonPowerType.SuppressPowers &&
+      !hasBlockingStatus(p) &&
+      !hasTimedSuppression(state, p)
+  );
+}
+
+/**
+ * Is this Pokémon's power suppressed right now? By a timed effect in the state (Goop Gas
+ * Attack, Dark Arbok's Stare...) or by a working Toxic Gas in play (Muk), which ignores every
+ * power other than Toxic Gas.
  */
 export function isPowerSuppressed(state: GameState | null | undefined, pokemon: PokemonInPlay): boolean {
   if (!state) return false;
-  return (state.powersSuppressed ?? []).some((s) => s.pokemonId === undefined || s.pokemonId === pokemon.pokemon.id);
+  if (hasTimedSuppression(state, pokemon)) return true;
+  const isToxicGas = isPokemonCard(pokemon.pokemon) && pokemon.pokemon.power?.type === PokemonPowerType.SuppressPowers;
+  return !isToxicGas && getToxicGasSource(state) !== undefined;
+}
+
+/** Working power of a given type on a Pokémon (has it, not statused, not suppressed). */
+function activePowerOfType(state: GameState | null | undefined, pokemon: PokemonInPlay, type: PokemonPowerType): PokemonPower | undefined {
+  if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== type) return undefined;
+  return isPowerActive(state, pokemon) ? pokemon.pokemon.power : undefined;
+}
+
+/**
+ * Prehistoric Power (Aerodactyl): while it works, no Evolution cards can be played by either
+ * player. Returns the Pokémon whose power blocks evolution, or undefined.
+ */
+export function getEvolutionBlockingPokemon(state: GameState): PokemonInPlay | undefined {
+  return allPokemonInPlay(state).find((p) => activePowerOfType(state, p, PokemonPowerType.PreventEvolution));
+}
+
+/**
+ * Clairvoyance (Omanyte): is `side`'s hand public? True while the OTHER side has a Pokémon
+ * in play (Active or Benched) whose RevealHand power works. Consumers use it to show that
+ * hand (the API must not mask it for the other player).
+ */
+export function isHandRevealed(state: GameState, side: "player" | "opponent"): boolean {
+  const otherActive = side === "player" ? state.opponentActivePokemon : state.playerActivePokemon;
+  const otherBench = side === "player" ? state.opponentBench : state.playerBench;
+  return [otherActive, ...otherBench].some((p) => !!p && !!activePowerOfType(state, p, PokemonPowerType.RevealHand));
+}
+
+/**
+ * Kabuto Armor: damage an attack (even your own) does to this Pokémon — Active or Benched,
+ * after Weakness and Resistance — is halved, rounded down to the nearest 10. Returns the
+ * damage actually done.
+ */
+export function applyDamageHalving(pokemon: PokemonInPlay, damage: number, state?: GameState): number {
+  if (damage <= 0 || !activePowerOfType(state, pokemon, PokemonPowerType.HalveAttackDamage)) return damage;
+  return Math.floor(damage / 2 / 10) * 10;
 }
 
 /**
