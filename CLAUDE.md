@@ -17,10 +17,12 @@ Both must pin the SAME version, otherwise single-player and multiplayer run diff
 npm run build      # tsc && tsc-alias → dist/ (rewrites @/ aliases)
 npm run dev        # tsc --watch
 npx tsc --noEmit   # type check
+npm test           # vitest (test/**, card-scenario helpers in test/helpers/state.ts)
+npm run typecheck:test
 npm version patch && npm publish   # GitHub Packages; prepublishOnly builds; needs auth with write:packages
 ```
 
-`npm run lint` is declared but eslint isn't installed. There is no test runner yet.
+`npm run lint` is declared but eslint isn't installed. Write a failing card-scenario test first for any rule change (`makeState`, `inPlay`, `deepFreeze` helpers). npm 10 can crash adding devDependencies — use `npx npm@11 install -D …`.
 
 Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ERR_UNSUPPORTED_DIR_IMPORT`). `dist/` is gitignored and is the only thing published.
 
@@ -55,12 +57,12 @@ Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ER
 
 ## Known issues (2026-10 review — verify before assuming fixed)
 
-- Coin-flip effects are skipped in `executeAttack` (`if (effect.coinFlip) continue;`) and re-implemented in the frontend (`useCoinFlipHandler.ts`), in `ai/executor.ts` and in the API (`socket/rooms.ts`). The copies diverge.
-- Bench KOs are never processed (`TODO` in `executeAttack`, bench-damage path).
-- `endTurn` mutates the caller's `opponentBench` via `splice` when promoting after a between-turns KO.
-- `buildDeckFromEntries` ignores `entry.set` and only searches Base Set (Jungle theme-deck entries resolve to wrong cards); consumers have their own copies.
-- Rule bugs: Flail double-counts damage; Leer/`CannotAttack` is cleared in the same `endTurn`; retreat/switch keeps Poison; Poison blocks powers; Dream Eater's `RequireStatus` and Karate Chop's `SelfDamageReduction` aren't enforced; confusion self-damage is 30 (frontend + AI).
-- `endTurn` blocks on only 4 of the 6 pending flags (`pendingTypeShift`, `pendingPeek` not checked).
-- RNG is `Math.random` everywhere (shuffle, checkups, IDs, AI flips) — not seedable, so no deterministic tests or replays. `state.events` grows unbounded.
-- AI is greedy: never retreats, never uses powers, only plays Bill/Potion/PlusPower (inline copies). `strategy.ts` has `console.log`s.
+Fixed in 0.5.0: bench KOs (`processBenchKnockouts`), endTurn mutation, Flail double count, Leer duration, Poison cleared on bench, Poison no longer blocks powers, Dream Eater / Karate Chop, confusion = 20 (`CONFUSION_SELF_DAMAGE`, `resolveConfusionFlip`), `buildDeckFromEntries` by set, double prize on attacker self-KO, AI re-attacking after a failed confused attack.
+
+Still open:
+- Coin-flip attack effects are still skipped in `executeAttack` (`if (effect.coinFlip) continue;`) and re-implemented in the frontend (`useCoinFlipHandler.ts`), `ai/executor.ts` and the API (`socket/rooms.ts`). Next consolidation target (confusion is already engine-owned).
+- `findCardByName` (lib/gameState.ts, domain/match/helpers.ts) searches Base Set only.
+- RNG is `Math.random` (shuffle, checkups, IDs, AI flips) — not seedable. `state.events` grows unbounded.
+- AI is greedy: never retreats, never uses powers, only plays Bill/Potion/PlusPower. `strategy.ts` has `console.log`s.
+- Simultaneous prize-outs (sudden death) aren't modelled.
 - Jungle cards: only 4/48 verified against the real card text.
