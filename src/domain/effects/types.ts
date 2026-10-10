@@ -39,6 +39,12 @@ export type SelectionStep = {
   disableAutoSelect?: boolean;
   /** Who answers: the card's owner (default) or the opponent ("he or she chooses") */
   chooser?: "self" | "opponent";
+  /**
+   * The step shows hidden information of the other player to the chooser: "opponentHand" =
+   * `cards` is the opponent's whole hand (Rocket's Sneak Attack). In multiplayer the server
+   * must build this step from the real (unmasked) state.
+   */
+  reveals?: "opponentHand";
 };
 
 /** Coins the caller must flip: a fixed number, or flip until tails (sequence ending in tails). */

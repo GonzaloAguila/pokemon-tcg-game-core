@@ -24,16 +24,25 @@
  * | Energy Search (Fossil) | [[deckBasicEnergyId]] (no step when the deck has none) |
  * | Gambler (Fossil) | 1 coin; [] |
  * | Recycle (Fossil) | 1 coin; heads (and a non-empty discard pile): [[discardCardId]] |
+ * | Here Comes Team Rocket!, Goop Gas Attack (TR) | [] |
+ * | Rocket's Sneak Attack (TR) | [[opponentHandTrainerId] or []] (the step shows the whole opponent hand: `reveals`) |
+ * | The Boss's Way (TR) | [[deckDarkEvolutionId]] (no step when the deck has none) |
+ * | Challenge! (TR) | [["accept"/"decline"] (chooser: opponent)]; accepted: + [[own deck Basic ids…]] (self) + [[opponent's deck Basic ids…]] (chooser: opponent). Both Benches full: no step (draw 2) |
+ * | Digger (TR) | coins "untilTails": coin i is flipped by you (even i) / the opponent (odd i); [] |
+ * | Imposter Oak's Revenge (TR) | [[handCardIdToDiscard]] |
+ * | Nightly Garbage Run (TR) | [[up to 3 discard ids: Pokémon cards / basic Energy]] |
+ * | Sleep! (TR) | 1 coin; [] |
  *
  * Mysterious Fossil and Clefairy Doll have no entry: they are played as Basic Pokémon
  * (playBasicPokemon; see isPlayedAsBasic).
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
-import { createGameEvent, drawCard, energyCardLabel, getEnergyTypeInSpanish, shuffle, triggerOnPlayPower } from "@/lib/gameState";
+import { applyStatusCondition, createGameEvent, drawCard, energyCardLabel, getEnergyTypeInSpanish, shuffle, triggerOnPlayPower } from "@/lib/gameState";
+import { hasStatusImmunity } from "@/domain/powers";
 import { ALL_CARDS } from "@/domain/catalog";
 import { cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
-import { CardKind, PokemonStage } from "@/domain/constants";
+import { CardKind, PokemonStage, StatusCondition } from "@/domain/constants";
 import { MAX_BENCH_SIZE, findInPlay, getEvolutionBlocker } from "@/domain/board";
 import {
   playBill,
@@ -661,18 +670,7 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  * Trainer cards in the catalog that are intentionally NOT playable yet. Every other Trainer
  * in ALL_CARDS must have a TRAINER_EFFECTS entry (enforced by a test).
  */
-export const UNSUPPORTED_TRAINERS: readonly string[] = [
-  // Team Rocket: implemented in the next commits of Stage D
-  "Here Comes Team Rocket!",
-  "Rocket's Sneak Attack",
-  "The Boss's Way",
-  "Challenge!",
-  "Digger",
-  "Imposter Oak's Revenge",
-  "Nightly Garbage Run",
-  "Goop Gas Attack",
-  "Sleep!",
-];
+export const UNSUPPORTED_TRAINERS: readonly string[] = [];
 
 // ============================================================================
 // Fossil
@@ -804,6 +802,274 @@ Object.assign(TRAINER_EFFECTS, {
       return chosen
         ? { ...played, events: [...played.events, createGameEvent(`Pusiste ${chosen.name} encima de tu mazo`, "info")] }
         : played;
+    },
+  },
+} satisfies Record<string, CardEffectDef>);
+
+// ============================================================================
+// Team Rocket
+// ============================================================================
+
+const MAX_BENCH = 5;
+const isBasicPokemon = (c: GameCard) => isPokemonCard(c) && c.stage === PokemonStage.Basic;
+
+/** Basic Pokémon cards of a deck as a "put any number onto your Bench" step (Challenge!). */
+function challengeStep(deck: GameCard[], benchSize: number, chooser: "self" | "opponent"): SelectionStep {
+  const basics = deck.filter(isBasicPokemon);
+  const room = Math.max(0, MAX_BENCH - benchSize);
+  return {
+    title: "Challenge!",
+    description:
+      room === 0
+        ? "Tu Banca está llena: no puedes poner Pokémon"
+        : chooser === "self"
+          ? "Elige los Pokémon Básicos de tu mazo que pones en tu Banca"
+          : "Tu rival elige los Pokémon Básicos de su mazo que pone en su Banca",
+    options: basics.map(cardOption),
+    maxSelections: Math.min(room, basics.length),
+    minSelections: 0,
+    cards: basics,
+    chooser,
+  };
+}
+
+const benchFrom = (cards: GameCard[], turnNumber: number): PokemonInPlay[] =>
+  cards.map((card) => ({
+    pokemon: card,
+    attachedEnergy: [],
+    attachedTrainers: [],
+    previousEvolutions: [],
+    currentDamage: 0,
+    statusConditions: [],
+    playedOnTurn: turnNumber,
+  }));
+
+/** Nightly Garbage Run: Basic Pokémon cards, Evolution cards and basic Energy cards. */
+const isGarbage = (c: GameCard) => isPokemonCard(c) || isBasicEnergy(c);
+
+Object.assign(TRAINER_EFFECTS, {
+  "Here Comes Team Rocket!": immediate((state, cardId) => ({
+    ...discardPlayed(state, cardId, "Jugaste Here Comes Team Rocket!"),
+    prizesFaceUp: true,
+  })),
+
+  "Rocket's Sneak Attack": {
+    canUse: () => null,
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length > 0 || state.opponentHand.length === 0) return null;
+      const hand = state.opponentHand;
+      const trainers = hand.filter((c) => c.kind === CardKind.Trainer);
+      return {
+        title: "Rocket's Sneak Attack",
+        description: trainers.length > 0
+          ? "Mano de tu rival: elige 1 carta de Entrenador; tu rival la baraja en su mazo"
+          : "Mano de tu rival: no tiene cartas de Entrenador",
+        options: hand.map((c) => ({ ...cardOption(c), disabled: c.kind !== CardKind.Trainer })),
+        maxSelections: trainers.length > 0 ? 1 : 0,
+        minSelections: trainers.length > 0 ? 1 : 0,
+        cards: hand,
+        reveals: "opponentHand",
+        disableAutoSelect: true,
+      };
+    },
+    resolve: (state, cardId, selections) => {
+      const chosen = state.opponentHand.find((c) => c.id === selections[0]?.[0]);
+      const played = discardPlayed(state, cardId, "Jugaste Rocket's Sneak Attack: miraste la mano de tu rival");
+      if (!chosen) return played;
+      return {
+        ...played,
+        opponentHand: state.opponentHand.filter((c) => c.id !== chosen.id),
+        opponentDeck: shuffle([...state.opponentDeck, chosen]),
+        events: [...played.events, createGameEvent(`Tu rival barajó ${chosen.name} en su mazo`, "action")],
+      };
+    },
+  },
+
+  "The Boss's Way": {
+    canUse: (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length > 0) return null;
+      const dark = state.playerDeck.filter((c) => isPokemonCard(c) && c.stage !== PokemonStage.Basic && c.name.includes("Dark"));
+      if (dark.length === 0) return null;
+      return {
+        title: "The Boss's Way",
+        description: "Elige una carta de Evolución con «Dark» en su nombre de tu mazo",
+        options: dark.map(cardOption),
+        maxSelections: 1,
+        cards: dark,
+      };
+    },
+    resolve: (state, cardId, selections) => {
+      const chosen = state.playerDeck.find((c) => c.id === selections[0]?.[0]);
+      const played = discardPlayed(state, cardId, "Jugaste The Boss's Way");
+      return {
+        ...played,
+        playerHand: chosen ? [chosen, ...played.playerHand] : played.playerHand,
+        playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== chosen?.id)),
+        events: [
+          ...played.events,
+          createGameEvent(chosen ? `Mostraste ${chosen.name} y lo pusiste en tu mano` : "No había cartas de Evolución «Dark» en tu mazo", "info"),
+          createGameEvent("Se mezcló el mazo", "info"),
+        ],
+      };
+    },
+  },
+
+  "Challenge!": {
+    canUse: () => null,
+    getSteps: (state, _cardId, selections) => {
+      const bothFull = state.playerBench.length >= MAX_BENCH && state.opponentBench.length >= MAX_BENCH;
+      if (bothFull) return null;
+      if (selections.length === 0) {
+        return {
+          title: "Challenge!",
+          description: "Tu rival te desafía: ¿aceptas? Si aceptas, cada uno pone Pokémon Básicos de su mazo en su Banca; si no, tu rival roba 2 cartas",
+          options: [
+            { id: "accept", label: "Aceptar" },
+            { id: "decline", label: "Rechazar" },
+          ],
+          maxSelections: 1,
+          disableAutoSelect: true,
+          chooser: "opponent",
+        };
+      }
+      if (selections[0][0] !== "accept") return null;
+      if (selections.length === 1) return challengeStep(state.playerDeck, state.playerBench.length, "self");
+      if (selections.length === 2) return challengeStep(state.opponentDeck, state.opponentBench.length, "opponent");
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const accepted = selections[0]?.[0] === "accept";
+      if (!accepted) {
+        const played = discardPlayed(state, cardId, selections.length === 0 ? "Jugaste Challenge! (ambas Bancas están llenas)" : "Jugaste Challenge!: tu rival lo rechazó");
+        const { state: drew, drawn } = drawCards(played, 2);
+        return { ...drew, events: [...drew.events, createGameEvent(`Robaste ${drawn} carta${drawn === 1 ? "" : "s"}`, "info")] };
+      }
+      const mine = state.playerDeck.filter((c) => selections[1].includes(c.id));
+      const theirs = state.opponentDeck.filter((c) => selections[2].includes(c.id));
+      const played = discardPlayed(state, cardId, "Jugaste Challenge!: tu rival lo aceptó");
+      return {
+        ...played,
+        playerDeck: shuffle(state.playerDeck.filter((c) => !selections[1].includes(c.id))),
+        opponentDeck: shuffle(state.opponentDeck.filter((c) => !selections[2].includes(c.id))),
+        playerBench: [...state.playerBench, ...benchFrom(mine, state.turnNumber)],
+        opponentBench: [...state.opponentBench, ...benchFrom(theirs, state.turnNumber)],
+        events: [
+          ...played.events,
+          createGameEvent(mine.length > 0 ? `Pusiste ${mine.map((c) => c.name).join(", ")} en tu Banca` : "No pusiste Pokémon en tu Banca", "action"),
+          createGameEvent(theirs.length > 0 ? `Tu rival puso ${theirs.map((c) => c.name).join(", ")} en su Banca` : "Tu rival no puso Pokémon en su Banca", "action"),
+          createGameEvent("Se mezclaron ambos mazos", "info"),
+        ],
+      };
+    },
+  },
+
+  "Digger": {
+    canUse: (state) => (state.playerActivePokemon && state.opponentActivePokemon ? null : "No hay Pokémon activos"),
+    coinFlips: () => "untilTails",
+    getSteps: () => null,
+    resolve: (state, cardId, _selections, { coinResults }) => {
+      const coins = coinResults ?? [];
+      const tailsAt = coins.indexOf("tails");
+      const mineHit = tailsAt % 2 === 0;
+      const tokens = coins.map((c, i) => `${i % 2 === 0 ? "tú" : "rival"} [coin:${c}]`).join(", ");
+      const played = discardPlayed(state, cardId, `Jugaste Digger - Monedas: ${tokens}`);
+      if (mineHit) {
+        const active = played.playerActivePokemon!;
+        return {
+          ...played,
+          playerActivePokemon: { ...active, currentDamage: (active.currentDamage ?? 0) + 10 },
+          events: [...played.events, createGameEvent(`Digger: tu ${active.pokemon.name} recibió 10 de daño`, "action")],
+        };
+      }
+      const active = played.opponentActivePokemon!;
+      return {
+        ...played,
+        opponentActivePokemon: { ...active, currentDamage: (active.currentDamage ?? 0) + 10 },
+        events: [...played.events, createGameEvent(`Digger: ${active.pokemon.name} del rival recibió 10 de daño`, "action")],
+      };
+    },
+  },
+
+  "Imposter Oak's Revenge": singleStep(
+    (state, cardId) => ({
+      title: "Imposter Oak's Revenge",
+      description: "Descarta 1 carta de tu mano para jugar esta carta",
+      options: otherHandCards(state, cardId).map(cardOption),
+      maxSelections: 1,
+      source: "hand",
+    }),
+    (state, cardId) => (otherHandCards(state, cardId).length < 1 ? "Necesitas otra carta en tu mano para descartar" : null),
+    (state, cardId, [discardId]) => {
+      const discarded = state.playerHand.find((c) => c.id === discardId)!;
+      const played = discardPlayed(
+        { ...state, playerHand: state.playerHand.filter((c) => c.id !== discardId), playerDiscard: [...state.playerDiscard, discarded] },
+        cardId,
+        `Jugaste Imposter Oak's Revenge (descartaste ${discarded.name})`
+      );
+      const deck = shuffle([...played.opponentDeck, ...played.opponentHand]);
+      const drawn = deck.slice(0, 4);
+      return {
+        ...played,
+        opponentDeck: deck.slice(drawn.length),
+        opponentHand: drawn,
+        events: [...played.events, createGameEvent(`Tu rival barajó su mano en su mazo y robó ${drawn.length} cartas`, "action")],
+      };
+    }
+  ),
+
+  "Nightly Garbage Run": {
+    canUse: () => null,
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length > 0) return null;
+      const cards = state.playerDiscard.filter(isGarbage);
+      if (cards.length === 0) return null;
+      return {
+        title: "Nightly Garbage Run",
+        description: "Elige hasta 3 cartas de Pokémon Básico, de Evolución o de Energía básica de tu pila de descartes para barajarlas en tu mazo",
+        options: cards.map((c) => (isEnergyCard(c) ? energyOption(c) : cardOption(c))),
+        maxSelections: Math.min(3, cards.length),
+        minSelections: 1,
+        cards,
+      };
+    },
+    resolve: (state, cardId, selections) => {
+      const chosen = state.playerDiscard.filter((c) => (selections[0] ?? []).includes(c.id));
+      const played = discardPlayed(
+        { ...state, playerDiscard: state.playerDiscard.filter((c) => !chosen.includes(c)) },
+        cardId,
+        chosen.length > 0 ? `Jugaste Nightly Garbage Run: barajaste ${chosen.map((c) => c.name).join(", ")} en tu mazo` : "Jugaste Nightly Garbage Run"
+      );
+      return { ...played, playerDeck: shuffle([...played.playerDeck, ...chosen]) };
+    },
+  },
+
+  "Goop Gas Attack": immediate((state, cardId) => {
+    const played = discardPlayed(state, cardId, "Jugaste Goop Gas Attack: todos los Poderes Pokémon dejan de funcionar hasta el final del próximo turno del rival");
+    return {
+      ...played,
+      powersSuppressed: [...(state.powersSuppressed ?? []), { source: "Goop Gas Attack", expiresAfterTurn: state.turnNumber + 1 }],
+    };
+  }),
+
+  "Sleep!": {
+    canUse: (state) => (state.opponentActivePokemon ? null : "El rival no tiene Pokémon activo"),
+    coinFlips: () => 1,
+    getSteps: () => null,
+    resolve: (state, cardId, _selections, { coinResults }) => {
+      const heads = coinResults?.[0] === "heads";
+      const played = discardPlayed(state, cardId, `Jugaste Sleep! - Moneda: [coin:${heads ? "heads" : "tails"}]`);
+      if (!heads) return played;
+      const defender = played.opponentActivePokemon!;
+      if (hasStatusImmunity(defender, played)) {
+        return { ...played, events: [...played.events, createGameEvent(`${defender.pokemon.name} no puede verse afectado por estados especiales`, "action")] };
+      }
+      const asleep = applyStatusCondition(defender, StatusCondition.Asleep, state.turnNumber);
+      return {
+        ...played,
+        opponentActivePokemon: asleep,
+        events: asleep === defender ? played.events : [...played.events, createGameEvent(`¡${defender.pokemon.name} está dormido!`, "action")],
+      };
     },
   },
 } satisfies Record<string, CardEffectDef>);
