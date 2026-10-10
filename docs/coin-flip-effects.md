@@ -61,9 +61,12 @@ All coin effects of one attack share the same flips (Thrash: one coin decides +1
 
 ## Related, not covered by this change
 
-- **Sand-attack / Smokescreen** (`mustFlipToAttack`): only the AI executor flips for it; the FE
-  and the API never enforce it (no reference to `mustFlipToAttack` in either repo). Candidate for
-  an engine resolver like `resolveConfusionFlip`.
+- **Sand-attack / Smokescreen** (`mustFlipToAttack`): engine-owned since Stage A. It adds one coin
+  to `getAttackCoinFlipCount` (the FIRST of `coinResults`); tails → the attack does nothing and the
+  turn ends. Only the options form enforces it (the legacy positional form has no coins).
+- **Confusion** stays a separate step: call `resolveConfusionFlip` before ANY attack, including
+  Metronome and Porygon's Conversion 1/2 (both consumers checked those before confusion, so a
+  confused Clefairy never flipped).
 - **Conversion 1/2** (Porygon) is not a coin effect but is also consumer-owned (FE
   `useAttackFlow.ts`, API `rooms.ts` attack case); the engine has no resolver.
 - **Metronome as an AI attack**: the attack has no effect data, so the AI choosing it deals 0.

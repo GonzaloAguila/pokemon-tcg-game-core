@@ -126,6 +126,8 @@ export type GameState = {
   pendingSelfSwitch?: boolean;
   /** Track which Pokemon have used their "once per turn" powers this turn (by Pokemon ID) */
   usedPowersThisTurn?: string[];
+  /** The acting side already attacked this turn (see lib/gameState.ts) */
+  attackedThisTurn?: boolean;
   /** DeckSearch: player needs to search deck for Basic Pokemon matching filter */
   pendingDeckSearch?: {
     filter: {

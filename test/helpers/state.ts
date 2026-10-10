@@ -9,6 +9,7 @@ import { baseSetCards, jungleCards } from "@/domain/catalog";
 import type { Card } from "@/domain/cards";
 import { GamePhase, StatusCondition, EnergyType } from "@/domain/constants";
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
+import { canUseAttack } from "@/lib/gameState";
 
 export type SetName = "base" | "jungle";
 
@@ -158,4 +159,21 @@ export function attackIndex(pokemon: PokemonInPlay, attackName: string): number 
 /** Names of the cards in a pile, for readable assertions. */
 export function names(cards: GameCard[]): string[] {
   return cards.map((c) => c.name);
+}
+
+const BASIC_FOR_COLORLESS = EnergyType.Fire;
+
+/**
+ * The same Pokémon with enough Energy for `attackName` (attacks are only legal when paid):
+ * returned unchanged when it can already pay; otherwise the attack's full cost is attached on
+ * top (Colorless paid with the Pokémon's own type, or Fire for Colorless Pokémon).
+ */
+export function armedFor(pokemon: PokemonInPlay, attackName: string): PokemonInPlay {
+  const index = attackIndex(pokemon, attackName);
+  if (canUseAttack(pokemon, index)) return pokemon;
+  const card = pokemon.pokemon;
+  if (card.kind !== "pokemon") return pokemon;
+  const ownType = card.types[0] === EnergyType.Colorless ? BASIC_FOR_COLORLESS : card.types[0];
+  const cost = card.attacks[index].cost.map((type) => (type === EnergyType.Colorless ? ownType : type));
+  return { ...pokemon, attachedEnergy: [...pokemon.attachedEnergy, ...cost.map(energy)] };
 }

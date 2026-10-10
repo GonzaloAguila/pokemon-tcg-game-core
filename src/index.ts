@@ -132,6 +132,8 @@ export {
 // Validation
 export {
   canUseAttack,
+  canExecuteAttack,
+  canExecuteMetronome,
   calculateBaseDamage,
   meetsAttackRequirements,
   canRetreat,

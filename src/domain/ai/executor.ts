@@ -6,6 +6,7 @@
  */
 
 import type { GameState } from "@/domain/match";
+import { canExecuteAttack } from "@/lib/gameState";
 import { executeAttack, getAttackCoinFlipCount, endTurn, executeRetreat, createGameEvent, executeDeckSearch, clearStatusConditionsOnRetreat, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
 import { PokemonStage, type CoinFlipResult } from "@/domain/constants";
@@ -116,42 +117,17 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
   const attack = attacker.pokemon.attacks[attackIndex];
   if (!attack) return state;
 
-  // Check if attacker must flip to attack (Sand-Attack / SmokeScreen)
-  if (attacker.mustFlipToAttack) {
-    const sandAttackFlip = Math.random() < 0.5 ? "heads" : "tails";
-    const coinToken = `[coin:${sandAttackFlip}]`;
-
-    // Clear mustFlipToAttack regardless of result (it's consumed on attempt)
-    const clearedAttacker = {
-      ...attacker,
-      mustFlipToAttack: undefined,
-      mustFlipToAttackTurn: undefined,
-    };
-
-    if (sandAttackFlip === "tails") {
-      // Tails: attack does nothing
-      return {
-        ...state,
-        opponentActivePokemon: clearedAttacker,
-        events: [
-          ...state.events,
-          createGameEvent(`${attacker.pokemon.name} intenta atacar pero está afectado por Ataque Arena - Moneda: ${coinToken}`, "info"),
-          createGameEvent(`[coin:tails] ¡El ataque no hace nada!`, "action"),
-        ],
-      };
-    } else {
-      // Heads: attack proceeds normally
-      state = {
-        ...state,
-        opponentActivePokemon: clearedAttacker,
-        events: [
-          ...state.events,
-          createGameEvent(`${attacker.pokemon.name} está afectado por Ataque Arena - Moneda: ${coinToken}`, "info"),
-          createGameEvent(`[coin:heads] El ataque procede normalmente`, "info"),
-        ],
-      };
-    }
+  // Illegal attack (planned on a simulated state, or Leer/Paralysis/energy changed): the
+  // engine would throw, so the AI just ends its turn.
+  const illegalReason = canExecuteAttack(swapSides(state), attackIndex);
+  if (illegalReason) {
+    return endTurn({
+      ...state,
+      events: [...state.events, createGameEvent(`Rival no pudo atacar: ${illegalReason}`, "info")],
+    });
   }
+
+  // Sand-attack / Smokescreen is engine-owned: its coin is the first of getAttackCoinFlipCount.
 
   // Confusion: the engine resolves the flip for the side whose turn it is ("player"),
   // so run it from the AI's perspective and swap back.

@@ -1,13 +1,28 @@
 import { describe, it, expect } from "vitest";
-import { executeAttack, executeMetronome, getAttackCoinFlipCount } from "@/index";
+import { executeAttack as engineExecuteAttack, executeMetronome as engineExecuteMetronome, getAttackCoinFlipCount } from "@/index";
 import type { Attack, GameModifier, GameState, PokemonInPlay } from "@/index";
 import { EnergyType, ProtectionType, StatusCondition } from "@/domain/constants";
-import { makeState, inPlay, attackIndex, deepFreeze, gameCard, names } from "./helpers/state";
+import { makeState, inPlay, attackIndex, deepFreeze, gameCard, names, armedFor } from "./helpers/state";
 
 const { Grass, Lightning, Colorless, Psychic, Water, Fire } = EnergyType;
 const { Paralyzed, Poisoned, Confused, CannotAttack } = StatusCondition;
 const H = "heads" as const;
 const T = "tails" as const;
+
+// These scenarios are about effect resolution: the attacker gets the Energy its attack costs
+// (executeAttack refuses unpaid attacks), without changing Energy it can already pay with.
+function armActive(state: GameState, attackName: (attacker: PokemonInPlay) => string): GameState {
+  const active = state.playerActivePokemon;
+  if (!active || active.pokemon.kind !== "pokemon") return state;
+  return { ...state, playerActivePokemon: armedFor(active, attackName(active)) };
+}
+const nameAt = (index: number) => (p: PokemonInPlay) => (p.pokemon.kind === "pokemon" ? p.pokemon.attacks[index].name : "");
+const metronomeName = (p: PokemonInPlay) =>
+  p.pokemon.kind === "pokemon" ? (p.pokemon.attacks.find((a) => a.name.startsWith("Metr"))?.name ?? "") : "";
+const executeAttack = ((state: GameState, index: number, ...rest: unknown[]) =>
+  (engineExecuteAttack as (...args: unknown[]) => GameState)(armActive(state, nameAt(index)), index, ...rest)) as typeof engineExecuteAttack;
+const executeMetronome = ((state: GameState, attack: Attack, ...rest: unknown[]) =>
+  (engineExecuteMetronome as (...args: unknown[]) => GameState)(armActive(state, metronomeName), attack, ...rest)) as typeof engineExecuteMetronome;
 
 function plusPower(): GameModifier {
   return { id: "pp", source: "plusPower", card: gameCard("PlusPower", "base"), amount: 10, expiresAfterTurn: 3, playerId: "player" };
@@ -27,7 +42,8 @@ function defenderOn(pokemon: PokemonInPlay): GameModifier {
 
 /** Attack by name with the given coins, without ending the turn (so the result can be inspected). */
 function attack(state: GameState, name: string, coinResults: ("heads" | "tails")[]): GameState {
-  return executeAttack(state, attackIndex(state.playerActivePokemon!, name), { coinResults, skipEndTurn: true });
+  const armed = { ...state, playerActivePokemon: armedFor(state.playerActivePokemon!, name) };
+  return executeAttack(armed, attackIndex(armed.playerActivePokemon!, name), { coinResults, skipEndTurn: true });
 }
 
 function lastMessages(state: GameState, count = 8): string[] {

@@ -15,6 +15,8 @@ import {
 } from "@/domain/constants";
 import { decks, findCardBySetAndNumber, type Deck, type DeckEntry } from "@/domain/decks";
 import { getDamageReaction, getRetreatCostReduction, hasBlockingStatus, hasStatusImmunity, isDamageBlocked } from "@/domain/powers";
+import { getTurnActionBlocker } from "@/domain/board";
+import { assertLegal } from "@/shared/errors";
 
 // ============================================================================
 // TIPOS
@@ -145,6 +147,12 @@ export type GameState = {
   pendingSelfSwitch?: boolean;
   /** Track which Pokemon have used their "once per turn" powers this turn (by Pokemon ID) */
   usedPowersThisTurn?: string[];
+  /**
+   * The acting side already attacked this turn (set by executeAttack/executeMetronome and a
+   * failed confused attack; cleared when the turn passes). Blocks a second attack and any
+   * other action while the turn waits for prizes/promotions. Kept in sync with match/types.ts.
+   */
+  attackedThisTurn?: boolean;
   /** DeckSearch: player needs to search deck for Basic Pokemon matching filter */
   pendingDeckSearch?: {
     filter: {
@@ -1984,6 +1992,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     playerCanTakePrize,
     opponentCanTakePrize,
     usedPowersThisTurn: [], // Clear used powers for new turn
+    attackedThisTurn: undefined,
     events,
   };
 }
@@ -2421,7 +2430,84 @@ export function getAttackCoinFlipCount(state: GameState, attack: number | Attack
   if (!attacker || attacker.pokemon.kind !== CardKind.Pokemon) return 0;
   const resolved = typeof attack === "number" ? attacker.pokemon.attacks[attack] : attack;
   if (!resolved) return 0;
-  return coinFlipCountFor(attacker, resolved);
+  return smokescreenCoins(attacker) + coinFlipCountFor(attacker, resolved);
+}
+
+/**
+ * Sand-attack / Smokescreen: a Pokémon with `mustFlipToAttack` flips one extra coin when it
+ * attacks; it is the FIRST of `coinResults` (tails: the attack does nothing).
+ */
+function smokescreenCoins(attacker: PokemonInPlay): number {
+  return attacker.mustFlipToAttack ? 1 : 0;
+}
+
+// ============================================================================
+// ATTACK LEGALITY
+// ============================================================================
+
+/**
+ * Why the side whose turn it is ("player") can't use its Active Pokémon's attack
+ * `attackIndex` right now, or null. executeAttack enforces it (throws IllegalActionError).
+ *
+ * Checks: normal-action blocker (PLAYING phase, your turn, nothing pending, not already
+ * attacked this turn), both Active Pokémon present, Asleep / Paralyzed / Leer's "can't
+ * attack", attack requirements on the Defending Pokémon (Dream Eater), "once while in play"
+ * attacks, Energy cost (Double Colorless = 2, Energy Burn, Buzzap) and discard costs, and
+ * Call for Family with a full bench.
+ *
+ * Classic (1999) rule: the starting player MAY attack on its first turn, so there is no
+ * first-turn check. Confusion is not a reason (it is resolved by resolveConfusionFlip first).
+ */
+export function canExecuteAttack(state: GameState, attackIndex: number): string | null {
+  const blocker = getTurnActionBlocker(state);
+  if (blocker) return blocker;
+  const attacker = state.playerActivePokemon;
+  const defender = state.opponentActivePokemon;
+  if (!attacker || !defender) return "No hay Pokémon para atacar";
+  if (attacker.pokemon.kind !== CardKind.Pokemon) return "Tu Pokémon activo no puede atacar";
+  const attack = attacker.pokemon.attacks[attackIndex];
+  if (!attack) return "Ese ataque no existe";
+  const name = attacker.pokemon.name;
+  if (hasStatusCondition(attacker, StatusCondition.Asleep)) return `${name} está dormido y no puede atacar`;
+  if (hasStatusCondition(attacker, StatusCondition.Paralyzed)) return `${name} está paralizado y no puede atacar`;
+  if (hasStatusCondition(attacker, StatusCondition.CannotAttack)) return `${name} no puede atacar este turno`;
+  if (!meetsAttackRequirements(attack, defender)) {
+    return `No puedes usar ${attack.name}: el Pokémon defensor no cumple el requisito del ataque`;
+  }
+  const isUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
+  if (isUseOnce && attacker.usedOnceAttacks?.includes(attack.name)) return `${attack.name} ya fue usado`;
+  if (!canUseAttack(attacker, attackIndex)) return `${name} no tiene la energía necesaria para ${attack.name}`;
+  const searchesDeck = attack.effects?.some((e) => e.type === AttackEffectType.DeckSearch);
+  if (searchesDeck && state.playerBench.filter((p) => p != null).length >= 5) {
+    return "Tu banca está llena, no puedes usar este ataque";
+  }
+  return null;
+}
+
+/** Index of the Metronome-style (CopyAttack) attack of the player's Active Pokémon, or -1. */
+function copyAttackIndex(state: GameState): number {
+  const attacker = state.playerActivePokemon;
+  if (!attacker || attacker.pokemon.kind !== CardKind.Pokemon) return -1;
+  return attacker.pokemon.attacks.findIndex((a) => a.effects?.some((e) => e.type === AttackEffectType.CopyAttack));
+}
+
+/**
+ * Why Metronome (Clefairy / Clefable) can't copy `copiedAttack` now, or null: Metronome
+ * itself must be usable (its own cost, statuses, turn...) and `copiedAttack` must be one of
+ * the Defending Pokémon's attacks whose requirements are met.
+ */
+export function canExecuteMetronome(state: GameState, copiedAttack: Attack): string | null {
+  const index = copyAttackIndex(state);
+  if (index === -1) return "Tu Pokémon activo no tiene Metrónomo";
+  const reason = canExecuteAttack(state, index);
+  if (reason) return reason;
+  const defender = state.opponentActivePokemon!;
+  const copyable = defender.pokemon.kind === CardKind.Pokemon && defender.pokemon.attacks.some((a) => a.name === copiedAttack.name);
+  if (!copyable) return "Metrónomo solo puede copiar un ataque del Pokémon Defensor";
+  if (!meetsAttackRequirements(copiedAttack, defender)) {
+    return `No puedes usar ${copiedAttack.name}: el Pokémon defensor no cumple el requisito del ataque`;
+  }
+  return null;
 }
 
 const NON_STATUS_COIN_OUTCOMES = ["damage", "protection", "preventRetreat"];
@@ -2530,6 +2616,18 @@ export function executeAttack(
   skipDefenderPromotionArg: boolean = false,
   selectedEnergyIdsArg?: string[]
 ): GameState {
+  assertLegal(canExecuteAttack(gameState, attackIndex));
+  return executeAttackUnchecked(gameState, attackIndex, skipEndTurnOrOptions, skipDefenderPromotionArg, selectedEnergyIdsArg);
+}
+
+/** executeAttack without the legality guard (executeMetronome checks Metronome itself). */
+function executeAttackUnchecked(
+  gameState: GameState,
+  attackIndex: number,
+  skipEndTurnOrOptions: boolean | ExecuteAttackOptions,
+  skipDefenderPromotionArg: boolean,
+  selectedEnergyIdsArg?: string[]
+): GameState {
   const options = typeof skipEndTurnOrOptions === "object" && skipEndTurnOrOptions !== null
     ? skipEndTurnOrOptions
     : undefined;
@@ -2557,16 +2655,36 @@ export function executeAttack(
   const printedAttack = attacker.pokemon.attacks[attackIndex];
   if (!printedAttack) return gameState;
 
-  // Coin flips: in the options form the engine resolves coin effects from the caller's coins
-  const coinsNeeded = coinFlipCountFor(attacker, printedAttack);
-  const coinResults = options ? (options.coinResults ?? []) : undefined;
-  if (coinResults && coinResults.length !== coinsNeeded) {
+  // Coin flips: in the options form the engine resolves coin effects from the caller's coins.
+  // Sand-attack/Smokescreen adds one coin, first in the list.
+  const smokescreen = smokescreenCoins(attacker);
+  const coinsNeeded = smokescreen + coinFlipCountFor(attacker, printedAttack);
+  const allCoins = options ? (options.coinResults ?? []) : undefined;
+  if (allCoins && allCoins.length !== coinsNeeded) {
     throw new Error(
       `executeAttack: "${printedAttack.name}" needs ${coinsNeeded} coin result(s) ` +
-      `(getAttackCoinFlipCount), got ${coinResults.length}`
+      `(getAttackCoinFlipCount), got ${allCoins.length}`
     );
   }
-  const coinResolution = coinResults && coinsNeeded > 0
+  if (allCoins && smokescreen > 0) {
+    const coin = allCoins[0];
+    const events = [
+      ...gameState.events,
+      createGameEvent(`${attacker.pokemon.name} debe lanzar una moneda para atacar - Moneda: [coin:${coin}]`, "info"),
+    ];
+    if (coin === "tails") {
+      // The attack is used but does nothing; the turn ends like after any attack
+      const failed: GameState = {
+        ...gameState,
+        attackedThisTurn: true,
+        events: [...events, createGameEvent(`${attacker.pokemon.name} usó ${printedAttack.name} pero el ataque no hizo nada`, "action")],
+      };
+      return skipEndTurn ? failed : endTurn(failed);
+    }
+    gameState = { ...gameState, events: [...events, createGameEvent("[coin:heads] El ataque procede normalmente", "info")] };
+  }
+  const coinResults = allCoins ? allCoins.slice(smokescreen) : undefined;
+  const coinResolution = coinResults && coinResults.length > 0
     ? resolveCoinFlipEffects(printedAttack.effects ?? [], coinResults)
     : null;
   const attack: Attack = coinResolution ? { ...printedAttack, effects: coinResolution.effects } : printedAttack;
@@ -3749,6 +3867,7 @@ export function executeAttack(
     pendingSelfSwitch: pendingSelfSwitch || undefined,
     pendingDeckSearch: pendingDeckSearch,
     pendingBenchDamageSelection: pendingBenchDamageSelection,
+    attackedThisTurn: true,
     events,
   };
 
@@ -3908,6 +4027,7 @@ export function resolveConfusionFlip(
     const damaged: GameState = {
       ...state,
       playerActivePokemon: { ...active, currentDamage: newDamage },
+      attackedThisTurn: true,
       events,
     };
     const endsTurn = !skipEndTurn && state.opponentActivePokemon !== null &&
@@ -3939,6 +4059,7 @@ export function resolveConfusionFlip(
       opponentHand: ko.opponentHand,
       opponentCanTakePrize: false,
       playerNeedsToPromote: ko.needsToPromote,
+      attackedThisTurn: true,
       ...(defeated && { gameResult: "defeat" as const, gamePhase: GamePhase.GameOver }),
       events,
     },
@@ -3971,6 +4092,7 @@ export function executeMetronome(
   skipEndTurnOrOptions: boolean | ExecuteAttackOptions = false,
   skipDefenderPromotion: boolean = false
 ): GameState {
+  assertLegal(canExecuteMetronome(gameState, copiedAttack));
   const attacker = gameState.playerActivePokemon;
   const defender = gameState.opponentActivePokemon;
 
@@ -4026,8 +4148,8 @@ export function executeMetronome(
   // Ejecutar el ataque copiado usando executeAttack
   // Metronome never discards Energy, so selectedEnergyIds is dropped
   const resultState = typeof skipEndTurnOrOptions === "object" && skipEndTurnOrOptions !== null
-    ? executeAttack(tempState, 0, { ...skipEndTurnOrOptions, selectedEnergyIds: undefined })
-    : executeAttack(tempState, 0, !!skipEndTurnOrOptions, skipDefenderPromotion, undefined);
+    ? executeAttackUnchecked(tempState, 0, { ...skipEndTurnOrOptions, selectedEnergyIds: undefined }, false)
+    : executeAttackUnchecked(tempState, 0, !!skipEndTurnOrOptions, skipDefenderPromotion, undefined);
 
   // Restaurar el Pokémon original (con sus ataques reales) después de ejecutar
   return {

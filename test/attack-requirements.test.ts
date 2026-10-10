@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { canUseAttack, executeAttack } from "@/lib/gameState";
+import { canUseAttack, executeAttack, canExecuteAttack } from "@/lib/gameState";
+import { IllegalActionError } from "@/shared/errors";
 import { estimateAttackDamage, getUsableAttacks } from "@/domain/ai/actions";
 import { EnergyType, StatusCondition } from "@/domain/constants";
 import { makeState, inPlay, attackIndex } from "./helpers/state";
@@ -17,15 +18,12 @@ describe("Haunter's Dream Eater: only usable if the Defending Pokémon is Asleep
     expect(canUseAttack(h, idx, inPlay("Onix", { statuses: [StatusCondition.Asleep] }))).toBe(true);
   });
 
-  it("executeAttack does nothing (and keeps the turn) against an awake defender", () => {
+  it("executeAttack refuses it against an awake defender (canExecuteAttack gives the reason)", () => {
     const h = haunter();
     const state = makeState({ player: { active: h }, opponent: { active: inPlay("Onix") } });
 
-    const after = executeAttack(state, attackIndex(h, "Comesueños"));
-
-    expect(after.opponentActivePokemon?.currentDamage).toBe(0);
-    expect(after.isPlayerTurn).toBe(true);
-    expect(after.turnNumber).toBe(state.turnNumber);
+    expect(canExecuteAttack(state, attackIndex(h, "Comesueños"))).toMatch(/requisito/);
+    expect(() => executeAttack(state, attackIndex(h, "Comesueños"))).toThrow(IllegalActionError);
   });
 
   it("executeAttack deals 50 to an asleep defender", () => {

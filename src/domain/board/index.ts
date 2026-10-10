@@ -52,6 +52,7 @@ export function getTurnActionBlocker(state: GameState): string | null {
     return "Primero hay que elegir un nuevo Pokémon activo";
   }
   if (state.playerCanTakePrize) return "Primero toma tu premio";
+  if (state.attackedThisTurn) return "Ya atacaste este turno";
   return null;
 }
 

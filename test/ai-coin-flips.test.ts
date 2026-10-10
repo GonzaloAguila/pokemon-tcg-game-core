@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { executeAIAction } from "@/domain/ai/executor";
 import { EnergyType, ProtectionType, StatusCondition } from "@/domain/constants";
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
-import { makeState, inPlay, attackIndex, deepFreeze, names } from "./helpers/state";
+import { makeState, inPlay, attackIndex, deepFreeze, names, armedFor } from "./helpers/state";
 
 const { Grass, Lightning } = EnergyType;
 const { Confused, Poisoned } = StatusCondition;
@@ -19,7 +19,7 @@ function aiAttack(ai: PokemonInPlay, human: PokemonInPlay, name: string, random:
     turnNumber: 4,
     isPlayerTurn: false,
     ...extra,
-    opponent: { active: ai, ...(extra.opponent ?? {}) },
+    opponent: { active: armedFor(ai, name), ...(extra.opponent ?? {}) },
     player: { active: human, ...(extra.player ?? {}) },
   });
   return executeAIAction(state, { type: "attack", attackIndex: attackIndex(ai, name), delay: 0 });
@@ -75,7 +75,7 @@ describe("AI attacks resolve coin effects through the engine", () => {
 
   it("does not mutate the input state", () => {
     vi.spyOn(Math, "random").mockReturnValue(TAILS);
-    const nidoking = inPlay("Nidoking");
+    const nidoking = armedFor(inPlay("Nidoking"), "Golpe");
     const state = deepFreeze(makeState({ turnNumber: 4, isPlayerTurn: false, opponent: { active: nidoking }, player: { active: inPlay("Onix") } }));
     const after = executeAIAction(state, { type: "attack", attackIndex: attackIndex(nidoking, "Golpe"), delay: 0 });
     expect(after.opponentActivePokemon?.currentDamage).toBe(10);
