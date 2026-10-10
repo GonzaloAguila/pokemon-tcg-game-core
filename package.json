@@ -22,7 +22,8 @@
     "typecheck:test": "tsc -p tsconfig.test.json",
     "lint": "eslint src --ext .ts",
     "prepublishOnly": "npm run build",
-    "simulate": "tsx scripts/simulate.ts"
+    "simulate": "tsx scripts/simulate.ts",
+    "check-images": "tsx scripts/check-images.ts"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
