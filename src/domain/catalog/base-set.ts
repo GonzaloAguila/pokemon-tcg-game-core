@@ -2555,6 +2555,7 @@ export const baseSetCards: Card[] = [
       set: SET,
       rarity: CardRarity.Rare,
       trainerType: TrainerType.Item,
+      playsAsBasic: { hp: 10 },
       effect: "Juega a Muñeco Clefairy como si fuera un Pokémon Básico. No tiene ataques, no puede retirarse y no puede verse afectado por Estados Especiales. Si queda Fuera de Combate, no cuenta como Pokémon Fuera de Combate. En cualquier momento de tu turno antes de atacar, puedes descartarlo.",
     }),
     createTrainerCard({

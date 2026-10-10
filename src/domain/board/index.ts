@@ -14,11 +14,11 @@ import {
   findValidEvolutionTargets,
   getEnergyTypeInSpanish,
 } from "@/lib/gameState";
-import { isEnergyCard, isPlayableAsBasic, isPokemonCard } from "@/domain/cards";
+import { cardsLeavingPlay, isEnergyCard, isPlayableAsBasic, isPokemonCard, isTrainerInPlay, toInPlayCard } from "@/domain/cards";
 import { GamePhase, PokemonStage } from "@/domain/constants";
 import { attachEnergyWithRainDance, canAutoAttachEnergy } from "@/domain/powers";
 import { assertLegal } from "@/shared/errors";
-import { findInPlay, MAX_BENCH_SIZE } from "./locate";
+import { allOwnPokemon, findInPlay, MAX_BENCH_SIZE } from "./locate";
 
 export { findInPlay, findOwnPokemon, allOwnPokemon, MAX_BENCH_SIZE } from "./locate";
 export type { InPlayLocation } from "./locate";
@@ -57,9 +57,10 @@ export function getTurnActionBlocker(state: GameState): string | null {
   return null;
 }
 
+/** A card entering play as a Basic (a Mysterious Fossil gets its in-play Pokémon form). */
 function newPokemonInPlay(card: GameCard, playedOnTurn: number): PokemonInPlay {
   return {
-    pokemon: card,
+    pokemon: toInPlayCard(card) as GameCard,
     attachedEnergy: [],
     attachedTrainers: [],
     previousEvolutions: [],
@@ -124,6 +125,52 @@ export function playBasicPokemon(state: GameState, cardId: string, position: Boa
     playerHand,
     playerBench: [...state.playerBench.filter((p) => p != null), pokemon],
     events: [...state.events, createGameEvent(`Colocaste ${card.name} en la banca`, "action")],
+  };
+}
+
+// ============================================================================
+// DISCARD A TRAINER PLAYED AS A BASIC (Mysterious Fossil, Clefairy Doll)
+// ============================================================================
+
+/**
+ * "At any time during your turn before your attack, you may discard Mysterious Fossil from
+ * play." Only a Trainer played as a Basic (still on top: an evolved Fossil is Kabuto now),
+ * during your turn (normal-action blocker: not after attacking), and never your only
+ * Pokémon in play (you would have no Pokémon left).
+ */
+export function canDiscardFromPlay(state: GameState, pokemonId: string): string | null {
+  const blocker = getTurnActionBlocker(state);
+  if (blocker) return blocker;
+  const found = findInPlay(state, "player", pokemonId);
+  if (!found) return "Debes elegir uno de tus Pokémon en juego";
+  const card = found.pokemon.pokemon;
+  if (!isTrainerInPlay(card)) return `${card.name} no se puede descartar del juego`;
+  if (allOwnPokemon(state, "player").length === 1) return `${card.name} es tu único Pokémon en juego`;
+  return null;
+}
+
+/**
+ * Discard the player's Mysterious Fossil / Clefairy Doll (and everything attached) from
+ * play. Not a Knock Out: nobody takes a Prize. When it was the Active, the player must
+ * promote a benched Pokémon (`playerNeedsToPromote`, like Scoop Up) before doing anything else.
+ */
+export function discardFromPlay(state: GameState, pokemonId: string): GameState {
+  assertLegal(canDiscardFromPlay(state, pokemonId));
+  const found = findInPlay(state, "player", pokemonId)!;
+  const name = found.pokemon.pokemon.name;
+  const discarded = cardsLeavingPlay(found.pokemon);
+  const isActive = found.location === "active";
+  return {
+    ...state,
+    playerDiscard: [...state.playerDiscard, ...discarded],
+    ...(isActive
+      ? { playerActivePokemon: null, playerNeedsToPromote: true }
+      : { playerBench: state.playerBench.filter((_, i) => i !== found.benchIndex) }),
+    events: [
+      ...state.events,
+      createGameEvent(`Descartaste ${name} del juego`, "action"),
+      ...(isActive ? [createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")] : []),
+    ],
   };
 }
 

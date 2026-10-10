@@ -14,6 +14,7 @@ import { canUseAttack, canPokemonAttack, hasStatusCondition } from "@/domain/mat
 import { isPokemonCard, isEnergyCard, isTrainerCard } from "@/domain/cards";
 import type { AIAction, Side } from "./types";
 import {
+  basicHp,
   getBasicPokemonInHand,
   getEnergiesInHand,
   getPlayableEvolutions,
@@ -39,10 +40,7 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
     const basics = getBasicPokemonInHand(simulatedState, side);
     if (basics.length > 0) {
       // Elegir el básico con más HP
-      const bestBasic = basics.reduce((best, current) => {
-        if (!isPokemonCard(best) || !isPokemonCard(current)) return best;
-        return current.hp > best.hp ? current : best;
-      });
+      const bestBasic = basics.reduce((best, current) => (basicHp(current) > basicHp(best) ? current : best));
 
       actions.push({
         type: "playBasicToActive",
@@ -310,10 +308,7 @@ export function decideOpponentSetup(state: GameState): AIAction[] {
     const basics = getBasicPokemonInHand(state, side);
     if (basics.length > 0) {
       // Elegir el básico con más HP
-      const bestBasic = basics.reduce((best, current) => {
-        if (!isPokemonCard(best) || !isPokemonCard(current)) return best;
-        return current.hp > best.hp ? current : best;
-      });
+      const bestBasic = basics.reduce((best, current) => (basicHp(current) > basicHp(best) ? current : best));
 
       actions.push({
         type: "playBasicToActive",

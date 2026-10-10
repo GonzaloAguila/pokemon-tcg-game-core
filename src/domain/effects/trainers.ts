@@ -21,7 +21,8 @@
  * | Revive | [[discardBasicId]] · Pokémon Flute: [[opponentDiscardBasicId]] |
  * | Bill, Professor Oak, Imposter Professor Oak, Lass, PlusPower, Full Heal, Pokémon Center | [] |
  *
- * Clefairy Doll is not playable yet (its rules as a Pokémon aren't implemented).
+ * Mysterious Fossil and Clefairy Doll have no entry: they are played as Basic Pokémon
+ * (playBasicPokemon; see isPlayedAsBasic).
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
@@ -656,14 +657,20 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  * in ALL_CARDS must have a TRAINER_EFFECTS entry (enforced by a test).
  */
 export const UNSUPPORTED_TRAINERS: readonly string[] = [
-  "Clefairy Doll",
   // Fossil: implemented in the next commits
   "Mr. Fuji",
   "Energy Search",
   "Gambler",
   "Recycle",
-  "Mysterious Fossil",
 ];
+
+/**
+ * Trainers printed "play this card as if it were a Basic Pokémon" (`playsAsBasic`: Mysterious
+ * Fossil, Clefairy Doll) have no TRAINER_EFFECTS entry: they go into play with playBasicPokemon.
+ */
+export function isPlayedAsBasic(name: string): boolean {
+  return ALL_CARDS.some((c) => c.kind === CardKind.Trainer && c.name === name && !!c.playsAsBasic);
+}
 
 /** Catalog Trainer names (for coverage checks) */
 export function catalogTrainerNames(): string[] {

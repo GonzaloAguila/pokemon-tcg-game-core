@@ -14,7 +14,7 @@ import {
   processBenchKnockouts,
 } from "@/lib/gameState";
 import { ALL_CARDS } from "@/domain/catalog";
-import { isBasicEnergy, isPokemonCard } from "@/domain/cards";
+import { isBasicEnergy, isPokemonCard, cardOutOfPlay } from "@/domain/cards";
 import { GamePhase, CardKind, PokemonStage } from "@/domain/constants";
 import { evolvePokemonInPlay, clearEffectsAsIfEvolved } from "@/domain/board";
 
@@ -1614,8 +1614,8 @@ export function playScoopUp(
     basicCard = target.pokemon;
   }
 
-  // Only the basic card returns to hand
-  newHand = [basicCard, ...newHand];
+  // Only the basic card returns to hand (a Mysterious Fossil returns as the Trainer card)
+  newHand = [cardOutOfPlay(basicCard), ...newHand];
 
   // Discard all attached cards and evolution cards (everything except the basic)
   const cardsToDiscard: GameCard[] = [
@@ -1631,7 +1631,7 @@ export function playScoopUp(
       cardsToDiscard.push(target.pokemon);
     }
   }
-  newDiscard = [...newDiscard, ...cardsToDiscard];
+  newDiscard = [...newDiscard, ...cardsToDiscard.map(cardOutOfPlay)];
 
   let newActive = state.playerActivePokemon;
   let newBench = [...state.playerBench];

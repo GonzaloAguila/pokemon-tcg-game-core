@@ -15,7 +15,7 @@ import type { GameState, PokemonInPlay, GameCard } from "@/domain/match/types";
 import type { PokemonPower, EnergyType, PokemonCard } from "@/domain/cards/types";
 import { PokemonPowerType, StatusCondition } from "@/domain/constants";
 import { createGameEvent } from "@/lib/gameState";
-import { isPokemonCard, isEnergyCard } from "@/domain/cards";
+import { isPokemonCard, isEnergyCard, isTrainerInPlay, cardOutOfPlay } from "@/domain/cards";
 
 export * from "./types";
 
@@ -731,6 +731,8 @@ export function moveDamageWithDamageSwap(
  */
 export function hasStatusImmunity(pokemon: PokemonInPlay, state?: GameState): boolean {
   if (!isPokemonCard(pokemon.pokemon)) return false;
+  // Mysterious Fossil / Clefairy Doll: card rule, not a power (Toxic Gas can't stop it)
+  if (isTrainerInPlay(pokemon.pokemon)) return true;
   const power = pokemon.pokemon.power;
   return !!power && power.type === PokemonPowerType.StatusImmunity &&
     isPowerActive(state, pokemon, { ignoreBlockingStatus: true });
@@ -1178,7 +1180,7 @@ export function executeBuzzap(
       discard.push(...pokemon.attachedEnergy);
     }
     if (pokemon.previousEvolutions && pokemon.previousEvolutions.length > 0) {
-      discard.push(...pokemon.previousEvolutions);
+      discard.push(...pokemon.previousEvolutions.map(cardOutOfPlay));
     }
     // Note: The main Pokemon card becomes energy, not discarded
 
@@ -1193,7 +1195,7 @@ export function executeBuzzap(
         discard.push(...benchPokemon.attachedEnergy);
       }
       if (benchPokemon.previousEvolutions && benchPokemon.previousEvolutions.length > 0) {
-        discard.push(...benchPokemon.previousEvolutions);
+        discard.push(...benchPokemon.previousEvolutions.map(cardOutOfPlay));
       }
       bench[benchIndex] = null as unknown as PokemonInPlay;
     }

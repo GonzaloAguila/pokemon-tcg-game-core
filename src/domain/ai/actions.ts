@@ -17,7 +17,7 @@ import {
   calculateBaseDamage,
 } from "@/domain/match";
 import type { Attack } from "@/domain/cards";
-import { isPokemonCard, isEnergyCard } from "@/domain/cards";
+import { isPokemonCard, isEnergyCard, isPlayableAsBasic } from "@/domain/cards";
 import { PokemonStage, AttackEffectType } from "@/domain/constants";
 import {
   canPlayBasicPokemon,
@@ -156,11 +156,26 @@ export function evolve(
 }
 
 /**
- * Obtener los básicos en la mano
+ * Obtener los básicos en la mano. A Trainer played as a Basic (Mysterious Fossil, Clefairy
+ * Doll) is only offered when the hand has no other Basic Pokémon, or holds a Pokémon that
+ * evolves from it (Aerodactyl, Kabuto, Omanyte): it has no attacks and can't retreat.
  */
 export function getBasicPokemonInHand(state: GameState, side: Side): GameCard[] {
   const hand = getHand(state, side);
-  return hand.filter((c) => isPokemonCard(c) && c.stage === PokemonStage.Basic);
+  const basics = hand.filter((c) => isPokemonCard(c) && c.stage === PokemonStage.Basic);
+  const playedAsBasic = hand.filter(
+    (c) =>
+      c.kind === "trainer" &&
+      isPlayableAsBasic(c) &&
+      (basics.length === 0 || hand.some((h) => isPokemonCard(h) && h.evolvesFrom === c.name))
+  );
+  return [...basics, ...playedAsBasic];
+}
+
+/** HP of a card put into play as a Basic (the printed HP of a Mysterious Fossil). */
+export function basicHp(card: GameCard): number {
+  if (isPokemonCard(card)) return card.hp;
+  return card.kind === "trainer" ? card.playsAsBasic?.hp ?? 0 : 0;
 }
 
 /**

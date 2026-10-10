@@ -1281,6 +1281,7 @@ export const fossilCards: Card[] = [
     set: SET,
     rarity: CardRarity.Common,
     trainerType: TrainerType.Item,
+    playsAsBasic: { hp: 10 },
     effect: "Juega Fósil Misterioso como si fuera un Pokémon Básico. Mientras está en juego, Fósil Misterioso cuenta como un Pokémon (en lugar de una carta de Entrenador). Fósil Misterioso no tiene ataques, no puede retirarse y no puede estar Dormido, Confundido, Paralizado ni Envenenado. Si Fósil Misterioso queda Fuera de Combate, no cuenta como un Pokémon Fuera de Combate. (Descártalo de todos modos.) En cualquier momento durante tu turno antes de tu ataque, puedes descartar Fósil Misterioso del juego.",
   }),
 ];

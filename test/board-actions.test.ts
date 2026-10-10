@@ -19,11 +19,12 @@ import { makeState, inPlay, gameCard, energy, deepFreeze, names } from "./helper
 const { Water, Fire, Grass, Lightning } = EnergyType;
 
 describe("isPlayableAsBasic", () => {
-  it("is true for Basic Pokémon only (no Trainer is flagged yet)", () => {
+  it("is true for Basic Pokémon and the Trainers played as Basics (Clefairy Doll, Mysterious Fossil)", () => {
     expect(isPlayableAsBasic(gameCard("Pikachu", "base"))).toBe(true);
     expect(isPlayableAsBasic(gameCard("Raichu", "base"))).toBe(false);
     expect(isPlayableAsBasic(gameCard("Bill"))).toBe(false);
-    expect(isPlayableAsBasic(gameCard("Clefairy Doll"))).toBe(false);
+    expect(isPlayableAsBasic(gameCard("Clefairy Doll"))).toBe(true);
+    expect(isPlayableAsBasic(gameCard("Mysterious Fossil", "fossil"))).toBe(true);
     expect(isPlayableAsBasic(energy(Fire))).toBe(false);
   });
 });

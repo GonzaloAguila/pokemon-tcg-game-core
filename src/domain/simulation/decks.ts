@@ -67,10 +67,14 @@ export function buildRandomDeck(rng: Rng, setIds: readonly CardSetId[], name = "
 
   // Evolution lines whose Basic matches the deck types (or is Colorless)
   const fits = (p: PokemonCard) => p.types.some((t) => deckTypes.includes(t) || t === EnergyType.Colorless);
-  const basics = shuffled(rng, pokemon.filter((p) => p.stage === PokemonStage.Basic && fits(p)));
+  // Trainers played as Basics with evolutions (Mysterious Fossil → Aerodactyl/Kabuto/Omanyte) start lines too
+  const fossilRoots = trainers.filter(
+    (t) => t.kind === CardKind.Trainer && !!t.playsAsBasic && pokemon.some((p) => p.evolvesFrom === t.name)
+  );
+  const basics: Card[] = shuffled(rng, [...pokemon.filter((p) => p.stage === PokemonStage.Basic && fits(p)), ...fossilRoots]);
   const fallbackBasics = pokemon.filter((p) => p.stage === PokemonStage.Basic);
   const lineCount = 3 + randomInt(rng, 3);
-  for (const basic of (basics.length > 0 ? basics : fallbackBasics).slice(0, lineCount)) {
+  for (const basic of (basics.some((c) => c.kind === CardKind.Pokemon) ? basics : [...fallbackBasics, ...basics]).slice(0, lineCount)) {
     add(basic, 2 + randomInt(rng, 3));
     const stage1s = pokemon.filter((p) => p.stage === PokemonStage.Stage1 && p.evolvesFrom === basic.name);
     if (stage1s.length > 0) {

@@ -1,6 +1,13 @@
 import { getCardImageUrl as getCatalogImageUrl } from "@/domain/catalog";
 import type { Card, ProtectionType, EnergyType, Attack, PokemonCard, AttackEffect } from "@/domain/cards";
-import { isEnergyCard, isPokemonCard, isPlayableAsBasic } from "@/domain/cards";
+import {
+  isEnergyCard,
+  isPokemonCard,
+  isPlayableAsBasic,
+  isTrainerInPlay,
+  cardsLeavingPlay,
+  givesPrizeWhenKnockedOut,
+} from "@/domain/cards";
 import {
   StatusCondition,
   GamePhase,
@@ -324,6 +331,11 @@ export function applyStatusCondition(
 ): PokemonInPlay {
   const currentStatuses = pokemon.statusConditions ?? [];
 
+  // Mysterious Fossil / Clefairy Doll can't be affected by Special Conditions
+  if (isTrainerInPlay(pokemon.pokemon) && status !== StatusCondition.CannotAttack) {
+    return pokemon;
+  }
+
   if (currentStatuses.includes(status)) {
     return pokemon;
   }
@@ -509,6 +521,9 @@ export function canRetreat(
   // No puede retirarse si la retirada fue bloqueada (Acid)
   if (pokemon.retreatPrevented) return false;
 
+  // Mysterious Fossil / Clefairy Doll: "can't retreat"
+  if (isTrainerInPlay(pokemon.pokemon)) return false;
+
   return true;
 }
 
@@ -679,12 +694,23 @@ export function executeRetreat(
   };
 }
 
+/** Options of the resolvers of an attack's pending choice (switch, deck search, bench damage...). */
+export type PendingResolutionOptions = {
+  /** Don't call endTurn once resolved (callers that swap perspective end the turn themselves). */
+  skipEndTurn?: boolean;
+};
+
+/** The attack is complete once its pending choice is resolved: end the turn unless told not to. */
+function finishPendingStep(state: GameState, options: PendingResolutionOptions): GameState {
+  return options.skipEndTurn ? state : endTurn(state);
+}
+
 /**
  * Applies a ForceSwitch: opponent's active goes to bench, selected bench Pokemon becomes active.
  * Called after executeAttack when pendingForceSwitch is true.
  * Similar to Gust of Wind but triggered by an attack effect.
  */
-export function applyForceSwitch(gameState: GameState, benchIndex: number): GameState {
+export function applyForceSwitch(gameState: GameState, benchIndex: number, options: PendingResolutionOptions = {}): GameState {
   const opponentActive = gameState.opponentActivePokemon;
   const targetBench = gameState.opponentBench[benchIndex];
 
@@ -722,7 +748,7 @@ export function applyForceSwitch(gameState: GameState, benchIndex: number): Game
   };
 
   // Now end the turn (attack is complete)
-  return endTurn(newState);
+  return finishPendingStep(newState, options);
 }
 
 /**
@@ -730,7 +756,7 @@ export function applyForceSwitch(gameState: GameState, benchIndex: number): Game
  * Called after executeAttack when pendingSelfSwitch is true.
  * Used by Exeggutor's Teleport.
  */
-export function applySelfSwitch(gameState: GameState, benchIndex: number): GameState {
+export function applySelfSwitch(gameState: GameState, benchIndex: number, options: PendingResolutionOptions = {}): GameState {
   const playerActive = gameState.playerActivePokemon;
   const targetBench = gameState.playerBench[benchIndex];
 
@@ -767,19 +793,19 @@ export function applySelfSwitch(gameState: GameState, benchIndex: number): GameS
   };
 
   // Now end the turn (attack is complete)
-  return endTurn(newState);
+  return finishPendingStep(newState, options);
 }
 
 /**
  * Skips a pending ForceSwitch or SelfSwitch (when there are no valid targets)
  * and ends the turn normally.
  */
-export function skipPendingSwitch(gameState: GameState): GameState {
-  return endTurn({
+export function skipPendingSwitch(gameState: GameState, options: PendingResolutionOptions = {}): GameState {
+  return finishPendingStep({
     ...gameState,
     pendingForceSwitch: undefined,
     pendingSelfSwitch: undefined,
-  });
+  }, options);
 }
 
 /**
@@ -793,7 +819,8 @@ export function skipPendingSwitch(gameState: GameState): GameState {
  */
 export function executeDeckSearch(
   gameState: GameState,
-  selectedCardId: string | null
+  selectedCardId: string | null,
+  options: PendingResolutionOptions = {}
 ): GameState {
   const filter = gameState.pendingDeckSearch?.filter;
 
@@ -820,7 +847,7 @@ export function executeDeckSearch(
       events,
     };
 
-    return endTurn(newState);
+    return finishPendingStep(newState, options);
   }
 
   // Find the selected card in deck
@@ -918,7 +945,7 @@ export function executeDeckSearch(
   };
 
   // End turn after deck search completes
-  return endTurn(newState);
+  return finishPendingStep(newState, options);
 }
 
 /**
@@ -929,7 +956,8 @@ export function executeDeckSearch(
  */
 export function executeBenchDamage(
   gameState: GameState,
-  selectedPokemonIds: string[]
+  selectedPokemonIds: string[],
+  options: PendingResolutionOptions = {}
 ): GameState {
   const pending = gameState.pendingBenchDamageSelection;
 
@@ -955,7 +983,7 @@ export function executeBenchDamage(
       events,
     };
 
-    return endTurn(newState);
+    return finishPendingStep(newState, options);
   }
 
   // Validate selection count
@@ -1030,7 +1058,7 @@ export function executeBenchDamage(
   }
 
   // End turn after damage is applied
-  return endTurn(newState);
+  return finishPendingStep(newState, options);
 }
 
 /**
@@ -1056,18 +1084,13 @@ function knockOutActingActive(
   events: GameEvent[];
 } {
   const events: GameEvent[] = [];
-  const discard = [
-    ...piles.discard,
-    knockedOut.pokemon,
-    ...knockedOut.attachedEnergy,
-    ...(knockedOut.attachedTrainers ?? []),
-    ...(knockedOut.previousEvolutions ?? []),
-  ];
+  const discard = [...piles.discard, ...cardsLeavingPlay(knockedOut)];
 
   let opponentPrizes = piles.opponentPrizes;
   let opponentHand = piles.opponentHand;
   let prizedOut = false;
-  if (opponentPrizes.length > 0) {
+  // A Knocked Out Mysterious Fossil / Clefairy Doll doesn't count: no Prize
+  if (opponentPrizes.length > 0 && givesPrizeWhenKnockedOut(knockedOut)) {
     const prize = opponentPrizes[opponentPrizes.length - 1];
     opponentPrizes = opponentPrizes.slice(0, -1);
     opponentHand = [...opponentHand, prize];
@@ -1173,15 +1196,11 @@ export function processBenchKnockouts(state: GameState): GameState {
   }
 
   const events = [...state.events];
-  const cardsOf = (p: PokemonInPlay): GameCard[] => [
-    p.pokemon,
-    ...p.attachedEnergy,
-    ...(p.attachedTrainers ?? []),
-    ...(p.previousEvolutions ?? []),
-  ];
+  const cardsOf = (p: PokemonInPlay): GameCard[] => cardsLeavingPlay(p);
 
-  // Takes one prize per KO for the given side; returns the updated piles
-  const takePrizes = (prizes: GameCard[], hand: GameCard[], knockedOut: PokemonInPlay[]) => {
+  // Takes one prize per KO for the given side (not for a Mysterious Fossil / Clefairy Doll)
+  const takePrizes = (prizes: GameCard[], hand: GameCard[], allKnockedOut: PokemonInPlay[]) => {
+    const knockedOut = allKnockedOut.filter(givesPrizeWhenKnockedOut);
     const taken = prizes.slice(0, knockedOut.length);
     for (const ko of knockedOut.slice(0, taken.length)) {
       events.push(createGameEvent(`Se toma 1 premio por noquear a ${ko.pokemon.name}`, "action"));
@@ -1622,16 +1641,10 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   ) => {
     // Mover al descarte
     if (isPlayerPokemon) {
-      updatedState.playerDiscard = [
-        ...updatedState.playerDiscard,
-        knockedOut.pokemon,
-        ...knockedOut.attachedEnergy,
-        ...(knockedOut.attachedTrainers || []),
-        ...(knockedOut.previousEvolutions || []),
-      ];
+      updatedState.playerDiscard = [...updatedState.playerDiscard, ...cardsLeavingPlay(knockedOut)];
 
       // El oponente puede tomar premio
-      if (updatedState.opponentPrizes.length > 0) {
+      if (updatedState.opponentPrizes.length > 0 && givesPrizeWhenKnockedOut(knockedOut)) {
         opponentCanTakePrize = true;
         events.push(createGameEvent("El rival puede tomar un premio", "action"));
       }
@@ -1652,16 +1665,10 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
         events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
       }
     } else {
-      updatedState.opponentDiscard = [
-        ...updatedState.opponentDiscard,
-        knockedOut.pokemon,
-        ...knockedOut.attachedEnergy,
-        ...(knockedOut.attachedTrainers || []),
-        ...(knockedOut.previousEvolutions || []),
-      ];
+      updatedState.opponentDiscard = [...updatedState.opponentDiscard, ...cardsLeavingPlay(knockedOut)];
 
       // El jugador puede tomar premio
-      if (updatedState.playerPrizes.length > 0) {
+      if (updatedState.playerPrizes.length > 0 && givesPrizeWhenKnockedOut(knockedOut)) {
         playerCanTakePrize = true;
         events.push(createGameEvent("¡Puedes tomar un premio!", "action"));
       }
@@ -2970,17 +2977,10 @@ function executeAttackUnchecked(
 
   if (isKnockedOut) {
     // Mover Pokémon noqueado y sus cartas al descarte
-    newOpponentDiscard.push(defender.pokemon);
-    newOpponentDiscard.push(...defender.attachedEnergy);
-    if (defender.attachedTrainers) {
-      newOpponentDiscard.push(...defender.attachedTrainers);
-    }
-    if (defender.previousEvolutions) {
-      newOpponentDiscard.push(...defender.previousEvolutions);
-    }
+    newOpponentDiscard.push(...cardsLeavingPlay(defender));
 
-    // Marcar que el jugador puede tomar un premio (si hay)
-    if (newPlayerPrizes.length > 0) {
+    // Marcar que el jugador puede tomar un premio (si hay; un Fósil Misterioso no da premio)
+    if (newPlayerPrizes.length > 0 && givesPrizeWhenKnockedOut(defender)) {
       playerCanTakePrize = true;
       events.push(createGameEvent("¡Puedes tomar un premio!", "action"));
     }
@@ -3582,7 +3582,9 @@ function executeAttackUnchecked(
                 if (statusesToApply.length < allStatuses.length) {
                   events.push(
                     createGameEvent(
-                      `¡${newOpponentActive.pokemon.name} es inmune a estados alterados gracias a ${immunityPowerName}!`,
+                      isTrainerInPlay(newOpponentActive.pokemon)
+                        ? `¡${newOpponentActive.pokemon.name} no puede verse afectado por estados especiales!`
+                        : `¡${newOpponentActive.pokemon.name} es inmune a estados alterados gracias a ${immunityPowerName}!`,
                       "action"
                     )
                   );
@@ -3688,17 +3690,7 @@ function executeAttackUnchecked(
       if (effect.type === AttackEffectType.ReturnToHand && effect.target === AttackTarget.Defender) {
         if (newOpponentActive && !isKnockedOut) {
           // Return the defender and all attached cards to opponent's hand
-          const cardsToReturn: GameCard[] = [
-            newOpponentActive.pokemon,
-            ...newOpponentActive.attachedEnergy,
-          ];
-          if (newOpponentActive.attachedTrainers) {
-            cardsToReturn.push(...newOpponentActive.attachedTrainers);
-          }
-          // Include previous evolutions if any
-          if (newOpponentActive.previousEvolutions) {
-            cardsToReturn.push(...newOpponentActive.previousEvolutions);
-          }
+          const cardsToReturn: GameCard[] = cardsLeavingPlay(newOpponentActive);
 
           // Add all cards to opponent's hand
           newOpponentHand = [...newOpponentHand, ...cardsToReturn];

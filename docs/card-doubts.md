@@ -20,3 +20,10 @@ Each entry: card, the question, what was implemented meanwhile. Agents append he
 - **Poké Ball (JU #64)**: on heads the player "may" search; the registry requires choosing a Pokémon when the deck has one, and the deck is not shuffled when nothing is taken. Kept.
 - **Peek (Mankey)**: "one of either player's Prizes" — the engine picks the prize at random instead of letting the player choose. Kept.
 - **Damage Swap (Alakazam)**: one use = one move of N counters between two Pokémon (the API's `amount` semantics); the card moves 1 counter per use, as often as you like. Equivalent outcomes.
+
+### Stage B (Fossil)
+
+- **Mysterious Fossil (FO #62) — type**: the card has no type; in play it is a Pokémon with `types: []` and no Weakness/Resistance (Chain Lightning, Shift and Conversion see no type). Consumers that read `types[0]` must handle an empty list.
+- **Mysterious Fossil — discard from play**: refused when it is your only Pokémon in play (instead of allowing it and losing). Discarding the Active Fossil leaves `playerNeedsToPromote` set (like Scoop Up); the turn continues after the promotion.
+- **Mysterious Fossil — outside play it is a Trainer**: Poké Ball, Pokémon Trader, Revive, Pokémon Flute and Call for Family don't find it (they look for Pokémon cards); Item Finder, Lass, Computer Search, Recycle and Scavenge do. Kabuto/Omanyte/Aerodactyl on top of it give a Prize when Knocked Out; the Fossil under them goes to the discard pile as the Trainer.
+- **Clefairy Doll (BS #70)**: was unplayable; it now uses the same data-driven rules as Mysterious Fossil (`playsAsBasic: { hp: 10 }`: 10 HP, no attacks, can't retreat, no Special Conditions, no Prize when Knocked Out, may be discarded from play). This is a Base Set behavior change (the card becomes playable).

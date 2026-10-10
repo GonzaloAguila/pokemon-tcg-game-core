@@ -7,9 +7,9 @@
 
 import type { GameState } from "@/domain/match";
 import { canExecuteAttack } from "@/lib/gameState";
-import { executeAttack, getAttackCoinFlipCount, endTurn, executeRetreat, createGameEvent, executeDeckSearch, clearStatusConditionsOnRetreat, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
+import { executeAttack, getAttackCoinFlipCount, endTurn, executeRetreat, createGameEvent, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
-import { PokemonStage, type CoinFlipResult } from "@/domain/constants";
+import type { CoinFlipResult } from "@/domain/constants";
 import type { AIAction } from "./types";
 import {
   playBasicToActive,
@@ -19,6 +19,7 @@ import {
   actAs,
 } from "./actions";
 import { canPlayTrainerCard, playTrainerCard } from "@/domain/effects";
+import { resolveOwnAttackPendings } from "./pending";
 import { IllegalActionError } from "@/shared/errors";
 
 /** The AI's coin flips (the engine logs and resolves them). */
@@ -202,11 +203,12 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
   // skipEndTurn: endTurn runs after the swap back, so its messages have the right perspective.
   // skipDefenderPromotion: the human chooses which Pokémon to promote.
   const coinResults = flipCoins(getAttackCoinFlipCount(swappedState, attackIndex));
-  const resultState = executeAttack(swappedState, attackIndex, {
+  // The AI answers its own attack's choices (switch, deck search, bench damage) in its view.
+  const resultState = resolveOwnAttackPendings(executeAttack(swappedState, attackIndex, {
     coinResults,
     skipEndTurn: true,
     skipDefenderPromotion: true,
-  });
+  }));
 
   // Swap de vuelta
   // En resultState, "opponent" = jugador real. Si opponentActivePokemon es null y hay bench,
@@ -352,113 +354,6 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
       };
     }
   }
-
-  // Handle pending ForceSwitch: AI auto-picks a bench Pokemon to bring forward
-  // In swapped state, pendingForceSwitch meant "attacker (AI) picks from defender (human) bench"
-  // After swap-back: human is player, so we need to switch player's active with player's bench
-  if (resultState.pendingForceSwitch && finalState.playerActivePokemon) {
-    const humanBench = finalState.playerBench.filter(p => p != null);
-    if (humanBench.length > 0) {
-      // AI picks a random bench Pokemon (or first one)
-      const pickIndex = finalState.playerBench.findIndex(p => p != null);
-      const picked = finalState.playerBench[pickIndex]!;
-      // Moving to the bench clears ALL special conditions (incl. Poison) and active-only effects
-      const goingToBench = {
-        ...clearStatusConditionsOnRetreat(finalState.playerActivePokemon),
-        modifiedWeakness: undefined,
-        modifiedResistance: undefined,
-      };
-      const newBench = [...finalState.playerBench];
-      newBench.splice(pickIndex, 1);
-      newBench.push(goingToBench);
-
-      finalState = {
-        ...finalState,
-        playerActivePokemon: picked,
-        playerBench: newBench,
-        pendingForceSwitch: undefined,
-        events: [
-          ...finalState.events,
-          createGameEvent(`${finalState.playerActivePokemon.pokemon.name} fue enviado a tu banca`, "action"),
-          createGameEvent(`${picked.pokemon.name} es ahora tu Pokémon activo`, "info"),
-        ],
-      };
-    } else {
-      finalState = { ...finalState, pendingForceSwitch: undefined };
-    }
-  }
-
-  // Handle pending SelfSwitch: AI auto-picks own bench Pokemon to swap with
-  // In swapped state, pendingSelfSwitch meant "attacker (AI) switches with own bench"
-  // After swap-back: AI is opponent
-  if (resultState.pendingSelfSwitch && finalState.opponentActivePokemon) {
-    const aiBench = finalState.opponentBench.filter(p => p != null);
-    if (aiBench.length > 0) {
-      const pickIndex = finalState.opponentBench.findIndex(p => p != null);
-      const picked = finalState.opponentBench[pickIndex]!;
-      // Moving to the bench clears ALL special conditions (incl. Poison) and active-only effects
-      const goingToBench = {
-        ...clearStatusConditionsOnRetreat(finalState.opponentActivePokemon),
-        modifiedWeakness: undefined,
-        modifiedResistance: undefined,
-      };
-      const newBench = [...finalState.opponentBench];
-      newBench.splice(pickIndex, 1);
-      newBench.push(goingToBench);
-
-      finalState = {
-        ...finalState,
-        opponentActivePokemon: picked,
-        opponentBench: newBench,
-        pendingSelfSwitch: undefined,
-        events: [
-          ...finalState.events,
-          createGameEvent(`${finalState.opponentActivePokemon.pokemon.name} del rival se cambió con ${picked.pokemon.name}`, "action"),
-        ],
-      };
-    } else {
-      finalState = { ...finalState, pendingSelfSwitch: undefined };
-    }
-  }
-
-  // Handle pending DeckSearch: AI auto-picks a valid card from deck
-  // In swapped state, pendingDeckSearch was set by attacker (AI)
-  // After swap-back: AI is opponent, so deck search applies to opponent's deck
-  if (resultState.pendingDeckSearch && finalState.opponentDeck.length > 0) {
-    const filter = resultState.pendingDeckSearch.filter;
-    // Find first valid card matching the filter
-    const validCard = finalState.opponentDeck.find(card => {
-      if (!isPokemonCard(card) || card.stage !== PokemonStage.Basic) return false;
-      if (filter.names && !filter.names.includes(card.name)) return false;
-      if (filter.type && !card.types.includes(filter.type)) return false;
-      return true;
-    });
-
-    // Swap to opponent perspective to execute deck search
-    const swappedForSearch: GameState = {
-      ...finalState,
-      playerDeck: finalState.opponentDeck,
-      playerBench: finalState.opponentBench,
-      opponentDeck: finalState.playerDeck,
-      opponentBench: finalState.playerBench,
-      pendingDeckSearch: resultState.pendingDeckSearch,
-    };
-
-    const searchResult = executeDeckSearch(swappedForSearch, validCard?.id ?? null);
-
-    // Swap back
-    finalState = {
-      ...searchResult,
-      playerDeck: searchResult.opponentDeck,
-      playerBench: searchResult.opponentBench,
-      opponentDeck: searchResult.playerDeck,
-      opponentBench: searchResult.playerBench,
-      pendingDeckSearch: undefined,
-    };
-  }
-
-  // Clear any remaining pending flags
-  finalState = { ...finalState, pendingForceSwitch: undefined, pendingSelfSwitch: undefined, pendingDeckSearch: undefined };
 
   // Si el juego no terminó, no hay premio pendiente para el oponente, y no hay promoción pendiente,
   // terminamos el turno. Esto genera los eventos con la perspectiva CORRECTA.

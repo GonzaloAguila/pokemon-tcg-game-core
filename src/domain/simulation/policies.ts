@@ -30,6 +30,8 @@ import { isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { AttackEffectType, PokemonStage, StatusCondition, type CoinFlipResult } from "@/domain/constants";
 import {
   canAttachEnergy,
+  canDiscardFromPlay,
+  discardFromPlay,
   canPlayBasicPokemon,
   getEvolutionTargets,
   getTurnActionBlocker,
@@ -248,6 +250,9 @@ export function legalActions(view: GameState, rng: Rng, answer: (step: Selection
   }
   for (const pokemon of [view.playerActivePokemon, ...view.playerBench]) {
     if (pokemon && canUsePokemonPower(view, pokemon.pokemon.id) === null) add("power", powerAction(pokemon, rng, answer));
+    if (pokemon && canDiscardFromPlay(view, pokemon.pokemon.id) === null) {
+      add("discardFromPlay", { label: `discardFromPlay ${pokemon.pokemon.name}`, run: (v) => discardFromPlay(v, pokemon.pokemon.id) });
+    }
   }
   const retreat = retreatAction(view, rng);
   if (retreat) add("retreat", retreat);

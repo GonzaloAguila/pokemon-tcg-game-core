@@ -35,7 +35,7 @@ export type {
   CardEffectContext,
   CoinFlipRequirement,
 } from "./types";
-export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames } from "./trainers";
+export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames, isPlayedAsBasic } from "./trainers";
 export { POWER_EFFECTS, ACTIVATED_POWER_TYPES } from "./powers";
 export { checkSelection, minSelectionsOf } from "./validate";
 
@@ -67,6 +67,7 @@ function trainerDef(state: GameState, cardId: string): { def?: CardEffectDef; re
   const card = state.playerHand.find((c) => c.id === cardId);
   if (!card) return { reason: "La carta no está en tu mano" };
   if (card.kind !== "trainer") return { reason: "Esa carta no es un Entrenador" };
+  if (card.playsAsBasic) return { reason: `${card.name} se juega como un Pokémon Básico: ponlo en tu Banca` };
   const def = TRAINER_EFFECTS[card.name];
   if (!def) return { reason: `${card.name} todavía no se puede jugar` };
   return { def, reason: null };

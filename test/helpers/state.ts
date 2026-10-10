@@ -7,6 +7,7 @@
  */
 import { baseSetCards, jungleCards, fossilCards } from "@/domain/catalog";
 import type { Card } from "@/domain/cards";
+import { toInPlayCard } from "@/domain/cards";
 import { GamePhase, StatusCondition, EnergyType } from "@/domain/constants";
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { canUseAttack } from "@/lib/gameState";
@@ -63,14 +64,14 @@ export type InPlayOptions = {
   evolvedFrom?: string[];
 } & Partial<Omit<PokemonInPlay, "pokemon" | "attachedEnergy" | "currentDamage" | "statusConditions">>;
 
-/** A Pokémon in play built from a catalog card. */
+/** A Pokémon in play built from a catalog card (a Mysterious Fossil gets its in-play form). */
 export function inPlay(name: string, opts: InPlayOptions = {}): PokemonInPlay {
   const { set, damage, energy: energyTypes, statuses, evolvedFrom, ...rest } = opts;
   return {
-    pokemon: gameCard(name, set),
+    pokemon: toInPlayCard(gameCard(name, set)),
     attachedEnergy: (energyTypes ?? []).map(energy),
     attachedTrainers: [],
-    previousEvolutions: (evolvedFrom ?? []).map((n) => gameCard(n, set)),
+    previousEvolutions: (evolvedFrom ?? []).map((n) => toInPlayCard(gameCard(n, set))),
     currentDamage: damage ?? 0,
     statusConditions: statuses ?? [],
     playedOnTurn: 1,

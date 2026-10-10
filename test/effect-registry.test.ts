@@ -4,6 +4,7 @@ import {
   POWER_EFFECTS,
   UNSUPPORTED_TRAINERS,
   ACTIVATED_POWER_TYPES,
+  isPlayedAsBasic,
   catalogTrainerNames,
   canPlayTrainerCard,
   getTrainerSteps,
@@ -23,9 +24,12 @@ const { Water, Fire, Grass, Lightning, Psychic } = EnergyType;
 
 describe("registry coverage", () => {
   it("every Trainer in the catalog has a TRAINER_EFFECTS entry (except the allow-list)", () => {
-    const missing = catalogTrainerNames().filter((name) => !TRAINER_EFFECTS[name] && !UNSUPPORTED_TRAINERS.includes(name));
+    const missing = catalogTrainerNames().filter(
+      (name) => !TRAINER_EFFECTS[name] && !UNSUPPORTED_TRAINERS.includes(name) && !isPlayedAsBasic(name)
+    );
     expect(missing).toEqual([]);
-    expect(UNSUPPORTED_TRAINERS).toEqual(["Clefairy Doll", "Mr. Fuji", "Energy Search", "Gambler", "Recycle", "Mysterious Fossil"]);
+    expect(UNSUPPORTED_TRAINERS).toEqual(["Mr. Fuji", "Energy Search", "Gambler", "Recycle"]);
+    expect(isPlayedAsBasic("Mysterious Fossil") && isPlayedAsBasic("Clefairy Doll")).toBe(true);
   });
 
   it("every activated power in the catalog has a POWER_EFFECTS entry", () => {
@@ -36,9 +40,9 @@ describe("registry coverage", () => {
     expect(activated.filter((name) => !POWER_EFFECTS[name])).toEqual([]);
   });
 
-  it("Clefairy Doll is refused with a reason", () => {
+  it("Clefairy Doll is not played as a Trainer: it goes into play as a Basic", () => {
     const doll = gameCard("Clefairy Doll");
-    expect(canPlayTrainerCard(makeState({ player: { active: inPlay("Machop"), hand: [doll] } }), doll.id)).toMatch(/todavía/);
+    expect(canPlayTrainerCard(makeState({ player: { active: inPlay("Machop"), hand: [doll] } }), doll.id)).toMatch(/Pokémon Básico/);
   });
 });
 

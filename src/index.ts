@@ -64,6 +64,12 @@ export {
   isTrainerCard,
   isBasicEnergy,
   isPlayableAsBasic,
+  // Trainers played as Basics (Mysterious Fossil, Clefairy Doll): in-play form and exits
+  toInPlayCard,
+  isTrainerInPlay,
+  cardOutOfPlay,
+  cardsLeavingPlay,
+  givesPrizeWhenKnockedOut,
 } from "./domain/cards";
 
 // =============================================================================
@@ -85,6 +91,8 @@ export {
   canEvolve,
   evolvePokemonCard,
   getEvolutionTargets,
+  canDiscardFromPlay,
+  discardFromPlay,
   evolvePokemonInPlay,
   ENERGY_ATTACH_EFFECTS,
   getTurnActionBlocker,
@@ -195,6 +203,7 @@ export {
   POWER_EFFECTS,
   UNSUPPORTED_TRAINERS,
   ACTIVATED_POWER_TYPES,
+  isPlayedAsBasic,
   canPlayTrainerCard,
   getTrainerSteps,
   getTrainerCoinFlips,
