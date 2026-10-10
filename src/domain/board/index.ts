@@ -18,7 +18,7 @@ import {
 } from "@/lib/gameState";
 import { cardsLeavingPlay, isEnergyCard, isPlayableAsBasic, isPokemonCard, isTrainerInPlay, toInPlayCard } from "@/domain/cards";
 import { GamePhase, PokemonStage } from "@/domain/constants";
-import { attachEnergyWithRainDance, canAutoAttachEnergy, getEvolutionBlockingPokemon } from "@/domain/powers";
+import { attachEnergyWithRainDance, canAutoAttachEnergy, getEvolutionBlockingPokemon, getTrainerBlockingPokemon } from "@/domain/powers";
 import { assertLegal } from "@/shared/errors";
 import { allOwnPokemon, findInPlay, MAX_BENCH_SIZE } from "./locate";
 import { SPECIAL_ENERGY_ATTACH_EFFECTS, type OnAttachFromHand } from "./special-energy";
@@ -71,7 +71,13 @@ export function getTurnActionBlocker(state: GameState): string | null {
  * are Trainer cards in the hand).
  */
 export function getTrainerBlocker(state: GameState): string | null {
-  return state.noTrainersOnTurn === state.turnNumber ? "No puedes jugar cartas de Entrenador este turno (Dolor de Cabeza)" : null;
+  if (state.noTrainersOnTurn === state.turnNumber) return "No puedes jugar cartas de Entrenador este turno (Dolor de Cabeza)";
+  // Hay Fever (Dark Vileplume), either side, while it works
+  const hayFever = getTrainerBlockingPokemon(state);
+  if (hayFever && isPokemonCard(hayFever.pokemon)) {
+    return `${hayFever.pokemon.power?.name ?? "Un Poder Pokémon"} de ${hayFever.pokemon.name}: no se pueden jugar cartas de Entrenador`;
+  }
+  return null;
 }
 
 function newPokemonInPlay(card: GameCard, playedOnTurn: number): PokemonInPlay {

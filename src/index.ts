@@ -26,6 +26,7 @@ export type {
   AttackCoinPlan,
   PendingPowerChoice,
   OnPlayPowerDef,
+  RetreatOptions,
 } from "./lib/gameState";
 
 export type {
@@ -144,6 +145,8 @@ export {
   resolveConfusionFlip,
   endTurn,
   executeRetreat,
+  getRetreatCoinFlips,
+  knockOutRetaliationDamage,
   applyForceSwitch,
   applySelfSwitch,
   skipPendingSwitch,

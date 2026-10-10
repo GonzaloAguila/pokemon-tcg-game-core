@@ -17,6 +17,11 @@
  * | Maldición / Curse (Gengar, once per turn) | – | [[opponentPokemonWithDamageId], [otherOpponentPokemonId]] |
  * | Comportamiento Extraño / Strange Behavior (Slowbro, repeatable) | – | [[ownDamagedPokemonId]] |
  * | Cobardía / Cowardice (Tentacool) | – | [] |
+ * | Engaño / Trickery (Rattata, once per turn) | – | [[prizeIndex "0".."n-1"]] (face down: by position) |
+ * | Luz Evolutiva / Evolutionary Light (Dark Dragonair, once per turn) | – | [[deckEvolutionCardId]] (no step when the deck has none) |
+ * | Intercambio de Materia / Matter Exchange (Dark Kadabra, once per turn) | – | [[handCardId]] |
+ * | Reunir Fuego / Gather Fire (Charmander, once per turn) | – | [[fireEnergyIdOnAnotherOwnPokemon]] |
+ * | Hipnosis a Distancia / Long-Distance Hypnosis (Drowzee), Hedor de Polen / Pollen Stench (Dark Gloom), once per turn | 1 | [] |
  *
  * Passive powers (Strikes Back, Invisible Wall, Thick Skinned, Retreat Aid, Toxic Gas,
  * Prehistoric Power, Transform, Transparency, Kabuto Armor, Clairvoyance) have no entry: the
@@ -31,9 +36,11 @@ import {
   getEnergyTypeInSpanish,
   energyCardLabel,
   energyProvidesType,
+  applyStatusCondition,
+  shuffle,
 } from "@/lib/gameState";
-import { cardOutOfPlay, isEnergyCard, isPokemonCard, type PokemonPower } from "@/domain/cards";
-import { EnergyType, PokemonPowerType } from "@/domain/constants";
+import { cardOutOfPlay, isEnergyCard, isPokemonCard, isTrainerInPlay, type PokemonPower } from "@/domain/cards";
+import { EnergyType, PokemonPowerType, PokemonStage, StatusCondition } from "@/domain/constants";
 import {
   canAttachWithPower,
   canUseEnergyBurn,
@@ -47,6 +54,8 @@ import {
   executeShift,
   canUsePeek,
   executePeek,
+  arePrizesRevealed,
+  hasStatusImmunity,
 } from "@/domain/powers";
 import { allOwnPokemon, findInPlay } from "@/domain/board";
 import type { CardEffectDef, SelectionOption } from "./types";
@@ -587,6 +596,180 @@ const FOSSIL_POWER_EFFECTS: Record<string, CardEffectDef> = {
 
 Object.assign(POWER_EFFECTS, FOSSIL_POWER_EFFECTS);
 
+// ============================================================================
+// Team Rocket
+// ============================================================================
+
+const isEvolutionCard = (c: GameCard) => isPokemonCard(c) && c.stage !== PokemonStage.Basic;
+
+/** Energy cards of the power's type attached to the player's OTHER Pokémon (Gather Fire). */
+function gatherableEnergies(state: GameState, pokemonId: string): { energy: GameCard; holder: PokemonInPlay }[] {
+  const power = powerOf(state, pokemonId);
+  const type = power?.energyType ?? EnergyType.Fire;
+  return allOwnPokemon(state)
+    .filter((p) => p.pokemon.id !== pokemonId)
+    .flatMap((holder) => holder.attachedEnergy.filter((e) => energyProvidesType(e, type)).map((energy) => ({ energy, holder })));
+}
+
+const STATUS_NAMES: Record<string, string> = {
+  [StatusCondition.Asleep]: "Dormido",
+  [StatusCondition.Confused]: "Confundido",
+  [StatusCondition.Paralyzed]: "Paralizado",
+  [StatusCondition.Poisoned]: "Envenenado",
+};
+
+/** Long-Distance Hypnosis / Pollen Stench: heads → the Defending Pokémon, tails → your Active. */
+const statusFlipPower: CardEffectDef = {
+  canUse: (state) => (state.playerActivePokemon && state.opponentActivePokemon ? null : "No hay Pokémon activos"),
+  coinFlips: () => 1,
+  getSteps: () => null,
+  resolve: (state, pokemonId, _selections, { coinResults }) => {
+    const power = powerOf(state, pokemonId)!;
+    const status = power.status ?? StatusCondition.Asleep;
+    const heads = coinResults?.[0] === "heads";
+    const events = [...state.events, createGameEvent(`${power.name} - Moneda: [coin:${heads ? "heads" : "tails"}]`, "info")];
+    const target = heads ? state.opponentActivePokemon! : state.playerActivePokemon!;
+    // Snorlax's Thick Skinned and Mysterious Fossil can't be affected by Special Conditions
+    const immune = hasStatusImmunity(target, state) || isTrainerInPlay(target.pokemon);
+    const affected = immune ? target : applyStatusCondition(target, status, state.turnNumber);
+    events.push(
+      createGameEvent(
+        immune ? `${target.pokemon.name} no puede verse afectado por estados especiales` : `¡${target.pokemon.name} pasa a estar ${STATUS_NAMES[status] ?? status}!`,
+        "action"
+      )
+    );
+    const next: GameState = heads ? { ...state, opponentActivePokemon: affected, events } : { ...state, playerActivePokemon: affected, events };
+    return markPowerAsUsed(next, pokemonId);
+  },
+};
+
+const TEAM_ROCKET_POWER_EFFECTS: Record<string, CardEffectDef> = {
+  "Engaño": {
+    canUse: (state) => {
+      if (state.playerPrizes.length === 0) return "No te quedan Premios";
+      return state.playerDeck.length === 0 ? "Tu mazo está vacío" : null;
+    },
+    getSteps: (state, pokemonId, selections) => {
+      if (selections.length > 0) return null;
+      const revealed = arePrizesRevealed(state, "player");
+      return {
+        title: powerOf(state, pokemonId)?.name ?? "Engaño",
+        description: "Elige 1 de tus Premios para cambiarlo por la carta superior de tu mazo",
+        options: state.playerPrizes.map((c, i) => ({ id: String(i), label: revealed ? `Premio ${i + 1}: ${c.name}` : `Premio ${i + 1}` })),
+        maxSelections: 1,
+        disableAutoSelect: true,
+      };
+    },
+    resolve: (state, pokemonId, selections) => {
+      const power = powerOf(state, pokemonId)!;
+      const index = Number(selections[0][0]);
+      const prize = state.playerPrizes[index];
+      const top = state.playerDeck[0];
+      const swapped: GameState = {
+        ...state,
+        playerPrizes: state.playerPrizes.map((c, i) => (i === index ? top : c)),
+        playerDeck: [prize, ...state.playerDeck.slice(1)],
+        events: [...state.events, createGameEvent(`${power.name}: cambió el Premio ${index + 1} por la carta superior de su mazo`, "action")],
+      };
+      return markPowerAsUsed(swapped, pokemonId);
+    },
+  },
+
+  "Luz Evolutiva": {
+    canUse: (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
+    getSteps: (state, pokemonId, selections) => {
+      if (selections.length > 0) return null;
+      const evolutions = state.playerDeck.filter(isEvolutionCard);
+      if (evolutions.length === 0) return null;
+      return {
+        title: powerOf(state, pokemonId)?.name ?? "Luz Evolutiva",
+        description: "Elige una carta de Evolución de tu mazo para tu mano",
+        options: evolutions.map((c) => ({ id: c.id, label: c.name })),
+        maxSelections: 1,
+        cards: evolutions,
+      };
+    },
+    resolve: (state, pokemonId, selections) => {
+      const power = powerOf(state, pokemonId)!;
+      const chosen = state.playerDeck.find((c) => c.id === selections[0]?.[0]);
+      const next: GameState = {
+        ...state,
+        playerHand: chosen ? [chosen, ...state.playerHand] : state.playerHand,
+        playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== chosen?.id)),
+        events: [
+          ...state.events,
+          createGameEvent(chosen ? `${power.name}: mostró ${chosen.name} y lo puso en su mano` : `${power.name}: no había cartas de Evolución en el mazo`, "action"),
+          createGameEvent("Se mezcló el mazo", "info"),
+        ],
+      };
+      return markPowerAsUsed(next, pokemonId);
+    },
+  },
+
+  "Intercambio de Materia": {
+    canUse: (state) => {
+      if (state.playerHand.length === 0) return "No tienes cartas en la mano para descartar";
+      return state.playerDeck.length === 0 ? "Tu mazo está vacío" : null;
+    },
+    getSteps: (state, pokemonId, selections) =>
+      selections.length > 0
+        ? null
+        : {
+            title: powerOf(state, pokemonId)?.name ?? "Intercambio de Materia",
+            description: "Elige una carta de tu mano para descartar y robar una carta",
+            options: state.playerHand.map((c) => ({ id: c.id, label: c.name })),
+            maxSelections: 1,
+            source: "hand",
+          },
+    resolve: (state, pokemonId, selections) => {
+      const power = powerOf(state, pokemonId)!;
+      const discarded = state.playerHand.find((c) => c.id === selections[0][0])!;
+      const [drawn, ...deck] = state.playerDeck;
+      const next: GameState = {
+        ...state,
+        playerHand: [drawn, ...state.playerHand.filter((c) => c.id !== discarded.id)],
+        playerDeck: deck,
+        playerDiscard: [...state.playerDiscard, discarded],
+        events: [...state.events, createGameEvent(`${power.name}: descartó ${discarded.name} y robó una carta`, "action")],
+      };
+      return markPowerAsUsed(next, pokemonId);
+    },
+  },
+
+  "Reunir Fuego": {
+    canUse: (state, pokemonId) =>
+      gatherableEnergies(state, pokemonId).length > 0 ? null : "Tus otros Pokémon no tienen cartas de Energía Fuego",
+    getSteps: (state, pokemonId, selections) => {
+      if (selections.length > 0) return null;
+      const options = gatherableEnergies(state, pokemonId);
+      return {
+        title: powerOf(state, pokemonId)?.name ?? "Reunir Fuego",
+        description: "Elige una carta de Energía Fuego de otro de tus Pokémon para unirla a este Pokémon",
+        options: options.map(({ energy, holder }) => ({ id: energy.id, label: `${energyCardLabel(energy)} (${holder.pokemon.name})` })),
+        maxSelections: 1,
+        thumbnails: options.map(({ energy }) => energy),
+      };
+    },
+    resolve: (state, pokemonId, selections) => {
+      const power = powerOf(state, pokemonId)!;
+      const { energy, holder } = gatherableEnergies(state, pokemonId).find((g) => g.energy.id === selections[0][0])!;
+      const withoutEnergy = replaceOwn(state, holder.pokemon.id, { ...holder, attachedEnergy: holder.attachedEnergy.filter((e) => e.id !== energy.id) });
+      const receiver = ownPokemonById(withoutEnergy, pokemonId)!;
+      const moved = replaceOwn(withoutEnergy, pokemonId, { ...receiver, attachedEnergy: [...receiver.attachedEnergy, energy] });
+      const logged: GameState = {
+        ...moved,
+        events: [...state.events, createGameEvent(`${power.name}: movió ${energyCardLabel(energy)} de ${holder.pokemon.name} a ${receiver.pokemon.name}`, "action")],
+      };
+      return markPowerAsUsed(logged, pokemonId);
+    },
+  },
+
+  "Hipnosis a Distancia": statusFlipPower,
+  "Hedor de Polen": statusFlipPower,
+};
+
+Object.assign(POWER_EFFECTS, TEAM_ROCKET_POWER_EFFECTS);
+
 /** Power types whose effect the player activates (each must have a POWER_EFFECTS entry). */
 export const ACTIVATED_POWER_TYPES: readonly PokemonPowerType[] = [
   PokemonPowerType.UnlimitedEnergyAttach,
@@ -601,5 +784,10 @@ export const ACTIVATED_POWER_TYPES: readonly PokemonPowerType[] = [
   PokemonPowerType.MoveOpponentDamage,
   PokemonPowerType.MoveDamageToSelf,
   PokemonPowerType.ReturnSelfToHand,
+  PokemonPowerType.SwapPrize,
+  PokemonPowerType.SearchEvolution,
+  PokemonPowerType.DiscardToDraw,
+  PokemonPowerType.GatherEnergy,
+  PokemonPowerType.StatusFlip,
 ];
 

@@ -102,6 +102,69 @@ export function isHandRevealed(state: GameState, side: "player" | "opponent"): b
   return [otherActive, ...otherBench].some((p) => !!p && !!activePowerOfType(state, p, PokemonPowerType.RevealHand));
 }
 
+/**
+ * Here Comes Team Rocket!: are `side`'s Prize cards face up? (Both sides, for the rest of the
+ * game, once the card was played.) Consumers use it to show the Prizes (the API must not mask
+ * them).
+ */
+export function arePrizesRevealed(state: GameState, _side: "player" | "opponent"): boolean {
+  return !!state.prizesFaceUp;
+}
+
+/**
+ * Hay Fever (Dark Vileplume): while it works, no Trainer cards can be played by either player.
+ * Returns the Pokémon whose power blocks Trainers, or undefined.
+ */
+export function getTrainerBlockingPokemon(state: GameState): PokemonInPlay | undefined {
+  return allPokemonInPlay(state).find((p) => activePowerOfType(state, p, PokemonPowerType.PreventTrainers));
+}
+
+/** The Active facing `pokemon` when it is an Active Pokémon (either side), else null. */
+function opposingActive(state: GameState, pokemon: PokemonInPlay): PokemonInPlay | null {
+  const id = pokemon.pokemon.id;
+  if (state.playerActivePokemon?.pokemon.id === id) return state.opponentActivePokemon;
+  if (state.opponentActivePokemon?.pokemon.id === id) return state.playerActivePokemon;
+  return null;
+}
+
+/**
+ * Sticky Goo (Dark Muk): extra Retreat Cost of `pokemon` (an Active Pokémon) while the
+ * opposing Active has a working IncreaseRetreatCost power. 0 otherwise.
+ */
+export function getRetreatCostIncrease(state: GameState | null | undefined, pokemon: PokemonInPlay): number {
+  if (!state) return 0;
+  const facing = opposingActive(state, pokemon);
+  if (!facing) return 0;
+  return activePowerOfType(state, facing, PokemonPowerType.IncreaseRetreatCost)?.amount ?? 0;
+}
+
+/**
+ * Sinkhole (Dark Dugtrio): the Pokémon of the side that is NOT `retreatingSide` with a working
+ * RetreatDamageFlip power (Active or Benched). Each one makes the retreating player flip a coin.
+ */
+export function getRetreatDamageSources(state: GameState, retreatingSide: "player" | "opponent"): PokemonInPlay[] {
+  const other = retreatingSide === "player"
+    ? [state.opponentActivePokemon, ...state.opponentBench]
+    : [state.playerActivePokemon, ...state.playerBench];
+  return other.filter((p): p is PokemonInPlay => !!p && !!activePowerOfType(state, p, PokemonPowerType.RetreatDamageFlip));
+}
+
+/** Final Beam (Dark Gyarados): this Pokémon's working KnockOutRetaliation power, or undefined. */
+export function getKnockOutRetaliation(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonPower | undefined {
+  return activePowerOfType(state, pokemon, PokemonPowerType.KnockOutRetaliation);
+}
+
+/**
+ * Frenzy (Dark Primeape): extra damage this Pokémon does while it is Confused (its own power,
+ * which Confusion doesn't stop; Toxic Gas / Goop Gas Attack do). 0 when not Confused.
+ */
+export function getConfusedDamageBonus(state: GameState | null | undefined, pokemon: PokemonInPlay): number {
+  if (!(pokemon.statusConditions ?? []).includes(StatusCondition.Confused)) return 0;
+  if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.ConfusedDamageBonus) return 0;
+  if (!isPowerActive(state, pokemon, { ignoreBlockingStatus: true })) return 0;
+  return pokemon.pokemon.power.amount ?? 0;
+}
+
 // ============================================================================
 // TRANSFORM (Ditto) — derived "effective card"
 // ============================================================================

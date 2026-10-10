@@ -22,6 +22,7 @@ import {
   flipAttackCoins,
   getEnergyValue,
   getRetreatCost,
+  getRetreatCoinFlips,
   hasEnoughEnergyToRetreat,
   hasStatusCondition,
   resolveConfusionFlip,
@@ -222,7 +223,11 @@ function retreatAction(view: GameState, rng: Rng): ViewAction | null {
     paid += getEnergyValue(energy);
   }
   const benchIndex = randomInt(rng, view.playerBench.length);
-  return { label: `retreat to bench #${benchIndex}`, run: (v) => executeRetreat(v, energyIds, benchIndex) };
+  // Sinkhole (Dark Dugtrio): the retreating side flips the coins
+  return {
+    label: `retreat to bench #${benchIndex}`,
+    run: (v) => executeRetreat(v, energyIds, benchIndex, { coinResults: flipFor(getRetreatCoinFlips(v), rng) }),
+  };
 }
 
 // ============================================================================

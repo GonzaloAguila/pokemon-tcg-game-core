@@ -23,6 +23,10 @@ import {
 import { decks, findCardBySetAndNumber, type Deck, type DeckEntry } from "@/domain/decks";
 import {
   applyDamageHalving,
+  getConfusedDamageBonus,
+  getKnockOutRetaliation,
+  getRetreatCostIncrease,
+  getRetreatDamageSources,
   getDamageReaction,
   getEffectiveHp,
   getEffectivePokemonCard,
@@ -250,6 +254,11 @@ export type GameState = {
    * resolvePowerChoice on that side's view. Blocks endTurn and every other action.
    */
   pendingPowerChoice?: PendingPowerChoice;
+  /**
+   * Here Comes Team Rocket!: both players play with their Prize cards face up for the rest of
+   * the game (read it with arePrizesRevealed; consumers must not hide the Prizes then).
+   */
+  prizesFaceUp?: boolean;
   /**
    * Headache (Psyduck): no Trainer cards can be played during this turn number (the opponent's
    * next turn). Dropped by endTurn once that turn is over.
@@ -637,6 +646,8 @@ export function hasEnoughEnergyToRetreat(pokemon: PokemonInPlay, bench?: Pokemon
   if (bench) {
     retreatCost = Math.max(0, retreatCost - getRetreatCostReduction(bench, state));
   }
+  // Sticky Goo (Dark Muk as the opposing Active)
+  retreatCost += getRetreatCostIncrease(state, pokemon);
 
   // Si el coste es 0, siempre puede retirarse
   if (retreatCost === 0) return true;
@@ -657,7 +668,8 @@ export function getRetreatCost(pokemon: PokemonInPlay, bench?: PokemonInPlay[], 
   if (bench) {
     cost = Math.max(0, cost - getRetreatCostReduction(bench, state));
   }
-  return cost;
+  // Sticky Goo (Dark Muk as the opposing Active): Retreat Aid first, then the extra cost
+  return cost + getRetreatCostIncrease(state, pokemon);
 }
 
 /**
@@ -667,10 +679,30 @@ export function getRetreatCost(pokemon: PokemonInPlay, bench?: PokemonInPlay[], 
  * @param benchIndex - Índice del Pokémon de la banca que será el nuevo activo
  * @returns Nuevo estado del juego
  */
+/**
+ * Coins the side whose turn it is ("player") flips when its Active retreats: one per working
+ * Sinkhole (Dark Dugtrio) of the opponent, in the opponent's Active-then-Bench order. Pass them
+ * to executeRetreat as `coinResults` (the server flips them in multiplayer).
+ */
+export function getRetreatCoinFlips(state: GameState): number {
+  return getRetreatDamageSources(state, "player").length;
+}
+
+/** Options of executeRetreat. */
+export type RetreatOptions = {
+  /**
+   * Sinkhole coins (getRetreatCoinFlips, in order): tails = that Sinkhole does its damage to the
+   * Pokémon that retreated. Omitted: the engine flips them itself (Math.random). A list of the
+   * wrong length throws (a caller bug).
+   */
+  coinResults?: CoinFlipResult[];
+};
+
 export function executeRetreat(
   gameState: GameState,
   energyIdsToDiscard: string[],
-  benchIndex: number
+  benchIndex: number,
+  options: RetreatOptions = {}
 ): GameState {
   const activePokemon = gameState.playerActivePokemon;
   const benchPokemon = gameState.playerBench[benchIndex];
@@ -754,11 +786,31 @@ export function executeRetreat(
     ),
   ];
 
-  // The new Active may change what a transformed Ditto copies (Knock Out if its new HP is too low)
+  // Sinkhole (Dark Dugtrio): the retreating player flips once per working Sinkhole of the opponent
+  const sinkholes = getRetreatDamageSources(gameState, "player");
+  if (options.coinResults && options.coinResults.length !== sinkholes.length) {
+    throw new Error(`executeRetreat: needs ${sinkholes.length} coin result(s) (getRetreatCoinFlips), got ${options.coinResults.length}`);
+  }
+  let retreated = pokemonGoingToBench;
+  sinkholes.forEach((source, i) => {
+    const coin: CoinFlipResult = options.coinResults?.[i] ?? (Math.random() < 0.5 ? "heads" : "tails");
+    const power = isPokemonCard(source.pokemon) ? source.pokemon.power : undefined;
+    const powerName = power?.name ?? "Socavón";
+    events.push(createGameEvent(`${powerName} de ${source.pokemon.name} - Moneda: [coin:${coin}]`, "info"));
+    if (coin === "tails") {
+      const amount = power?.amount ?? 20;
+      retreated = { ...retreated, currentDamage: (retreated.currentDamage ?? 0) + amount };
+      events.push(createGameEvent(`${powerName}: ${retreated.pokemon.name} recibió ${amount} de daño`, "action"));
+    }
+  });
+  const finalBench = sinkholes.length > 0 ? newBench.map((p) => (p === pokemonGoingToBench ? retreated : p)) : newBench;
+
+  // The new Active may change what a transformed Ditto copies (Knock Out if its new HP is too low);
+  // Sinkhole can Knock Out the Pokémon that retreated (a Benched Pokémon now)
   return checkKnockouts({
     ...gameState,
     playerActivePokemon: benchPokemon,
-    playerBench: newBench,
+    playerBench: finalBench,
     playerDiscard: [...gameState.playerDiscard, ...energiesToDiscard],
     retreatedThisTurn: true,
     events,
@@ -2742,6 +2794,43 @@ function defenderFlipsToPrevent(state: GameState, defender: PokemonInPlay | null
   return power?.type === PokemonPowerType.PreventAttackOnFlip && isPowerActive(state, defender);
 }
 
+/** Can the attack do damage to the Defending Pokémon (Final Beam only matters then)? */
+function attackCanDamageDefender(attack: Attack): boolean {
+  if (typeof attack.damage === "string" ? attack.damage.length > 0 : (attack.damage ?? 0) > 0) return true;
+  return (attack.effects ?? []).some(
+    (e) =>
+      e.type === AttackEffectType.CoinFlipDamage ||
+      e.type === AttackEffectType.ChooseTargetDamage ||
+      e.type === AttackEffectType.MirrorMove ||
+      e.type === AttackEffectType.HalfHPDamage ||
+      e.type === AttackEffectType.DamagePerCounter
+  );
+}
+
+/**
+ * Final Beam (Dark Gyarados) damage to the attacker that Knocked it Out: `amount` per Water
+ * Energy card attached to it (Rainbow Energy counts), as damage of its type with the attacker's
+ * Weakness and Resistance applied. The coin is the attack's defender coin (getAttackCoinPlan).
+ */
+export function knockOutRetaliationDamage(
+  state: GameState,
+  knockedOut: PokemonInPlay,
+  attacker: PokemonInPlay
+): number {
+  const power = getKnockOutRetaliation(state, knockedOut);
+  const knockedOutCard = getEffectivePokemonCard(state, knockedOut);
+  const attackerCard = getEffectivePokemonCard(state, attacker);
+  if (!power || !knockedOutCard || !attackerCard) return 0;
+  const waterCards = knockedOut.attachedEnergy.filter((e) => energyProvidesType(e, EnergyTypeEnum.Water)).length;
+  let damage = (power.amount ?? 20) * waterCards;
+  const type = knockedOut.shiftedType ?? knockedOutCard.types[0];
+  const weaknesses = attacker.modifiedWeakness ? [attacker.modifiedWeakness] : attackerCard.weaknesses ?? [];
+  const resistances = attacker.modifiedResistance ? [attacker.modifiedResistance] : attackerCard.resistances ?? [];
+  if (damage > 0 && type && weaknesses.includes(type)) damage *= 2;
+  if (damage > 0 && type && resistances.includes(type)) damage = Math.max(0, damage - 30);
+  return damage;
+}
+
 /**
  * Coin plan of an attack used now by the side whose turn it is ("player"): see AttackCoinPlan.
  * @param attack - index of the Active Pokémon's attack (a transformed Ditto's copied attacks),
@@ -2754,10 +2843,15 @@ export function getAttackCoinPlan(state: GameState, attack: number | Attack): At
   if (!attacker || !card) return none;
   const resolved = typeof attack === "number" ? card.attacks[attack] : attack;
   if (!resolved) return none;
+  const defender = state.opponentActivePokemon;
+  // Transparency: whenever the attack can affect it; Final Beam: whenever it can damage it
+  const defenderCoin =
+    (defenderFlipsToPrevent(state, defender) && attackCanAffectDefender(resolved)) ||
+    (!!defender && !!getKnockOutRetaliation(state, defender) && attackCanDamageDefender(resolved));
   return {
     smokescreen: smokescreenCoins(attacker),
     attack: coinFlipCountFor(attacker, resolved, state),
-    defender: defenderFlipsToPrevent(state, state.opponentActivePokemon) && attackCanAffectDefender(resolved) ? 1 : 0,
+    defender: defenderCoin ? 1 : 0,
   };
 }
 
@@ -3086,8 +3180,11 @@ function executeAttackUnchecked(
     ? resolveCoinFlipEffects(printedAttack.effects ?? [], coinResults)
     : null;
   const attack: Attack = coinResolution ? { ...printedAttack, effects: coinResolution.effects } : printedAttack;
-  // Transparency (Haunter): the defending side's coin, last in the list
-  const transparencyCoin = splitCoins?.defender[0];
+  // The defending side's coin, last in the list: Transparency (Haunter) or Final Beam (Dark Gyarados)
+  const defenderCoin = splitCoins?.defender[0];
+  const defenderPowerType = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.type : undefined;
+  const transparencyCoin = defenderPowerType === PokemonPowerType.PreventAttackOnFlip ? defenderCoin : undefined;
+  const finalBeamCoin = defenderPowerType === PokemonPowerType.KnockOutRetaliation ? defenderCoin : undefined;
 
   // Dive Bomb / Clamp tails: "this attack does nothing (not even damage)"
   if (attack.effects?.some((e) => e.type === AttackEffectType.AttackFails && !e.coinFlip)) {
@@ -3134,6 +3231,10 @@ function executeAttackUnchecked(
   const base = calculateBaseDamage(attackerView, defenderView, attack, gameState.playerBench);
   let baseDamage = base.damage;
   const damageMultiplierDescription = base.description;
+
+  // Frenzy (Dark Primeape): it does 30 more damage while Confused
+  const frenzyBonus = baseDamage > 0 ? getConfusedDamageBonus(gameState, attacker) : 0;
+  if (frenzyBonus > 0) baseDamage += frenzyBonus;
 
   // Apply stored nextTurnBonusDamage from a previous turn (e.g., Swords Dance +30)
   // The bonus is consumed and cleared later when assembling the final state
@@ -4262,6 +4363,27 @@ function executeAttackUnchecked(
     }
   }
 
+  // FINAL BEAM (Dark Gyarados): Knocked Out by this attack → its owner flips (the attack's defender
+  // coin); heads = 20 × Water Energy attached to it, to the attacker, with Weakness/Resistance
+  if (isKnockedOut && finalBeamCoin && effectiveDamage > 0 && newPlayerActive && !attackerKnockedOut && getKnockOutRetaliation(gameState, defender)) {
+    const powerName = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.name ?? "Rayo Final" : "Rayo Final";
+    events.push(createGameEvent(`${powerName} de ${defender.pokemon.name} - Moneda: [coin:${finalBeamCoin}]`, "info"));
+    const retaliation = finalBeamCoin === "heads" ? knockOutRetaliationDamage(gameState, defender, attacker) : 0;
+    if (retaliation > 0) {
+      const newAttackerDamage = (newPlayerActive.currentDamage || 0) + retaliation;
+      events.push(createGameEvent(`¡${powerName}! ${defender.pokemon.name} le hizo ${retaliation} de daño a ${newPlayerActive.pokemon.name}`, "action"));
+      if (newAttackerDamage >= attackerCard.hp) {
+        attackerKnockedOut = true;
+        events.push(createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por ${powerName}!`, "action"));
+        ({ newPlayerDiscard, newOpponentPrizes, newOpponentHand, attackerNeedsToPromote } =
+          applyAttackerKnockout(newPlayerActive, `El rival tomó un premio por ${powerName}`));
+        newPlayerActive = null;
+      } else {
+        newPlayerActive = { ...newPlayerActive, currentDamage: newAttackerDamage };
+      }
+    }
+  }
+
   // Marcar ataques de uso único como utilizados
   const hasUseOnceEffect = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (hasUseOnceEffect && newPlayerActive && !attackerKnockedOut) {
@@ -4486,9 +4608,11 @@ export function resolveConfusionFlip(
   }
 
   events.push(createGameEvent(`[coin:tails] ${name} se lastima a sí mismo`, "info"));
-  events.push(createGameEvent(`${name} se hizo ${CONFUSION_SELF_DAMAGE} de daño a sí mismo`, "action"));
+  // Frenzy (Dark Primeape): 30 more, even to itself
+  const selfDamage = CONFUSION_SELF_DAMAGE + getConfusedDamageBonus(state, active);
+  events.push(createGameEvent(`${name} se hizo ${selfDamage} de daño a sí mismo`, "action"));
 
-  const newDamage = (active.currentDamage ?? 0) + CONFUSION_SELF_DAMAGE;
+  const newDamage = (active.currentDamage ?? 0) + selfDamage;
   // A confused Ditto isn't a copy: its own HP
   const knockedOut = active.pokemon.kind === CardKind.Pokemon && newDamage >= getEffectiveHp(state, active);
 
