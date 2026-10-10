@@ -1492,8 +1492,17 @@ export function setPlayerReady(gameState: GameState, isPlayer: boolean): GameSta
 export function startPlayingPhase(gameState: GameState, coinFlipResult: "heads" | "tails"): GameState {
   const startingPlayer = coinFlipResult === "heads" ? "player" : "opponent";
 
+  // Classic rule: every turn starts with a draw, the starting player's first turn included
+  // (endTurn draws for every later turn). The decks are never empty here (60 - 7 - 6).
+  const draw = startingPlayer === "player"
+    ? drawCard(gameState.playerDeck, gameState.playerHand)
+    : drawCard(gameState.opponentDeck, gameState.opponentHand);
+
   return {
     ...gameState,
+    ...(startingPlayer === "player"
+      ? { playerDeck: draw.newDeck, playerHand: draw.newHand }
+      : { opponentDeck: draw.newDeck, opponentHand: draw.newHand }),
     gamePhase: GamePhase.Playing,
     startingPlayer,
     isPlayerTurn: startingPlayer === "player",
@@ -1515,6 +1524,7 @@ export function startPlayingPhase(gameState: GameState, coinFlipResult: "heads" 
         `Turno de ${startingPlayer === "player" ? "Jugador" : "Rival"}`,
         "info"
       ),
+      ...(draw.success ? [createGameEvent(startingPlayer === "player" ? "Robaste una carta" : "El rival robó una carta", "info")] : []),
     ],
   };
 }
