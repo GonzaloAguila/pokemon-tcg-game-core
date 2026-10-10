@@ -18,6 +18,7 @@ export type AIActionType =
   | "attack"
   | "playTrainer"
   | "retreat"
+  | "discardFromPlay"
   | "endTurn";
 
 /** Acción base de la IA */
@@ -81,6 +82,12 @@ export interface EndTurnAction extends AIActionBase {
   type: "endTurn";
 }
 
+/** Descartar del juego un Fósil Misterioso / Muñeco Clefairy (promueve el primer Pokémon de la banca si era el activo) */
+export interface DiscardFromPlayAction extends AIActionBase {
+  type: "discardFromPlay";
+  pokemonId: string;
+}
+
 /** Union de todas las acciones posibles */
 export type AIAction =
   | PlayBasicToActiveAction
@@ -90,6 +97,7 @@ export type AIAction =
   | AttackAction
   | PlayTrainerAction
   | RetreatAction
+  | DiscardFromPlayAction
   | EndTurnAction;
 
 /** Resultado de la evaluación de un ataque */

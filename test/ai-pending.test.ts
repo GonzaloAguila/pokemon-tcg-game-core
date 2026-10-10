@@ -67,3 +67,26 @@ describe("AI and Mysterious Fossil", () => {
     expect(setup).toEqual([expect.objectContaining({ type: "playBasicToActive", cardId: fossil.id })]);
   });
 });
+
+describe("AI discards an Active Mysterious Fossil it can't use", () => {
+  it("plans discardFromPlay first and promotes its first benched Pokémon; keeps it with a Kabuto in hand", async () => {
+    const { decideOpponentTurn } = await import("@/domain/ai");
+    const fossil = inPlay("Mysterious Fossil", { set: "fossil" });
+    const state = makeState({ turnNumber: 4, isPlayerTurn: false, opponent: { active: fossil, bench: [inPlay("Machop")] }, player: { active: inPlay("Abra") } });
+    const plan = decideOpponentTurn(state);
+    expect(plan[0]).toEqual(expect.objectContaining({ type: "discardFromPlay", pokemonId: fossil.pokemon.id }));
+    const after = executeAIAction(state, plan[0]);
+    expect(after.opponentActivePokemon!.pokemon.name).toBe("Machop");
+    expect(names(after.opponentDiscard)).toEqual(["Mysterious Fossil"]);
+
+    const withKabuto = makeState({
+      turnNumber: 4,
+      isPlayerTurn: false,
+      opponent: { active: fossil, bench: [inPlay("Machop")], hand: [gameCard("Kabuto", "fossil")] },
+      player: { active: inPlay("Abra") },
+    });
+    const planWithKabuto = decideOpponentTurn(withKabuto);
+    expect(planWithKabuto.some((a) => a.type === "discardFromPlay")).toBe(false);
+    expect(planWithKabuto.some((a) => a.type === "evolve")).toBe(true);
+  });
+});

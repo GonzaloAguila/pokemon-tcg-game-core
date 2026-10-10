@@ -11,7 +11,8 @@
 
 import type { GameState } from "@/domain/match";
 import { canUseAttack, canPokemonAttack, hasStatusCondition } from "@/domain/match";
-import { isPokemonCard, isEnergyCard, isTrainerCard } from "@/domain/cards";
+import { isPokemonCard, isEnergyCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
+import { executeAIAction } from "./executor";
 import type { AIAction, Side } from "./types";
 import {
   basicHp,
@@ -34,6 +35,19 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
 
   // Simular el estado a medida que planeamos acciones
   let simulatedState = { ...state };
+
+  // 0. A Mysterious Fossil / Clefairy Doll as the Active can't attack or retreat: discard it
+  //    (promoting the first benched Pokémon) unless something in hand evolves from it
+  const active = simulatedState.opponentActivePokemon;
+  if (active && isTrainerInPlay(active.pokemon) && simulatedState.opponentBench.length > 0 &&
+      !simulatedState.opponentHand.some((c) => isPokemonCard(c) && c.evolvesFrom === active.pokemon.name)) {
+    const discard: AIAction = { type: "discardFromPlay", pokemonId: active.pokemon.id, delay: 700 };
+    const after = executeAIAction(simulatedState, discard);
+    if (after !== simulatedState) {
+      actions.push(discard);
+      simulatedState = after;
+    }
+  }
 
   // 1. Si no tiene activo, jugar uno
   if (!simulatedState.opponentActivePokemon) {

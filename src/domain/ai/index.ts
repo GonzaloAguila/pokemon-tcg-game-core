@@ -30,6 +30,7 @@ export type {
   AttackAction,
   PlayTrainerAction,
   RetreatAction,
+  DiscardFromPlayAction,
   EndTurnAction,
   AttackEvaluation,
   PokemonEvaluation,

@@ -18,6 +18,7 @@ import {
   actAs,
 } from "./actions";
 import { canPlayTrainerCard, playTrainerCard } from "@/domain/effects";
+import { canDiscardFromPlay, discardFromPlay } from "@/domain/board";
 import { resolveOwnAttackPendings } from "./pending";
 import { IllegalActionError } from "@/shared/errors";
 
@@ -87,6 +88,18 @@ export function executeAIAction(state: GameState, action: AIAction): GameState {
 
     case "retreat":
       return executeOpponentRetreat(state, action.energyIdsToDiscard, action.benchIndex);
+
+    case "discardFromPlay":
+      return actAs(
+        state,
+        "opponent",
+        (s) => canDiscardFromPlay(s, action.pokemonId),
+        (s) => {
+          const discarded = discardFromPlay(s, action.pokemonId);
+          // The AI's Active was discarded: it promotes its first benched Pokémon
+          return discarded.playerNeedsToPromote ? promoteActivePokemon(discarded, 0, true) : discarded;
+        }
+      );
 
     case "endTurn":
       return endTurn(state);
