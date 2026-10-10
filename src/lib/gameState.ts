@@ -3453,8 +3453,8 @@ export function executeAttack(
           newPlayerDiscard.push(...newPlayerActive.previousEvolutions);
         }
 
-        // Oponente toma un premio (si hay y no había tomado por el KO del defensor)
-        if (newOpponentPrizes.length > 0 && !isKnockedOut) {
+        // Oponente toma un premio por el KO del atacante (el KO del defensor da premio al jugador, no al rival)
+        if (newOpponentPrizes.length > 0) {
           const prize = newOpponentPrizes.pop()!;
           newOpponentHand.push(prize);
           events.push(createGameEvent("El rival tomó un premio por el contraataque", "action"));
@@ -3530,7 +3530,9 @@ export function executeAttack(
     opponentPrizes: newOpponentPrizes,
     opponentHand: newOpponentHand,
     playerCanTakePrize: playerCanTakePrize,
-    opponentCanTakePrize: attackerKnockedOut && newOpponentPrizes.length > 0,
+    // Every attacker-KO path above already moved the opponent's prize to their hand;
+    // flagging a manual pick too gave the opponent a second prize.
+    opponentCanTakePrize: false,
     pendingForceSwitch: pendingForceSwitch || undefined,
     pendingSelfSwitch: pendingSelfSwitch || undefined,
     pendingDeckSearch: pendingDeckSearch,
