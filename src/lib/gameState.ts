@@ -1967,17 +1967,43 @@ export function findValidEvolutionTargets(
 }
 
 /**
+ * Attack requirements on the Defending Pokémon (RequireStatus, e.g. Haunter's Dream Eater:
+ * "You can't use this attack unless the Defending Pokémon is Asleep").
+ * @returns true when every requirement is met (or the attack has none)
+ */
+export function meetsAttackRequirements(attack: Attack, defender: PokemonInPlay | null | undefined): boolean {
+  for (const effect of attack.effects ?? []) {
+    if (effect.type === AttackEffectType.RequireStatus && effect.requiredStatus) {
+      if (effect.target === AttackTarget.Defender && (!defender || !hasStatusCondition(defender, effect.requiredStatus))) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
  * Verifica si un Pokémon puede usar un ataque específico
  * @param pokemonInPlay - El Pokémon en juego con sus energías adjuntas
  * @param attackIndex - Índice del ataque a verificar
- * @returns true si tiene las energías necesarias
+ * @param defender - Pokémon defensor. When given, requirements on the defender are checked
+ *   too (Dream Eater needs it Asleep). Omit it to check only energy / once-per-play rules.
+ * @returns true si tiene las energías necesarias (y se cumplen los requisitos)
  */
-export function canUseAttack(pokemonInPlay: PokemonInPlay, attackIndex: number): boolean {
+export function canUseAttack(
+  pokemonInPlay: PokemonInPlay,
+  attackIndex: number,
+  defender?: PokemonInPlay | null
+): boolean {
   const pokemon = pokemonInPlay.pokemon;
   if (pokemon.kind !== CardKind.Pokemon) return false;
 
   const attack = pokemon.attacks[attackIndex];
   if (!attack) return false;
+
+  if (defender !== undefined && !meetsAttackRequirements(attack, defender)) {
+    return false;
+  }
 
   // Verificar si es un ataque de uso único ya utilizado
   const hasUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
@@ -2169,6 +2195,11 @@ export function calculateBaseDamage(
       }
     }
 
+    // SelfDamageReduction (Karate Chop): "N minus 10 for each damage counter on this Pokémon"
+    if (effect.type === AttackEffectType.SelfDamageReduction && effect.amount) {
+      baseDamage -= effect.amount * ownCounters;
+    }
+
     // HalfHPDamage (Super Fang): damage = half of defender's remaining HP, rounded up to nearest 10
     if (effect.type === AttackEffectType.HalfHPDamage && effect.target === AttackTarget.Defender
         && isPokemonCard(defender.pokemon)) {
@@ -2233,6 +2264,17 @@ export function executeAttack(
 
   const attack = attacker.pokemon.attacks[attackIndex];
   if (!attack) return gameState;
+
+  // RequireStatus (Dream Eater): the attack can't be used unless the defender has the status
+  if (!meetsAttackRequirements(attack, defender)) {
+    return {
+      ...gameState,
+      events: [
+        ...gameState.events,
+        createGameEvent(`No puedes usar ${attack.name}: el Pokémon defensor no cumple el requisito del ataque`, "info"),
+      ],
+    };
+  }
 
   // Block DeckSearch attacks when bench is full (TCG rule: "No puedes usar este ataque si tu Banca está llena.")
   const hasDeckSearchEffect = attack.effects?.some(e => e.type === AttackEffectType.DeckSearch);

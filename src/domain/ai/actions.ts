@@ -544,9 +544,11 @@ export function getUsableAttacks(
   if (!activePokemon || !isPokemonCard(activePokemon.pokemon)) return [];
 
   const usableAttacks: Array<{ index: number; damage: number; knocksOut: boolean }> = [];
+  // Passing the defender also enforces attack requirements (Dream Eater needs it Asleep)
+  const defender = getActivePokemon(state, side === "player" ? "opponent" : "player");
 
   for (let i = 0; i < activePokemon.pokemon.attacks.length; i++) {
-    if (canUseAttack(activePokemon, i)) {
+    if (canUseAttack(activePokemon, i, defender)) {
       const damage = estimateAttackDamage(state, side, i);
       const knocksOut = canKnockOut(state, side, i);
       usableAttacks.push({ index: i, damage, knocksOut });

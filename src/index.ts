@@ -97,6 +97,7 @@ export {
 export {
   canUseAttack,
   calculateBaseDamage,
+  meetsAttackRequirements,
   canRetreat,
   canEvolveInto,
   findValidEvolutionTargets,
