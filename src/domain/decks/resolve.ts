@@ -23,11 +23,19 @@ export type GroupedDeck = {
 const allCards = [...baseSetCards, ...jungleCards];
 
 /**
+ * Finds a card by (set, number). Card numbers repeat across sets, so the set is
+ * required to disambiguate; `undefined` means Base Set (DeckEntry backward compatibility).
+ */
+export function findCardBySetAndNumber(set: CardSet | undefined, cardNumber: number): Card | undefined {
+  const searchPool = set === CardSet.Jungle ? jungleCards : baseSetCards;
+  return searchPool.find((c) => c.number === cardNumber);
+}
+
+/**
  * Resolves a single DeckEntry to its Card from the catalog
  */
 function resolveEntry(entry: DeckEntry): ResolvedDeckEntry | null {
-  const searchPool = entry.set === CardSet.Jungle ? jungleCards : baseSetCards;
-  const card = searchPool.find((c) => c.number === entry.cardNumber);
+  const card = findCardBySetAndNumber(entry.set, entry.cardNumber);
   if (!card) {
     console.warn(`Card #${entry.cardNumber} not found in ${entry.set ?? "Base Set"}`);
     return null;

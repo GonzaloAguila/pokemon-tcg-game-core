@@ -12,7 +12,7 @@ import {
   BenchDamageTarget,
   PokemonPowerType,
 } from "@/domain/constants";
-import { decks, type Deck, type DeckEntry } from "@/domain/decks";
+import { decks, findCardBySetAndNumber, type Deck, type DeckEntry } from "@/domain/decks";
 import { getDamageReaction, getRetreatCostReduction, hasBlockingStatus, hasStatusImmunity, isDamageBlocked } from "@/domain/powers";
 
 // ============================================================================
@@ -1067,14 +1067,15 @@ export function processBenchKnockouts(state: GameState): GameState {
 
 /**
  * Construye un mazo completo desde un DeckEntry[]
+ * Cards are resolved by (entry.set, entry.cardNumber); no set = Base Set.
  */
 export function buildDeckFromEntries(entries: DeckEntry[]): GameCard[] {
   const deck: GameCard[] = [];
 
   for (const entry of entries) {
-    const card = baseSetCards.find((c) => c.number === entry.cardNumber);
+    const card = findCardBySetAndNumber(entry.set, entry.cardNumber);
     if (!card) {
-      console.warn(`Carta #${entry.cardNumber} no encontrada en el catálogo`);
+      console.warn(`Carta #${entry.cardNumber} (${entry.set ?? "Base Set"}) no encontrada en el catálogo`);
       continue;
     }
 
