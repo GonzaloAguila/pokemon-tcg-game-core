@@ -30,7 +30,7 @@
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
-import { createGameEvent, drawCard, getEnergyTypeInSpanish, shuffle } from "@/lib/gameState";
+import { createGameEvent, drawCard, energyCardLabel, getEnergyTypeInSpanish, shuffle } from "@/lib/gameState";
 import { ALL_CARDS } from "@/domain/catalog";
 import { cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { CardKind, PokemonStage } from "@/domain/constants";
@@ -89,7 +89,7 @@ export function pokemonOption(pokemon: PokemonInPlay, location: Location, showDa
 export function energyOption(energy: GameCard): SelectionOption {
   return {
     id: energy.id,
-    label: isEnergyCard(energy) ? `Energía ${getEnergyTypeInSpanish(energy.energyType)}` : energy.name,
+    label: energyCardLabel(energy),
   };
 }
 

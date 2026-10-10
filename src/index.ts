@@ -70,6 +70,8 @@ export {
   isEnergyCard,
   isTrainerCard,
   isBasicEnergy,
+  isSpecialEnergy,
+  isLimitedInDeck,
   isPlayableAsBasic,
   // Trainers played as Basics (Mysterious Fossil, Clefairy Doll): in-play form and exits
   toInPlayCard,
@@ -183,6 +185,8 @@ export {
   drawCard,
   getEnergyValue,
   getTotalEnergyValue,
+  energyProvidesType,
+  energyCardLabel,
   getRetreatCost,
   getCardImageUrl,
   getEnergyTypeInSpanish,

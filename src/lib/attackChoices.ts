@@ -24,7 +24,7 @@ import { checkSelection } from "@/domain/effects/validate";
 import { AttackEffectType, AttackTarget, CardKind } from "@/domain/constants";
 import { IllegalActionError } from "@/shared/errors";
 import type { GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
-import { checkKnockouts, clearStatusConditionsOnRetreat, createGameEvent, endTurn, getEnergyTypeInSpanish } from "./gameState";
+import { checkKnockouts, clearStatusConditionsOnRetreat, createGameEvent, endTurn, energyCardLabel, energyProvidesType, getEnergyTypeInSpanish } from "./gameState";
 
 /** What the attack left behind for its choices (captured when it resolved). */
 export type AttackChoiceContext = {
@@ -69,7 +69,7 @@ function defenderOf(state: GameState, context: AttackChoiceContext): PokemonInPl
   return active && active.pokemon.id === context.defenderId ? active : null;
 }
 
-const energyLabel = (card: GameCard) => (card.kind === CardKind.Energy ? `Energía ${getEnergyTypeInSpanish(card.energyType)}` : card.name);
+const energyLabel = (card: GameCard) => energyCardLabel(card);
 
 /** The question for one choice effect, or null when there is nothing to choose (skipped). */
 function stepFor(state: GameState, effect: AttackEffect, context: AttackChoiceContext, deck?: "player" | "opponent"): SelectionStep | null {
@@ -133,7 +133,7 @@ function stepFor(state: GameState, effect: AttackEffect, context: AttackChoiceCo
     case AttackEffectType.DiscardEnergyForMill: {
       const attacker = attackerOf(state, context);
       const energies = (attacker?.attachedEnergy ?? []).filter(
-        (e) => e.kind === CardKind.Energy && (!effect.energyType || e.energyType === effect.energyType)
+        (e) => e.kind === CardKind.Energy && (!effect.energyType || energyProvidesType(e, effect.energyType))
       );
       if (energies.length === 0) return null;
       return {

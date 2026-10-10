@@ -28,6 +28,12 @@ export const isPlayableAsBasic = (c: Card): boolean =>
   (c.kind === CardKind.Pokemon && c.stage === PokemonStage.Basic) ||
   (c.kind === CardKind.Trainer && !!c.playsAsBasic);
 
+/**
+ * Deck rule: at most 4 copies of a card by name, except basic Energy (unlimited). Special
+ * Energy (Double Colorless, Rainbow, Full Heal, Potion Energy) is limited like any card.
+ */
+export const isLimitedInDeck = (c: Card): boolean => !isBasicEnergy(c);
+
 /** Checks if card is a special energy (Double Colorless, etc.) */
 export const isSpecialEnergy = (c: Card): c is EnergyCard =>
   c.kind === CardKind.Energy && !c.isBasic;

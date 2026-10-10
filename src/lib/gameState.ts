@@ -577,6 +577,10 @@ export function getEnergyValue(card: GameCard): number {
   if (card.buzzapSourceId) {
     return 2;
   }
+  // Explicit amount on the card data (Rainbow / Full Heal / Potion Energy: 1)
+  if (isEnergyCard(card) && card.provides !== undefined) {
+    return card.provides;
+  }
   // Double Colorless Energy provides 2 colorless
   // Check by name first (most reliable)
   if (card.name === "Double Colorless Energy") {
@@ -587,6 +591,20 @@ export function getEnergyValue(card: GameCard): number {
     return 2;
   }
   return 1;
+}
+
+/**
+ * Does this attached Energy card provide Energy of `type` (while in play)? Buzzap Energy
+ * provides its chosen type; Rainbow Energy (`providesAllTypes`) every basic type; any other
+ * Energy card its printed type. Use it for every "<type> Energy card attached" check (costs,
+ * discard costs, Water Gun-style bonuses, Continuous Fireball, Energy Trans, Gather Fire...).
+ * In the hand or the discard pile a Rainbow Energy is not a basic Energy card (isBasicEnergy).
+ */
+export function energyProvidesType(card: GameCard, type: EnergyType): boolean {
+  if (card.buzzapEnergyType) return card.buzzapEnergyType === type;
+  if (!isEnergyCard(card)) return false;
+  if (card.providesAllTypes) return type !== EnergyTypeEnum.Colorless;
+  return card.energyType === type;
 }
 
 /**
@@ -2221,6 +2239,16 @@ export function getEnergyTypeInSpanish(energyType: string): string {
 }
 
 /**
+ * Display label of an Energy card: "Energía fuego" for a basic Energy, the card's name for a
+ * special Energy ("Rainbow Energy", "Double Colorless Energy"), the name for anything else.
+ */
+export function energyCardLabel(card: GameCard): string {
+  if (card.buzzapEnergyType) return `Energía ${getEnergyTypeInSpanish(card.buzzapEnergyType)} (${card.name})`;
+  if (!isEnergyCard(card)) return card.name;
+  return card.isBasic ? `Energía ${getEnergyTypeInSpanish(card.energyType)}` : card.name;
+}
+
+/**
  * Verifica si un Pokémon puede evolucionar en otro
  * @param evolution - El Pokémon al que quiere evolucionar (debe ser stage-1 o stage-2)
  * @param base - El Pokémon base que está en juego
@@ -2390,7 +2418,15 @@ export function canUseAttack(
   const energyValueCount: Record<string, number> = {};
   // Contar cartas de energía por tipo (para requisitos de descarte, cada carta = 1)
   const energyCardCount: Record<string, number> = {};
+  // Rainbow Energy: counts as any basic type (one type at a time), assigned below where needed
+  let wildValue = 0;
+  let wildCards = 0;
   for (const energy of attachedEnergy) {
+    if (energy.kind === CardKind.Energy && !energyConversionType && !energy.buzzapEnergyType && energy.providesAllTypes) {
+      wildValue += getEnergyValue(energy);
+      wildCards += 1;
+      continue;
+    }
     if (energy.kind === CardKind.Energy) {
       // Determine effective energy type:
       // 1. Energy Burn: all energy counts as the conversion type
@@ -2418,13 +2454,19 @@ export function canUseAttack(
   }
 
   // Primero verificar energías específicas (no colorless) usando valores de energía
+  // (lo que falte de un tipo lo puede pagar Rainbow Energy)
   let usedEnergy: Record<string, number> = {};
+  let wildLeft = wildValue;
   for (const [type, required] of Object.entries(costCount)) {
     if (type === EnergyTypeEnum.Colorless) continue;
 
     const available = energyValueCount[type] || 0;
     if (available < required) {
-      return false;
+      const missing = required - available;
+      if (wildLeft < missing) return false;
+      wildLeft -= missing;
+      usedEnergy[type] = available;
+      continue;
     }
     usedEnergy[type] = required;
   }
@@ -2433,7 +2475,7 @@ export function canUseAttack(
   const colorlessRequired = costCount[EnergyTypeEnum.Colorless] || 0;
   if (colorlessRequired > 0) {
     // Calcular total de energías restantes después de pagar costos específicos
-    let remainingEnergy = 0;
+    let remainingEnergy = wildLeft;
     for (const [type, count] of Object.entries(energyValueCount)) {
       const used = usedEnergy[type] || 0;
       remainingEnergy += count - used;
@@ -2453,10 +2495,13 @@ export function canUseAttack(
           discardCount[type] = (discardCount[type] || 0) + 1;
         }
 
+        let wildCardsLeft = wildCards;
         for (const [type, required] of Object.entries(discardCount)) {
           const available = energyCardCount[type] || 0;
           if (available < required) {
-            return false;
+            const missing = required - available;
+            if (wildCardsLeft < missing) return false;
+            wildCardsLeft -= missing;
           }
         }
       }
@@ -2584,7 +2629,7 @@ export function calculateBaseDamage(
         // Count total energy of this type attached (a transformed Ditto's Energy is any type)
         const anyType = isPokemonCard(attacker.pokemon) && !!attacker.pokemon.transformedFrom;
         const totalOfType = attacker.attachedEnergy.filter(
-          e => e.kind === CardKind.Energy && (anyType || ("energyType" in e && e.energyType === energyType))
+          e => e.kind === CardKind.Energy && (anyType || energyProvidesType(e, energyType))
         ).length;
         // Count how many are required by the attack cost
         const requiredOfType = attack.cost.filter(c => c === energyType).length;
@@ -3658,7 +3703,7 @@ function executeAttackUnchecked(
 
           for (const reqType of discardReq) {
             const idx = remainingEnergy.findIndex(
-              (e) => e.kind === CardKind.Energy && "energyType" in e && e.energyType === reqType
+              (e) => e.kind === CardKind.Energy && energyProvidesType(e, reqType)
             );
             if (idx !== -1) {
               discardedEnergy.push(...remainingEnergy.splice(idx, 1));
@@ -3762,15 +3807,16 @@ function executeAttackUnchecked(
             }
 
             for (const reqType of discardReq) {
-              const idx = remainingEnergy.findIndex((e) => {
+              const matches = (e: GameCard): boolean => {
                 if (e.kind !== CardKind.Energy && !e.buzzapEnergyType) return false;
                 // With Energy Burn, all energy counts as the converted type
                 if (energyConversionType) return true;
-                // Buzzap energy uses its chosen type
-                if (e.buzzapEnergyType) return e.buzzapEnergyType === reqType;
-                // Normal energy
-                return "energyType" in e && e.energyType === reqType;
-              });
+                // Buzzap energy uses its chosen type; Rainbow Energy any basic type
+                return energyProvidesType(e, reqType);
+              };
+              // A card printed with that type first, Rainbow Energy last
+              const exact = remainingEnergy.findIndex((e) => matches(e) && !(isEnergyCard(e) && e.providesAllTypes));
+              const idx = exact !== -1 ? exact : remainingEnergy.findIndex(matches);
               if (idx !== -1) {
                 discardedEnergy.push(...remainingEnergy.splice(idx, 1));
               }
@@ -3784,9 +3830,7 @@ function executeAttackUnchecked(
               attachedEnergy: remainingEnergy,
             };
 
-            const energyNames = discardedEnergy
-              .map((e) => "energyType" in e ? getEnergyTypeInSpanish(e.energyType) : "")
-              .join(", ");
+            const energyNames = discardedEnergy.map(energyCardLabel).join(", ");
             events.push(
               createGameEvent(
                 `${newPlayerActive.pokemon.name} descartó ${discardedEnergy.length} energía${discardedEnergy.length > 1 ? "s" : ""} (${energyNames})`,

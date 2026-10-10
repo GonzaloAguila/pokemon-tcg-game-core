@@ -20,6 +20,7 @@ import { GamePhase, PokemonStage } from "@/domain/constants";
 import { attachEnergyWithRainDance, canAutoAttachEnergy, getEvolutionBlockingPokemon } from "@/domain/powers";
 import { assertLegal } from "@/shared/errors";
 import { allOwnPokemon, findInPlay, MAX_BENCH_SIZE } from "./locate";
+import { SPECIAL_ENERGY_ATTACH_EFFECTS, type OnAttachFromHand } from "./special-energy";
 
 export { findInPlay, findOwnPokemon, allOwnPokemon, MAX_BENCH_SIZE } from "./locate";
 export type { InPlayLocation } from "./locate";
@@ -197,11 +198,12 @@ export function discardFromPlay(state: GameState, pokemonId: string): GameState 
 
 /**
  * Hook for special energies that do something when attached FROM THE HAND (Rainbow Energy,
- * Full Heal Energy, Potion Energy in Team Rocket). Keyed by card name; runs after the
- * Energy is attached, with the target's id. Must return a new state.
+ * Full Heal Energy, Potion Energy in Team Rocket: see special-energy.ts). Keyed by card name;
+ * runs after the Energy is attached, with the target's id. Must return a new state; Knock
+ * Outs are checked afterwards (Rainbow Energy's 10 damage).
  */
-export type OnAttachFromHand = (state: GameState, energyCard: GameCard, targetPokemonId: string) => GameState;
-export const ENERGY_ATTACH_EFFECTS: Record<string, OnAttachFromHand> = {};
+export type { OnAttachFromHand };
+export const ENERGY_ATTACH_EFFECTS: Record<string, OnAttachFromHand> = { ...SPECIAL_ENERGY_ATTACH_EFFECTS };
 
 /** Rain Dance-style power that allows this attachment without using the turn's attachment. */
 function powerAttachment(state: GameState, energyCard: GameCard, target: PokemonInPlay): boolean {
@@ -249,7 +251,7 @@ export function attachEnergyCard(state: GameState, energyCardId: string, targetP
   }
 
   const onAttach = ENERGY_ATTACH_EFFECTS[card.name];
-  return onAttach ? onAttach(next, card, targetPokemonId) : next;
+  return onAttach ? checkKnockouts(onAttach(next, card, targetPokemonId)) : next;
 }
 
 // ============================================================================

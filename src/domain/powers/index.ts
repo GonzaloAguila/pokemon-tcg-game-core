@@ -14,7 +14,7 @@
 import type { GameState, PokemonInPlay, GameCard } from "@/domain/match/types";
 import type { PokemonPower, EnergyType, PokemonCard } from "@/domain/cards/types";
 import { PokemonPowerType, StatusCondition } from "@/domain/constants";
-import { createGameEvent } from "@/lib/gameState";
+import { createGameEvent, energyProvidesType } from "@/lib/gameState";
 import { isPokemonCard, isEnergyCard, isTrainerInPlay, cardOutOfPlay } from "@/domain/cards";
 
 export * from "./types";
@@ -547,7 +547,7 @@ export function moveEnergyWithEnergyTrans(
   }
 
   // Check energy type matches power requirement
-  if (power.energyType && energyCard.energyType !== power.energyType) {
+  if (power.energyType && !energyProvidesType(energyCard, power.energyType)) {
     return {
       ...state,
       events: [...state.events, createGameEvent(

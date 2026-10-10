@@ -29,6 +29,8 @@ import {
   clearStatusConditionsOnRetreat,
   createGameEvent,
   getEnergyTypeInSpanish,
+  energyCardLabel,
+  energyProvidesType,
 } from "@/lib/gameState";
 import { cardOutOfPlay, isEnergyCard, isPokemonCard, type PokemonPower } from "@/domain/cards";
 import { EnergyType, PokemonPowerType } from "@/domain/constants";
@@ -107,7 +109,8 @@ function rainDanceTargets(state: GameState, pokemonId: string, energy: GameCard 
 
 function energyTransEnergies(state: GameState, pokemonId: string, source: PokemonInPlay | undefined): GameCard[] {
   const power = powerOf(state, pokemonId);
-  return (source?.attachedEnergy ?? []).filter((e) => isEnergyCard(e) && (!power?.energyType || e.energyType === power.energyType));
+  // In play, Rainbow Energy counts as a Grass Energy card too
+  return (source?.attachedEnergy ?? []).filter((e) => isEnergyCard(e) && (!power?.energyType || energyProvidesType(e, power.energyType)));
 }
 
 // ---------------------------------------------------------------------------- Damage Swap
@@ -253,12 +256,12 @@ export const POWER_EFFECTS: Record<string, CardEffectDef> = {
       });
       const target = ownPokemonById(withoutEnergy, selections[2][0])!;
       const moved = replaceOwn(withoutEnergy, target.pokemon.id, { ...target, attachedEnergy: [...target.attachedEnergy, energy] });
-      const energyName = isEnergyCard(energy) ? getEnergyTypeInSpanish(energy.energyType) : energy.name;
+      const energyName = energyCardLabel(energy);
       return {
         ...moved,
         events: [
           ...state.events,
-          createGameEvent(`${power.name}: movió energía ${energyName} de ${source.pokemon.name} a ${target.pokemon.name}`, "action"),
+          createGameEvent(`${power.name}: movió ${energyName} de ${source.pokemon.name} a ${target.pokemon.name}`, "action"),
         ],
       };
     },
