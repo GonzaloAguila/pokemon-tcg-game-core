@@ -53,6 +53,7 @@ export function getTurnActionBlocker(state: GameState): string | null {
   }
   if (state.playerCanTakePrize) return "Primero toma tu premio";
   if (state.attackedThisTurn) return "Ya atacaste este turno";
+  if (state.checkupDoneOnTurn === state.turnNumber) return "El turno está terminando";
   return null;
 }
 

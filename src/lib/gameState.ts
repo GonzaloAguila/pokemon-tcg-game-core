@@ -153,6 +153,13 @@ export type GameState = {
    * other action while the turn waits for prizes/promotions. Kept in sync with match/types.ts.
    */
   attackedThisTurn?: boolean;
+  /**
+   * endTurn already ran the between-turns Pokémon Checkup for this turn number but stopped
+   * before passing the turn (a prize to take or a Pokémon to promote). The next endTurn call
+   * skips the checkup, so poison/sleep never apply twice. Cleared when the turn passes.
+   * While set, the turn is over: no normal actions (getTurnActionBlocker).
+   */
+  checkupDoneOnTurn?: number;
   /** DeckSearch: player needs to search deck for Basic Pokemon matching filter */
   pendingDeckSearch?: {
     filter: {
@@ -1650,12 +1657,15 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   // Reglas TCG: veneno, sueño y parálisis se chequean para ambos jugadores
   // =====================================================================
 
+  // The checkup runs once per turn change, even if endTurn is called again after a pause
+  const checkupAlreadyDone = gameState.checkupDoneOnTurn === currentTurn;
+
   // 1) Pokémon del jugador que TERMINA su turno
   const ownPokemon = isPlayerEndingTurn
     ? updatedState.playerActivePokemon
     : updatedState.opponentActivePokemon;
 
-  if (ownPokemon && gameResult === null) {
+  if (ownPokemon && gameResult === null && !checkupAlreadyDone) {
     const result = processStatusEffectsForPokemon(ownPokemon, currentTurn, true);
     events.push(...result.events);
 
@@ -1675,7 +1685,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     ? updatedState.opponentActivePokemon
     : updatedState.playerActivePokemon;
 
-  if (otherPokemon && gameResult === null) {
+  if (otherPokemon && gameResult === null && !checkupAlreadyDone) {
     const result = processStatusEffectsForPokemon(otherPokemon, currentTurn, false);
     events.push(...result.events);
 
@@ -1708,6 +1718,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
       ...updatedState,
       playerCanTakePrize,
       opponentCanTakePrize,
+      checkupDoneOnTurn: currentTurn,
       events,
     };
   }
@@ -1993,6 +2004,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     opponentCanTakePrize,
     usedPowersThisTurn: [], // Clear used powers for new turn
     attackedThisTurn: undefined,
+    checkupDoneOnTurn: undefined,
     events,
   };
 }

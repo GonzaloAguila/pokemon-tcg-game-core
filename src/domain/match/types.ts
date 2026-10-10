@@ -128,6 +128,8 @@ export type GameState = {
   usedPowersThisTurn?: string[];
   /** The acting side already attacked this turn (see lib/gameState.ts) */
   attackedThisTurn?: boolean;
+  /** endTurn ran the checkup for this turn but is waiting for a prize/promotion (see lib/gameState.ts) */
+  checkupDoneOnTurn?: number;
   /** DeckSearch: player needs to search deck for Basic Pokemon matching filter */
   pendingDeckSearch?: {
     filter: {
