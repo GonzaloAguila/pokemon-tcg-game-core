@@ -13,7 +13,7 @@ import {
   PokemonPowerType,
 } from "@/domain/constants";
 import { decks, type Deck, type DeckEntry } from "@/domain/decks";
-import { getDamageReaction, getRetreatCostReduction, hasStatusImmunity, isDamageBlocked } from "@/domain/powers";
+import { getDamageReaction, getRetreatCostReduction, hasBlockingStatus, hasStatusImmunity, isDamageBlocked } from "@/domain/powers";
 
 // ============================================================================
 // TIPOS
@@ -1993,9 +1993,8 @@ export function canUseAttack(pokemonInPlay: PokemonInPlay, attackIndex: number):
   if (!energyConversionType && isPokemonCard(pokemonInPlay.pokemon)) {
     const power = pokemonInPlay.pokemon.power;
     if (power?.type === PokemonPowerType.EnergyConversion && power.energyType) {
-      // Check no blocking status
-      const statuses = pokemonInPlay.statusConditions ?? [];
-      if (statuses.length === 0) {
+      // Only Asleep/Confused/Paralyzed stop the power (Poison does not)
+      if (!hasBlockingStatus(pokemonInPlay)) {
         energyConversionType = power.energyType;
       }
     }
@@ -2915,8 +2914,7 @@ export function executeAttack(
             if (!energyConversionType && isPokemonCard(newPlayerActive.pokemon)) {
               const power = newPlayerActive.pokemon.power;
               if (power?.type === PokemonPowerType.EnergyConversion && power.energyType) {
-                const statuses = newPlayerActive.statusConditions ?? [];
-                if (statuses.length === 0) energyConversionType = power.energyType;
+                if (!hasBlockingStatus(newPlayerActive)) energyConversionType = power.energyType;
               }
             }
 

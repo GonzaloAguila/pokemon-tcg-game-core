@@ -5,7 +5,7 @@
  * Rules:
  * - Powers can be used before attacking (attacking ends the turn)
  * - Multiple different powers can be used in the same turn
- * - ALL status conditions block power usage (Paralyzed, Asleep, Confused, Poisoned)
+ * - Only Asleep, Confused and Paralyzed block power usage (Poisoned and Leer's CannotAttack do not)
  * - Powers work from bench unless they specify "while Active"
  * - If you have 2 Pokemon with the same power, each can use it
  * - Powers can be used the same turn you evolve
@@ -13,7 +13,7 @@
 
 import type { GameState, PokemonInPlay, GameCard } from "@/domain/match/types";
 import type { PokemonPower, EnergyType, PokemonCard } from "@/domain/cards/types";
-import { PokemonPowerType } from "@/domain/constants";
+import { PokemonPowerType, StatusCondition } from "@/domain/constants";
 import { createGameEvent } from "@/lib/gameState";
 import { isPokemonCard, isEnergyCard } from "@/domain/cards";
 
@@ -23,12 +23,18 @@ export * from "./types";
 // VALIDATION
 // ============================================================================
 
+/** Special conditions that stop Pokémon Powers (classic rule). Poison does NOT. */
+const POWER_BLOCKING_STATUSES: ReadonlyArray<string> = [
+  StatusCondition.Asleep,
+  StatusCondition.Confused,
+  StatusCondition.Paralyzed,
+];
+
 /**
- * Check if a Pokemon has any status condition that blocks powers
+ * Check if a Pokemon has a status condition that blocks powers (Asleep, Confused, Paralyzed)
  */
 export function hasBlockingStatus(pokemon: PokemonInPlay): boolean {
-  const statuses = pokemon.statusConditions ?? [];
-  return statuses.length > 0;
+  return (pokemon.statusConditions ?? []).some((s) => POWER_BLOCKING_STATUSES.includes(s));
 }
 
 /**
