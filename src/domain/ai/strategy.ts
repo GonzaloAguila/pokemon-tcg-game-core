@@ -30,10 +30,6 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
   const actions: AIAction[] = [];
   const side: Side = "opponent";
 
-  console.log("[AI Strategy] Decidiendo turno...");
-  console.log("[AI Strategy] Activo:", state.opponentActivePokemon?.pokemon.name);
-  console.log("[AI Strategy] Mano:", state.opponentHand.map(c => c.name));
-  console.log("[AI Strategy] Banca:", state.opponentBench.map(b => b?.pokemon.name));
 
   // Simular el estado a medida que planeamos acciones
   let simulatedState = { ...state };
@@ -71,7 +67,6 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
   // 2. Colocar básicos en la banca (hasta llenarla o quedarse sin básicos)
   let benchSlot = getFirstEmptyBenchSlot(simulatedState, side);
   let basicsInHand = getBasicPokemonInHand(simulatedState, side);
-  console.log("[AI Strategy] Básicos en mano:", basicsInHand.map(c => c.name), "Slot vacío:", benchSlot);
 
   while (benchSlot !== -1 && basicsInHand.length > 0) {
     // Priorizar Pokemon con evoluciones o mejor HP
@@ -105,13 +100,10 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
   }
 
   // 3. Adjuntar energía (si no lo hizo aún)
-  console.log("[AI Strategy] energyAttachedThisTurn:", simulatedState.energyAttachedThisTurn);
   if (!simulatedState.energyAttachedThisTurn) {
     const energies = getEnergiesInHand(simulatedState, side);
-    console.log("[AI Strategy] Energías en mano:", energies.map(c => c.name));
     if (energies.length > 0) {
       const target = getBestEnergyTarget(simulatedState, side);
-      console.log("[AI Strategy] Target para energía:", target);
       if (target) {
         // Elegir la mejor energía para el target
         const energy = energies[0]; // Simple: usar la primera
@@ -188,18 +180,13 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
   simulatedState = trainersPlayed.state;
 
   // 6. Atacar si es posible
-  console.log("[AI Strategy] Verificando ataque...");
-  console.log("[AI Strategy] Oponente activo:", simulatedState.opponentActivePokemon?.pokemon.name);
-  console.log("[AI Strategy] Player activo:", simulatedState.playerActivePokemon?.pokemon.name);
   if (simulatedState.opponentActivePokemon && simulatedState.playerActivePokemon) {
     const active = simulatedState.opponentActivePokemon;
 
     // Verificar que puede atacar (no dormido/paralizado)
     const canAttack = canPokemonAttack(active);
-    console.log("[AI Strategy] Puede atacar:", canAttack);
     if (canAttack) {
       const usableAttacks = getUsableAttacks(simulatedState, side);
-      console.log("[AI Strategy] Ataques usables:", usableAttacks);
 
       if (usableAttacks.length > 0) {
         // Priorizar ataques que noquean
@@ -229,13 +216,11 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
   }
 
   // 7. Si no puede atacar, terminar turno
-  console.log("[AI Strategy] No puede atacar, agregando endTurn");
   actions.push({
     type: "endTurn",
     delay: 500,
   });
 
-  console.log("[AI Strategy] Acciones finales:", actions.map(a => a.type));
   return actions;
 }
 

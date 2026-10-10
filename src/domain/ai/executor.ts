@@ -63,7 +63,6 @@ function swapSides(state: GameState): GameState {
  * Ejecuta una sola acción de la IA y retorna el nuevo estado
  */
 export function executeAIAction(state: GameState, action: AIAction): GameState {
-  console.log("[AI Executor] Ejecutando acción:", action.type, action);
   switch (action.type) {
     case "playBasicToActive":
       return playBasicToActive(state, "opponent", action.cardId);
