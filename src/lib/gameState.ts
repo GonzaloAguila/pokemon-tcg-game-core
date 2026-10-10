@@ -2093,6 +2093,104 @@ export function getAttackDiscardRequirement(pokemonInPlay: PokemonInPlay, attack
 }
 
 /**
+ * Base damage of an attack, before weakness/resistance, PlusPower, Defender and
+ * protection, and before next-turn bonuses or Mirror Move (executeAttack adds those).
+ *
+ * - Numeric damage is the printed value.
+ * - "Nx" damage starts at 0: the multiplier is always described by an effect —
+ *   `DamagePerCounter` (Self) for Flail ("10 × each damage counter on Magikarp"),
+ *   or a coin flip (`CoinFlipDamage`: Bonemerang, Double Kick, Fury Swipes) that the
+ *   coin-flip handler applies after executeAttack.
+ * - "N+" / "N-" start at N and are adjusted by the non-coin-flip effects below.
+ *
+ * @param attackerBench - bench of the attacking side (BonusDamage "benchCount"/"namedPokemon")
+ */
+export function calculateBaseDamage(
+  attacker: PokemonInPlay,
+  defender: PokemonInPlay,
+  attack: Attack,
+  attackerBench: PokemonInPlay[]
+): { damage: number; description: string } {
+  let baseDamage = 0;
+  let description = "";
+
+  if (typeof attack.damage === "number") {
+    baseDamage = attack.damage;
+  } else if (typeof attack.damage === "string") {
+    const numMatch = attack.damage.match(/(\d+)/);
+    const baseValue = numMatch ? parseInt(numMatch[1], 10) : 0;
+    // "Nx": the multiplier comes from an effect (see above), never from the string itself
+    baseDamage = attack.damage.endsWith("x") ? 0 : baseValue;
+  }
+
+  const ownCounters = Math.floor((attacker.currentDamage || 0) / 10);
+
+  for (const effect of attack.effects ?? []) {
+    if (effect.coinFlip) continue;
+
+    // BonusDamage: add damage based on source (bench count, named pokemon, etc.)
+    // Skip Self-targeting BonusDamage without a bonusDamageSource — those are "next turn" buffs (e.g., Swords Dance)
+    if (effect.type === AttackEffectType.BonusDamage && effect.amount
+        && !(effect.target === AttackTarget.Self && !effect.bonusDamageSource)) {
+      let multiplier = 1;
+      if (effect.bonusDamageSource === "benchCount") {
+        multiplier = attackerBench.filter(p => p != null).length;
+      } else if (effect.bonusDamageSource === "namedPokemon" && effect.bonusDamageNameMatch) {
+        const name = effect.bonusDamageNameMatch;
+        // Count in active + bench
+        let count = 0;
+        if (attacker.pokemon.name === name) count++;
+        for (const bp of attackerBench) {
+          if (bp && bp.pokemon.name === name) count++;
+        }
+        multiplier = count;
+      }
+      baseDamage += effect.amount * multiplier;
+    }
+
+    // DamagePerCounter: damage per damage counter on self (Rage, Rampage, Flail) or defender (Meditate)
+    if (effect.type === AttackEffectType.DamagePerCounter && effect.amount) {
+      if (effect.target === AttackTarget.Self) {
+        baseDamage += effect.amount * ownCounters;
+        if (typeof attack.damage === "string" && attack.damage.endsWith("x")) {
+          description = ` (${effect.amount} × ${ownCounters} contadores)`;
+        }
+      } else if (effect.target === AttackTarget.Defender) {
+        const counters = Math.floor((defender.currentDamage || 0) / 10);
+        baseDamage += effect.amount * counters;
+      }
+    }
+
+    // HalfHPDamage (Super Fang): damage = half of defender's remaining HP, rounded up to nearest 10
+    if (effect.type === AttackEffectType.HalfHPDamage && effect.target === AttackTarget.Defender
+        && isPokemonCard(defender.pokemon)) {
+      const remainingHP = defender.pokemon.hp - (defender.currentDamage || 0);
+      const halfHP = Math.ceil(remainingHP / 2);
+      baseDamage = Math.ceil(halfHP / 10) * 10;
+    }
+
+    // ExtraEnergy: bonus damage per extra energy of a type beyond attack cost
+    if (effect.type === AttackEffectType.ExtraEnergy && effect.extraDamagePerEnergy) {
+      const energyType = effect.extraEnergyType;
+      const maxExtra = effect.maxExtraEnergy ?? Infinity;
+      if (energyType) {
+        // Count total energy of this type attached
+        const totalOfType = attacker.attachedEnergy.filter(
+          e => e.kind === CardKind.Energy && "energyType" in e && e.energyType === energyType
+        ).length;
+        // Count how many are required by the attack cost
+        const requiredOfType = attack.cost.filter(c => c === energyType).length;
+        const extraCount = Math.min(Math.max(0, totalOfType - requiredOfType), maxExtra);
+        baseDamage += effect.extraDamagePerEnergy * extraCount;
+      }
+    }
+  }
+
+  return { damage: Math.max(0, baseDamage), description };
+}
+
+
+/**
  * Ejecuta un ataque del Pokémon activo del jugador contra el Pokémon activo del oponente
  * @param gameState - Estado actual del juego
  * @param attackIndex - Índice del ataque a usar
@@ -2143,97 +2241,10 @@ export function executeAttack(
     }
   }
 
-  // Calcular daño base (puede ser número o string como "10x", "20+", "30-")
-  let baseDamage = 0;
-  let damageMultiplierDescription = "";
-
-  if (typeof attack.damage === "number") {
-    baseDamage = attack.damage;
-  } else if (typeof attack.damage === "string") {
-    // Extraer el número base del string (ej: "10x" -> 10, "20+" -> 20)
-    const numMatch = attack.damage.match(/(\d+)/);
-    const baseValue = numMatch ? parseInt(numMatch[1], 10) : 0;
-
-    if (attack.damage.endsWith("x")) {
-      // "10x" = daño multiplicado por contadores de daño propios (ej: Azote/Flail)
-      // Cada contador de daño = 10 puntos de daño
-      const damageCounters = Math.floor((attacker.currentDamage || 0) / 10);
-      baseDamage = baseValue * damageCounters;
-      damageMultiplierDescription = ` (${baseValue} × ${damageCounters} contadores)`;
-    } else if (attack.damage.endsWith("+")) {
-      // "20+" = daño base + posible bonus (implementar según el efecto)
-      baseDamage = baseValue;
-    } else if (attack.damage.endsWith("-")) {
-      // "30-" = daño base - posible reducción (implementar según el efecto)
-      baseDamage = baseValue;
-    } else {
-      baseDamage = baseValue;
-    }
-  }
-  // Apply non-coinflip BonusDamage, DamagePerCounter, and ExtraEnergy to base damage
-  if (attack.effects) {
-    for (const effect of attack.effects) {
-      if (effect.coinFlip) continue;
-
-      // BonusDamage: add damage based on source (bench count, named pokemon, etc.)
-      // Skip Self-targeting BonusDamage without a bonusDamageSource — those are "next turn" buffs (e.g., Swords Dance)
-      if (effect.type === AttackEffectType.BonusDamage && effect.amount && !effect.coinFlip
-          && !(effect.target === AttackTarget.Self && !effect.bonusDamageSource)) {
-        let multiplier = 1;
-        if (effect.bonusDamageSource === "benchCount") {
-          multiplier = gameState.playerBench.filter(p => p != null).length;
-        } else if (effect.bonusDamageSource === "namedPokemon" && effect.bonusDamageNameMatch) {
-          const name = effect.bonusDamageNameMatch;
-          // Count in active + bench
-          let count = 0;
-          if (attacker.pokemon.name === name) count++;
-          for (const bp of gameState.playerBench) {
-            if (bp && bp.pokemon.name === name) count++;
-          }
-          multiplier = count;
-        }
-        baseDamage += effect.amount * multiplier;
-      }
-
-      // DamagePerCounter: bonus damage per damage counter on self or defender
-      if (effect.type === AttackEffectType.DamagePerCounter && effect.amount) {
-        if (effect.target === AttackTarget.Self) {
-          // Damage counters on attacker (e.g., Rage, Rampage)
-          const counters = Math.floor((attacker.currentDamage || 0) / 10);
-          baseDamage += effect.amount * counters;
-        } else if (effect.target === AttackTarget.Defender) {
-          // Damage counters on defender (e.g., Meditate)
-          const counters = Math.floor((defender.currentDamage || 0) / 10);
-          baseDamage += effect.amount * counters;
-        }
-      }
-
-      // HalfHPDamage (Super Fang): damage = half of defender's remaining HP, rounded up to nearest 10
-      if (effect.type === AttackEffectType.HalfHPDamage && effect.target === AttackTarget.Defender) {
-        const defenderHP = defender.pokemon.hp;
-        const remainingHP = defenderHP - (defender.currentDamage || 0);
-        const halfHP = Math.ceil(remainingHP / 2);
-        // Round up to nearest 10
-        baseDamage = Math.ceil(halfHP / 10) * 10;
-      }
-
-      // ExtraEnergy: bonus damage per extra energy of a type beyond attack cost
-      if (effect.type === AttackEffectType.ExtraEnergy && effect.extraDamagePerEnergy) {
-        const energyType = effect.extraEnergyType;
-        const maxExtra = effect.maxExtraEnergy ?? Infinity;
-        if (energyType) {
-          // Count total energy of this type attached
-          const totalOfType = attacker.attachedEnergy.filter(
-            e => e.kind === CardKind.Energy && "energyType" in e && e.energyType === energyType
-          ).length;
-          // Count how many are required by the attack cost
-          const requiredOfType = attack.cost.filter(c => c === energyType).length;
-          const extraCount = Math.min(Math.max(0, totalOfType - requiredOfType), maxExtra);
-          baseDamage += effect.extraDamagePerEnergy * extraCount;
-        }
-      }
-    }
-  }
+  // Daño base: printed damage + non-coin-flip damage effects (see calculateBaseDamage)
+  const base = calculateBaseDamage(attacker, defender, attack, gameState.playerBench);
+  let baseDamage = base.damage;
+  const damageMultiplierDescription = base.description;
 
   // Apply stored nextTurnBonusDamage from a previous turn (e.g., Swords Dance +30)
   // The bonus is consumed and cleared later when assembling the final state
@@ -2377,8 +2388,9 @@ export function executeAttack(
     } else {
       damageMessage = ` e hizo ${effectiveDamage} de daño${damageMultiplierDescription}`;
     }
-  } else if (typeof attack.damage === "string" && attack.damage.endsWith("x")) {
-    // Si es un ataque de daño variable y no hizo daño, indicarlo
+  } else if (damageMultiplierDescription && baseDamage === 0) {
+    // Ataque por contadores propios (Azote/Flail) sin contadores: indicarlo.
+    // Coin-flip "Nx" attacks (Bonemerang...) get their damage message from the coin-flip handler.
     damageMessage = " pero no hizo daño (0 contadores)";
   } else if (hasResistance && baseDamage > 0) {
     // El ataque tenía daño pero fue reducido a 0 por resistencia

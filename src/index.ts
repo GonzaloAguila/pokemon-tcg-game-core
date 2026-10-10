@@ -96,6 +96,7 @@ export {
 // Validation
 export {
   canUseAttack,
+  calculateBaseDamage,
   canRetreat,
   canEvolveInto,
   findValidEvolutionTargets,

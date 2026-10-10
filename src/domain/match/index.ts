@@ -35,6 +35,7 @@ export {
   getEnergyValue,
   getTotalEnergyValue,
   canUseAttack,
+  calculateBaseDamage,
   getAttackDiscardRequirement,
   canEvolveInto,
   findValidEvolutionTargets,

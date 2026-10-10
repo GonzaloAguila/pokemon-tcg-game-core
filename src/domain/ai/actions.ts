@@ -18,7 +18,9 @@ import {
   getTotalEnergyValue,
   clearStatusConditionsOnRetreat,
   protectionBlocksDamage,
+  calculateBaseDamage,
 } from "@/domain/match";
+import type { Attack } from "@/domain/cards";
 import { isPokemonCard, isEnergyCard } from "@/domain/cards";
 import { GamePhase, PokemonStage, AttackEffectType } from "@/domain/constants";
 import type { Side } from "./types";
@@ -421,6 +423,28 @@ export function getFirstEmptyBenchSlot(state: GameState, side: Side): number {
 }
 
 /**
+ * Base damage estimate shared by canKnockOut / estimateAttackDamage.
+ * Uses the engine's calculateBaseDamage (Flail, Rage, Meditate, Karate Chop, bench bonuses...).
+ * Coin-flip damage attacks are resolved outside the engine, so they keep the nominal
+ * per-heads value as a rough estimate.
+ */
+function estimateBaseDamage(
+  state: GameState,
+  side: Side,
+  attacker: PokemonInPlay,
+  defender: PokemonInPlay,
+  attack: Attack
+): number {
+  const hasCoinFlipDamage = attack.effects?.some(e => e.type === AttackEffectType.CoinFlipDamage);
+  if (hasCoinFlipDamage) {
+    if (typeof attack.damage === "number") return attack.damage;
+    const numMatch = typeof attack.damage === "string" ? attack.damage.match(/(\d+)/) : null;
+    return numMatch ? parseInt(numMatch[1], 10) : 0;
+  }
+  return calculateBaseDamage(attacker, defender, attack, getBench(state, side)).damage;
+}
+
+/**
  * Verificar si un ataque puede noquear al defensor
  */
 export function canKnockOut(
@@ -446,13 +470,7 @@ export function canKnockOut(
   }
 
   // Calcular daño base
-  let damage = 0;
-  if (typeof attack.damage === "number") {
-    damage = attack.damage;
-  } else if (typeof attack.damage === "string") {
-    const numMatch = attack.damage.match(/(\d+)/);
-    damage = numMatch ? parseInt(numMatch[1], 10) : 0;
-  }
+  let damage = estimateBaseDamage(state, side, attacker, defender, attack);
 
   // Aplicar debilidad
   const hasWeakness = defender.pokemon.weaknesses?.includes(attacker.pokemon.types[0]) ?? false;
@@ -498,13 +516,7 @@ export function estimateAttackDamage(
     return attacker.lastDamageReceived ?? 0;
   }
 
-  let damage = 0;
-  if (typeof attack.damage === "number") {
-    damage = attack.damage;
-  } else if (typeof attack.damage === "string") {
-    const numMatch = attack.damage.match(/(\d+)/);
-    damage = numMatch ? parseInt(numMatch[1], 10) : 0;
-  }
+  let damage = estimateBaseDamage(state, side, attacker, defender, attack);
 
   // Debilidad/resistencia
   const hasWeakness = defender.pokemon.weaknesses?.includes(attacker.pokemon.types[0]) ?? false;
