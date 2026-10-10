@@ -252,6 +252,13 @@ export function hasStatusCondition(
 }
 
 /**
+ * Confusion (Base Set rule): if the attack coin flip is tails, the attack does nothing
+ * and the confused Pokémon does 20 damage to itself (no weakness/resistance).
+ * Shared by the AI executor and the consumers' coin-flip handlers.
+ */
+export const CONFUSION_SELF_DAMAGE = 20;
+
+/**
  * Exclusive status conditions: Asleep, Confused, Paralyzed replace each other.
  * Poisoned is independent and can coexist with any of them.
  */

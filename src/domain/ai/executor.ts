@@ -7,6 +7,7 @@
 
 import type { GameState } from "@/domain/match";
 import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition, executeDeckSearch, applyProtection, clearStatusConditionsOnRetreat } from "@/domain/match";
+import { CONFUSION_SELF_DAMAGE } from "@/lib/gameState";
 import { isPokemonCard } from "@/domain/cards";
 import { PokemonStage, ProtectionType } from "@/domain/constants";
 import type { AIAction } from "./types";
@@ -142,8 +143,7 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
     const coinToken = `[coin:${confusionFlip}]`;
 
     if (confusionFlip === "tails") {
-      // Tails: attack fails, deal 30 damage to self
-      const CONFUSION_SELF_DAMAGE = 30;
+      // Tails: attack fails, the confused Pokémon does 20 damage to itself (Base Set rule)
       const newSelfDamage = (attacker.currentDamage || 0) + CONFUSION_SELF_DAMAGE;
       const attackerHP = attacker.pokemon.hp;
       const isKO = newSelfDamage >= attackerHP;

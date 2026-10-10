@@ -129,6 +129,7 @@ export {
 
 // Status Effects
 export {
+  CONFUSION_SELF_DAMAGE,
   applyStatusCondition,
   removeStatusCondition,
   clearAllStatusConditions,
