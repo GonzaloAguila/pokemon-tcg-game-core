@@ -6,9 +6,9 @@
  */
 
 import type { GameState } from "@/domain/match";
-import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition, executeDeckSearch, applyProtection, clearStatusConditionsOnRetreat, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
+import { executeAttack, getAttackCoinFlipCount, endTurn, executeRetreat, createGameEvent, executeDeckSearch, clearStatusConditionsOnRetreat, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
-import { PokemonStage, ProtectionType } from "@/domain/constants";
+import { PokemonStage, type CoinFlipResult } from "@/domain/constants";
 import type { AIAction } from "./types";
 import {
   playBasicToActive,
@@ -17,27 +17,9 @@ import {
   evolve,
 } from "./actions";
 
-/**
- * Simula un lanzamiento de moneda y retorna los resultados
- */
-function simulateCoinFlips(count: number): ("heads" | "tails")[] {
-  const results: ("heads" | "tails")[] = [];
-  for (let i = 0; i < count; i++) {
-    results.push(Math.random() < 0.5 ? "heads" : "tails");
-  }
-  return results;
-}
-
-/**
- * Genera el mensaje de log para los resultados de coin flip
- * Usa tokens especiales [coin:heads] y [coin:tails] que EventLogger renderiza como imágenes
- */
-function getCoinFlipLogMessage(results: ("heads" | "tails")[]): string {
-  const coinTokens = results.map(r => `[coin:${r}]`).join(" ");
-  if (results.length === 1) {
-    return `Moneda: ${coinTokens}`;
-  }
-  return `Monedas: ${coinTokens}`;
+/** The AI's coin flips (the engine logs and resolves them). */
+function flipCoins(count: number): CoinFlipResult[] {
+  return Array.from({ length: count }, () => (Math.random() < 0.5 ? "heads" : "tails"));
 }
 
 /**
@@ -209,17 +191,6 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
     }
   }
 
-  // Verificar si el ataque tiene efectos con coin flip
-  const coinFlipEffect = attack.effects?.find(e => e.coinFlip);
-  let coinFlipResults: ("heads" | "tails")[] = [];
-  let coinFlipLogMessage = "";
-
-  if (coinFlipEffect?.coinFlip) {
-    // Simular coin flips
-    coinFlipResults = simulateCoinFlips(coinFlipEffect.coinFlip.count);
-    coinFlipLogMessage = getCoinFlipLogMessage(coinFlipResults);
-  }
-
   // Swap perspective: intercambiar player/opponent temporalmente
   // También intercambiar playerId en los modifiers para que PlusPower funcione correctamente
   const swappedModifiers = state.activeModifiers.map(m => ({
@@ -249,194 +220,15 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
     activeModifiers: swappedModifiers,
   };
 
-  // Ejecutar el ataque con skipEndTurn=true y skipDefenderPromotion=true
-  // skipEndTurn=true: para que endTurn se llame después del swap con perspectiva correcta
-  // skipDefenderPromotion=true: para que el jugador real elija qué promover
-  let resultState = executeAttack(swappedState, attackIndex, true, true);
-
-  // Si hay coin flip, agregar el log del resultado DESPUÉS del mensaje del ataque
-  if (coinFlipLogMessage) {
-    resultState = {
-      ...resultState,
-      events: [
-        ...resultState.events,
-        createGameEvent(coinFlipLogMessage, "info"),
-      ],
-    };
-
-    // Procesar efectos de coin flip manualmente
-    const headsCount = coinFlipResults.filter(r => r === "heads").length;
-    const tailsCount = coinFlipResults.filter(r => r === "tails").length;
-
-    // coinFlipDamage: daño basado en el resultado de la moneda
-    if (coinFlipEffect?.type === "coinFlipDamage" && coinFlipEffect.amount) {
-      let coinDamage = 0;
-      if (coinFlipEffect.coinFlip?.onHeads === "damage") coinDamage += coinFlipEffect.amount * headsCount;
-      if (coinFlipEffect.coinFlip?.onTails === "damage") coinDamage += coinFlipEffect.amount * tailsCount;
-
-      if (coinDamage > 0 && resultState.opponentActivePokemon) {
-        // En estado swapped, "opponent" es el jugador real (defensor)
-        const defenderInSwapped = resultState.opponentActivePokemon;
-        const defenderCard = defenderInSwapped.pokemon;
-
-        if (isPokemonCard(defenderCard)) {
-          // Calcular debilidad/resistencia
-          const attackerType = attacker.pokemon.types[0];
-          const hasWeakness = defenderCard.weaknesses?.includes(attackerType) ?? false;
-          const hasResistance = defenderCard.resistances?.includes(attackerType) ?? false;
-
-          let finalDamage = coinDamage;
-          if (hasWeakness) finalDamage *= 2;
-          if (hasResistance) finalDamage = Math.max(0, finalDamage - 30);
-
-          const newDamage = (defenderInSwapped.currentDamage || 0) + finalDamage;
-
-          // Mensaje de daño
-          let damageMsg = `${attacker.pokemon.name} hizo ${finalDamage} de daño`;
-          if (hasWeakness) damageMsg += " (x2 debilidad)";
-          else if (hasResistance) damageMsg += " (-30 resistencia)";
-
-          // Verificar KO
-          if (newDamage >= defenderCard.hp) {
-            resultState = {
-              ...resultState,
-              opponentActivePokemon: null,
-              opponentDiscard: [
-                ...resultState.opponentDiscard,
-                defenderCard,
-                ...defenderInSwapped.attachedEnergy,
-                ...(defenderInSwapped.attachedTrainers || []),
-                ...(defenderInSwapped.previousEvolutions || []),
-              ],
-              playerCanTakePrize: resultState.playerPrizes.length > 0,
-              events: [
-                ...resultState.events,
-                createGameEvent(damageMsg, "action"),
-                createGameEvent(`¡${defenderCard.name} fue noqueado!`, "action"),
-                ...(resultState.playerPrizes.length > 0 ? [createGameEvent("¡Puedes tomar un premio!", "action")] : []),
-              ],
-            };
-          } else {
-            resultState = {
-              ...resultState,
-              opponentActivePokemon: {
-                ...defenderInSwapped,
-                currentDamage: newDamage,
-              },
-              events: [
-                ...resultState.events,
-                createGameEvent(damageMsg, "action"),
-              ],
-            };
-          }
-        }
-      } else if (coinDamage === 0) {
-        resultState = {
-          ...resultState,
-          events: [
-            ...resultState.events,
-            createGameEvent(`${attacker.pokemon.name} falló el ataque`, "info"),
-          ],
-        };
-      }
-    }
-
-    // applyStatus: aplicar estado basado en coin flip (ej: Electabuzz Impactrueno - parálisis en cara)
-    // In swapped state: "player" = AI attacker, "opponent" = human defender
-    if (coinFlipEffect?.type === "applyStatus" && coinFlipEffect.coinFlip) {
-      const headsCount = coinFlipResults.filter(r => r === "heads").length;
-      const tailsCount = coinFlipResults.filter(r => r === "tails").length;
-
-      // Determinar qué estado aplicar basado en el resultado
-      let statusToApply: string | null = null;
-      if (headsCount > 0 && coinFlipEffect.coinFlip.onHeads && coinFlipEffect.coinFlip.onHeads !== "damage" && coinFlipEffect.coinFlip.onHeads !== "protection") {
-        statusToApply = coinFlipEffect.coinFlip.onHeads;
-      } else if (tailsCount > 0 && headsCount === 0 && coinFlipEffect.coinFlip.onTails && coinFlipEffect.coinFlip.onTails !== "damage" && coinFlipEffect.coinFlip.onTails !== "protection") {
-        statusToApply = coinFlipEffect.coinFlip.onTails;
-      }
-
-      if (statusToApply) {
-        const statusMessages: Record<string, string> = {
-          paralyzed: "paralizado",
-          asleep: "dormido",
-          confused: "confundido",
-          poisoned: "envenenado",
-        };
-
-        // Collect all statuses: primary + additionalStatuses (e.g., Venomoth Venom Powder: Confused + Poisoned)
-        const allStatuses = [statusToApply, ...((coinFlipEffect as { additionalStatuses?: string[] }).additionalStatuses || [])];
-
-        // Check target: Self applies to attacker (playerActivePokemon in swapped state = AI)
-        const isSelfTarget = coinFlipEffect.target === "self";
-        const targetKey = isSelfTarget ? "playerActivePokemon" : "opponentActivePokemon";
-
-        for (const status of allStatuses) {
-          const targetPokemon = resultState[targetKey];
-          if (targetPokemon) {
-            const updated = applyStatusCondition(targetPokemon, status as "paralyzed" | "poisoned" | "confused" | "asleep", state.turnNumber);
-            if (updated !== targetPokemon) {
-              resultState = {
-                ...resultState,
-                [targetKey]: updated,
-                events: [
-                  ...resultState.events,
-                  createGameEvent(
-                    `¡${targetPokemon.pokemon.name} está ${statusMessages[status] || status}!`,
-                    "action"
-                  ),
-                ],
-              };
-            }
-          }
-        }
-      }
-    }
-
-    // preventRetreat: prevent retreat via coin flip (e.g., Acid — heads = can't retreat)
-    if (coinFlipEffect?.type === "preventRetreat" && coinFlipEffect.coinFlip) {
-      const headsCount = coinFlipResults.filter(r => r === "heads").length;
-      if (headsCount > 0 && coinFlipEffect.coinFlip.onHeads === "preventRetreat" && resultState.opponentActivePokemon) {
-        resultState = {
-          ...resultState,
-          opponentActivePokemon: {
-            ...resultState.opponentActivePokemon,
-            retreatPrevented: true,
-            retreatPreventedOnTurn: state.turnNumber,
-          },
-          events: [
-            ...resultState.events,
-            createGameEvent(
-              `¡${resultState.opponentActivePokemon.pokemon.name} no puede retirarse durante el próximo turno!`,
-              "action"
-            ),
-          ],
-        };
-      }
-    }
-
-    // protection: apply protection via coin flip (e.g., Harden, Agility, Metapod Stiffen, Kakuna Stiffen)
-    // In swapped state: "player" = AI attacker. Protection applies to AI's active (playerActivePokemon)
-    if (coinFlipEffect?.type === "protection" && coinFlipEffect.coinFlip) {
-      const headsCount = coinFlipResults.filter(r => r === "heads").length;
-      if (headsCount > 0 && coinFlipEffect.coinFlip.onHeads === "protection" && resultState.playerActivePokemon) {
-        const protType = (coinFlipEffect as { protectionType?: string }).protectionType as ProtectionType || ProtectionType.DamageOnly;
-        const threshold = coinFlipEffect.amount; // e.g., 30 for Onix Harden
-        resultState = {
-          ...resultState,
-          playerActivePokemon: applyProtection(resultState.playerActivePokemon, protType, state.turnNumber, threshold),
-          events: [
-            ...resultState.events,
-            createGameEvent(
-              threshold !== undefined
-                ? `${resultState.playerActivePokemon.pokemon.name} se endureció — prevendrá daño de ${threshold} o menos`
-                : `¡${resultState.playerActivePokemon.pokemon.name} se protegió! El daño será prevenido durante el próximo turno`,
-              "action"
-            ),
-          ],
-        };
-      }
-    }
-  }
+  // The AI flips the attack's coins; the engine resolves every coin effect.
+  // skipEndTurn: endTurn runs after the swap back, so its messages have the right perspective.
+  // skipDefenderPromotion: the human chooses which Pokémon to promote.
+  const coinResults = flipCoins(getAttackCoinFlipCount(swappedState, attackIndex));
+  const resultState = executeAttack(swappedState, attackIndex, {
+    coinResults,
+    skipEndTurn: true,
+    skipDefenderPromotion: true,
+  });
 
   // Swap de vuelta
   // En resultState, "opponent" = jugador real. Si opponentActivePokemon es null y hay bench,
