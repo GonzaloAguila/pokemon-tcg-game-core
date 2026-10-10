@@ -86,6 +86,7 @@ export {
   skipPendingSwitch,
   executeDeckSearch,
   executeBenchDamage,
+  processBenchKnockouts,
   doMulligan,
   setPlayerReady,
   startPlayingPhase,

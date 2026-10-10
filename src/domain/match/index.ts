@@ -78,6 +78,8 @@ export {
   applySelfSwitch,
   skipPendingSwitch,
   executeDeckSearch,
+  executeBenchDamage,
+  processBenchKnockouts,
 } from "@/lib/gameState";
 
 // Re-export UI helpers from lib/gameState (to be migrated to features/game/model)
