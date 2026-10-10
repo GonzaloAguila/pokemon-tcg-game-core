@@ -47,6 +47,7 @@ export const CardSet = {
   BaseSet: "Base Set",
   Jungle: "Jungle",
   Fossil: "Fossil",
+  TeamRocket: "Team Rocket",
 } as const;
 export type CardSet = (typeof CardSet)[keyof typeof CardSet];
 
@@ -134,6 +135,39 @@ export const AttackEffectType = {
   BlockTrainers: "blockTrainers",
   /** Prophecy: look at up to `amount` cards from the top of either player's deck and rearrange them */
   ReorderDeckTop: "reorderDeckTop",
+  // ---------------------------------------------------------------- Team Rocket
+  /**
+   * The attacker chooses a Pokémon (`targetScope`) and the attack does `amount` damage to it
+   * (pending attack choice). Stare, Flitter, Dig Under, Coin Hurl (any opponent's Pokémon, no
+   * W/R), Drag Off (`switchWithDefender`: a Benched Pokémon becomes the Defending Pokémon first,
+   * W/R applied), Flame Pillar (`optionalEnergyDiscard`: only after discarding that Energy).
+   * The attack's printed damage is done through this choice, not by the normal damage step.
+   */
+  ChooseTargetDamage: "chooseTargetDamage",
+  /** Can't be used unless the opponent has Benched Pokémon (Fling, Drag Off, Fascinate) */
+  RequireOpponentBench: "requireOpponentBench",
+  /** Can't be used unless this Pokémon has an Energy card providing `energyType` attached (Fireball) */
+  RequireAttachedEnergy: "requireAttachedEnergy",
+  /** Fling: the Defending Pokémon and every card attached to it are shuffled into its owner's deck */
+  ShuffleDefenderIntoDeck: "shuffleDefenderIntoDeck",
+  /** Magnetic Lines: move 1 basic Energy card of the Defending Pokémon to one of the opponent's Benched Pokémon */
+  MoveDefenderEnergyToBench: "moveDefenderEnergyToBench",
+  /** Mass Explosion: `amount` damage (no W/R) to each Pokémon in play named in `names`, both sides, itself included */
+  DamageNamedInPlay: "damageNamedInPlay",
+  /** Energy Bomb: every Energy card attached moves to your Benched Pokémon as you choose (discarded with no Bench) */
+  MoveAllEnergyToBench: "moveAllEnergyToBench",
+  /** Third Eye: discard 1 attached Energy card in order to draw up to `amount` cards */
+  DiscardEnergyToDraw: "discardEnergyToDraw",
+  /** Mirror Shell: during the opponent's next turn, attack damage done to it is done back to the attacker */
+  MirrorShell: "mirrorShell",
+  /** Rapid Evolution: an Evolution card named in `searchPokemonNames` from the deck goes on this Pokémon (counts as evolving) */
+  EvolveFromDeck: "evolveFromDeck",
+  /** Vanish: shuffle this Pokémon into its owner's deck, discarding the attached cards */
+  ShuffleSelfIntoDeck: "shuffleSelfIntoDeck",
+  /** Mischief: shuffle the opponent's deck */
+  ShuffleOpponentDeck: "shuffleOpponentDeck",
+  /** Afternoon Nap: search the deck for a basic Energy card of `energyType` and attach it to this Pokémon */
+  AttachEnergyFromDeck: "attachEnergyFromDeck",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 
@@ -193,6 +227,29 @@ export const PokemonPowerType = {
   RevealHand: "revealHand",
   /** Tentacool's Cowardice: return it to the hand, discarding the attached cards */
   ReturnSelfToHand: "returnSelfToHand",
+  // ---------------------------------------------------------------- Team Rocket
+  /** "When you play <it> from your hand" (Summon Minions, Sneak Attack, Reel In): a pending power choice, keyed by power name */
+  OnPlayFromHand: "onPlayFromHand",
+  /** Dark Vileplume's Hay Fever: no Trainer cards can be played (both players) */
+  PreventTrainers: "preventTrainers",
+  /** Dark Muk's Sticky Goo: while it is your Active, the opponent's Active pays `amount` more to retreat */
+  IncreaseRetreatCost: "increaseRetreatCost",
+  /** Dark Dugtrio's Sinkhole: when the opponent's Active retreats, they flip; tails = `amount` damage to it */
+  RetreatDamageFlip: "retreatDamageFlip",
+  /** Dark Gyarados' Final Beam: Knocked Out by an attack → flip; heads = `amount` × Water Energy to the attacker (W/R) */
+  KnockOutRetaliation: "knockOutRetaliation",
+  /** Dark Primeape's Frenzy: damage it does while Confused (even to itself) is `amount` more */
+  ConfusedDamageBonus: "confusedDamageBonus",
+  /** Rattata's Trickery: once per turn, switch 1 of your Prizes with the top card of your deck */
+  SwapPrize: "swapPrize",
+  /** Dark Dragonair's Evolutionary Light: once per turn, an Evolution card from the deck into the hand */
+  SearchEvolution: "searchEvolution",
+  /** Dark Kadabra's Matter Exchange: once per turn, discard a card from the hand to draw a card */
+  DiscardToDraw: "discardToDraw",
+  /** Charmander's Gather Fire: once per turn, move an `energyType` Energy card from another own Pokémon to it */
+  GatherEnergy: "gatherEnergy",
+  /** Drowzee / Dark Gloom: once per turn, flip; heads = Defending Pokémon gets `status`, tails = your Active does */
+  StatusFlip: "statusFlip",
 } as const;
 export type PokemonPowerType = (typeof PokemonPowerType)[keyof typeof PokemonPowerType];
 

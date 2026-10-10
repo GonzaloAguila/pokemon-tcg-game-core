@@ -287,9 +287,11 @@ export {
   baseSetCards,
   jungleCards,
   fossilCards,
+  teamRocketCards,
   getBaseSetImageUrl,
   getJungleImageUrl,
   getFossilImageUrl,
+  getTeamRocketImageUrl,
   getCardImageUrl as getCatalogImageUrl,
   // Set registry: iterate these instead of hard-coding the sets
   CARD_SETS,

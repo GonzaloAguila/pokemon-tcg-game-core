@@ -46,7 +46,34 @@ export type AttackEffect = {
     onTails?: StatusCondition | "damage" | "protection" | "preventRetreat";
     /** Flip until tails (Stone Barrage): `count` is ignored; the attack's coins are a run ending in the first tails */
     untilTails?: boolean;
+    /** The effect happens only with at least this many matching coins (Petal Whirlwind: 2 or more heads) */
+    minHits?: number;
   };
+  /** The attack's own coins are flipped by the opponent (Knock Down, Bench Manipulation): see AttackCoinPlan.attackFlipper */
+  coinFlippedBy?: "opponent";
+  /**
+   * Surprise Thunder: needs the first coin heads; then the second coin picks the amount
+   * (heads → `heads`, tails → `tails`). The attack always flips 2 coins (the second is ignored after a tails).
+   */
+  secondCoinAmounts?: { heads: number; tails: number };
+  /** Coin count = Energy cards attached that provide this type (Continuous Fireball: Fire) */
+  coinCountFromEnergyType?: EnergyType;
+  /** BenchDamage: only the Benched Pokémon with one of these names (Mass Explosion) */
+  benchNameFilter?: string[];
+  /** Names for BonusDamage "namedOnBench" / "namedInPlay" and DamageNamedInPlay (Magnetism, Mass Explosion) */
+  names?: string[];
+  /** SelfSwitch: "you may switch" — the attacker may decline (Teleport Blast), asked as a pending attack choice */
+  optional?: boolean;
+  /** ChooseTargetDamage: who can be chosen ("opponentAny": Active or Benched; "opponentBench") */
+  targetScope?: "opponentAny" | "opponentBench";
+  /** ChooseTargetDamage: apply Weakness and Resistance (Drag Off). Default: don't (Stare, Flitter...) */
+  applyWeaknessResistance?: boolean;
+  /** ChooseTargetDamage: the chosen Benched Pokémon is first switched with the Defending Pokémon (Drag Off) */
+  switchWithDefender?: boolean;
+  /** ChooseTargetDamage: the chosen Pokémon's Pokémon Power stops until the end of the opponent's next turn (Stare) */
+  suppressTargetPower?: boolean;
+  /** ChooseTargetDamage: only if the attacker first discards an attached Energy card of this type, which it may decline (Flame Pillar) */
+  optionalEnergyDiscard?: EnergyType;
   status?: StatusCondition;
   poisonDamage?: number;
   amount?: number;
@@ -63,7 +90,7 @@ export type AttackEffect = {
   /** Skip this effect entirely if the defender is Colorless */
   skipIfColorless?: boolean;
   /** For BonusDamage: source of the multiplier count */
-  bonusDamageSource?: "benchCount" | "namedPokemon";
+  bonusDamageSource?: "benchCount" | "namedPokemon" | "namedOnBench" | "namedInPlay";
   /** For BonusDamage with namedPokemon: the Pokemon name to count (e.g., "Nidoking") */
   bonusDamageNameMatch?: string;
   /** For CoinFlipDamage: derive coin count from attached energy count instead of fixed */
@@ -136,6 +163,10 @@ export type PokemonPower = {
   becomesEnergyValue?: number;
   /** Once per turn (Step In, Curse): marks usedPowersThisTurn when used */
   oncePerTurn?: boolean;
+  /** Amount used by the power (Sticky Goo: extra retreat cost; Sinkhole / Frenzy: damage; Final Beam: damage per Water Energy) */
+  amount?: number;
+  /** StatusFlip powers (Long-Distance Hypnosis: Asleep, Pollen Stench: Confused) */
+  status?: StatusCondition;
 };
 
 export type CardBase = {
@@ -177,6 +208,10 @@ export type EnergyCard = CardBase & {
   kind: "energy";
   energyType: EnergyType;
   isBasic: boolean;
+  /** Energy units it provides (default: Double Colorless 2, everything else 1; see getEnergyValue) */
+  provides?: number;
+  /** Rainbow Energy: while in play it counts as every type of basic Energy (see energyProvidesType) */
+  providesAllTypes?: boolean;
 };
 
 export type TrainerCard = CardBase & {
@@ -191,6 +226,8 @@ export type TrainerCard = CardBase & {
    * may be discarded from play during its owner's turn (canDiscardFromPlay).
    */
   playsAsBasic?: { hp: number };
+  /** Printed Trainer subtype, for display ("Rocket's Secret Machine"); no rules attached */
+  subtype?: "Rocket's Secret Machine";
 };
 
 export type Card = PokemonCard | EnergyCard | TrainerCard;

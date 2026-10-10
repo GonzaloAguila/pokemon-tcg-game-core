@@ -12,10 +12,11 @@ import { CardSet } from "@/domain/constants";
 import { baseSetCards } from "./base-set";
 import { jungleCards } from "./jungle";
 import { fossilCards } from "./fossil";
-import { getBaseSetImageUrl, getJungleImageUrl, getFossilImageUrl, type CardImageInput } from "./image-urls";
+import { teamRocketCards } from "./team-rocket";
+import { getBaseSetImageUrl, getJungleImageUrl, getFossilImageUrl, getTeamRocketImageUrl, type CardImageInput } from "./image-urls";
 
 /** Stable slug of a set (also the prefix of its card ids). */
-export type CardSetId = "base-set" | "jungle" | "fossil";
+export type CardSetId = "base-set" | "jungle" | "fossil" | "team-rocket";
 
 export type CardSetInfo = {
   id: CardSetId;
@@ -60,6 +61,16 @@ export const CARD_SETS: readonly CardSetInfo[] = [
     totalCards: 62,
     cards: fossilCards,
     imageUrl: getFossilImageUrl,
+  },
+  {
+    id: "team-rocket",
+    name: CardSet.TeamRocket,
+    code: "TR",
+    releaseDate: "2000-04-24",
+    // 82 + the secret Dark Raichu (#83)
+    totalCards: 83,
+    cards: teamRocketCards,
+    imageUrl: getTeamRocketImageUrl,
   },
 ];
 

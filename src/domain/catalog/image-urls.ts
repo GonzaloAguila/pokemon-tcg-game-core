@@ -72,3 +72,9 @@ export const getFossilImageUrl = (card: CardImageInput): string => {
 
   return `https://pkmncards.com/wp-content/uploads/${slug}-fossil-fo-${card.number}.jpg`;
 };
+
+/**
+ * Generates the image URL for a Team Rocket card ("Rocket's Sneak Attack" → rockets-sneak-attack)
+ */
+export const getTeamRocketImageUrl = (card: CardImageInput): string =>
+  `https://pkmncards.com/wp-content/uploads/${toSlug(card.name)}-team-rocket-tr-${card.number}.jpg`;

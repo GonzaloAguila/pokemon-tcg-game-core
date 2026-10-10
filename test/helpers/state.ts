@@ -5,14 +5,14 @@
  * Perspective follows the engine: "player" is the side whose turn it is (the attacker
  * in executeAttack), "opponent" is the other side.
  */
-import { baseSetCards, jungleCards, fossilCards } from "@/domain/catalog";
+import { baseSetCards, jungleCards, fossilCards, teamRocketCards } from "@/domain/catalog";
 import type { Card } from "@/domain/cards";
 import { toInPlayCard } from "@/domain/cards";
 import { GamePhase, StatusCondition, EnergyType } from "@/domain/constants";
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { canUseAttack } from "@/lib/gameState";
 
-export type SetName = "base" | "jungle" | "fossil";
+export type SetName = "base" | "jungle" | "fossil" | "rocket";
 
 let uid = 0;
 
@@ -21,7 +21,8 @@ function findCatalogCard(name: string, set?: SetName): Card {
     set === "base" ? [baseSetCards]
     : set === "jungle" ? [jungleCards]
     : set === "fossil" ? [fossilCards]
-    : [baseSetCards, jungleCards, fossilCards];
+    : set === "rocket" ? [teamRocketCards]
+    : [baseSetCards, jungleCards, fossilCards, teamRocketCards];
   for (const pool of pools) {
     const found = pool.find((c) => c.name === name);
     if (found) return found;

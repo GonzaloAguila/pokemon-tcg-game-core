@@ -15,11 +15,12 @@ import { findCardBySetAndNumber } from "@/domain/decks";
 import { CardSet } from "@/domain/constants";
 
 describe("set registry", () => {
-  it("lists Base Set, Jungle and Fossil with their metadata", () => {
+  it("lists Base Set, Jungle, Fossil and Team Rocket with their metadata", () => {
     expect(CARD_SETS.map((s) => [s.id, s.name, s.code, s.releaseDate, s.totalCards])).toEqual([
       ["base-set", CardSet.BaseSet, "BS", "1999-01-09", 102],
       ["jungle", CardSet.Jungle, "JU", "1999-06-16", 64],
       ["fossil", CardSet.Fossil, "FO", "1999-10-10", 62],
+      ["team-rocket", CardSet.TeamRocket, "TR", "2000-04-24", 83],
     ]);
     expect(getSetById("base-set")?.cards).toBe(baseSetCards);
     expect(getSetById("jungle")?.cards).toHaveLength(48);

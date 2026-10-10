@@ -660,7 +660,18 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  * Trainer cards in the catalog that are intentionally NOT playable yet. Every other Trainer
  * in ALL_CARDS must have a TRAINER_EFFECTS entry (enforced by a test).
  */
-export const UNSUPPORTED_TRAINERS: readonly string[] = [];
+export const UNSUPPORTED_TRAINERS: readonly string[] = [
+  // Team Rocket: implemented in the next commits of Stage D
+  "Here Comes Team Rocket!",
+  "Rocket's Sneak Attack",
+  "The Boss's Way",
+  "Challenge!",
+  "Digger",
+  "Imposter Oak's Revenge",
+  "Nightly Garbage Run",
+  "Goop Gas Attack",
+  "Sleep!",
+];
 
 // ============================================================================
 // Fossil
