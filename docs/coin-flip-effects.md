@@ -14,7 +14,7 @@ Consumers reviewed (2026-10-10):
 - **FE** — `pokemon-tcg/src/features/game/hooks/useCoinFlipHandler.ts` (attack and Metronome
   sections) + coin count in `useAttackFlow.ts`
 - **API** — `pokemon-tcg-api/src/socket/rooms.ts` (`applyCoinFlipEffects` + the `attack` case)
-- **AI** — `src/domain/ai/executor.ts` (`executeOpponentAttack`), now migrated
+- **AI** — `src/domain/ai/executor.ts` (`executeOpponentAttack`), migrated to the engine path in this branch
 
 ## Inventory (catalog data, Base Set + Jungle)
 

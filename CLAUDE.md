@@ -41,6 +41,7 @@ Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ER
 - Every action is `(state, ...args) => newState`. Never mutate the input — copy arrays before `splice`/`push`.
 - Validate with `canX()` before `applyX()`. Note the engine entry points themselves do not re-check turn/phase/legality; callers must.
 - Card behavior is data in the catalog (`attacks[].effects[]` with `AttackEffectType`); the interpreter is the effects loop in `executeAttack`.
+- Coins are flipped by the caller (the server is authoritative in multiplayer) and passed in: `resolveConfusionFlip(state, heads)`, `executeAttack(state, i, { coinResults })` with `getAttackCoinFlipCount(state, i)` coins (Metronome: pass the copied `Attack`). All coin effects of one attack share the same coins; coin damage is part of the base damage (before weakness/resistance).
 - Multi-step effects set a pending flag (`pendingForceSwitch`, `pendingSelfSwitch`, `pendingDeckSearch`, `pendingBenchDamageSelection`, `pendingTypeShift`, `pendingPeek`); `endTurn()` must refuse to advance while one is set, the UI shows a modal, a resolver clears it, and the AI executor must auto-resolve it.
 - Log meaningful actions to `state.events` via `createGameEvent()`. Event text is Spanish; coin results use `[coin:heads]` / `[coin:tails]` tokens.
 - Card IDs: `{set-slug}-{3-digit-number}-{slug-name}` (`base-set-004-charizard`, `jungle-007-nidoqueen`). Source data: api.pokemontcg.io (`base1`, `base2` = Jungle, `base3` = Fossil, `base5` = Team Rocket).
@@ -60,7 +61,8 @@ Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ER
 Fixed in 0.5.0: bench KOs (`processBenchKnockouts`), endTurn mutation, Flail double count, Leer duration, Poison cleared on bench, Poison no longer blocks powers, Dream Eater / Karate Chop, confusion = 20 (`CONFUSION_SELF_DAMAGE`, `resolveConfusionFlip`), `buildDeckFromEntries` by set, double prize on attacker self-KO, AI re-attacking after a failed confused attack.
 
 Still open:
-- Coin-flip attack effects are still skipped in `executeAttack` (`if (effect.coinFlip) continue;`) and re-implemented in the frontend (`useCoinFlipHandler.ts`), `ai/executor.ts` and the API (`socket/rooms.ts`). Next consolidation target (confusion is already engine-owned).
+- Coin-flip attack effects are engine-owned (`executeAttack`/`executeMetronome` with `{ coinResults }`, `getAttackCoinFlipCount`; the AI executor uses it), but the frontend (`useCoinFlipHandler.ts`) and the API (`socket/rooms.ts` `applyCoinFlipEffects`) still call the legacy positional form (which skips coin effects) and re-implement them with rule bugs — see `docs/coin-flip-effects.md`. They must migrate; then the positional form can be removed.
+- Sand-attack/Smokescreen (`mustFlipToAttack`) is only enforced by the AI executor; Conversion 1/2 is resolved by consumers. Both are candidates for engine resolvers.
 - `findCardByName` (lib/gameState.ts, domain/match/helpers.ts) searches Base Set only.
 - RNG is `Math.random` (shuffle, checkups, IDs, AI flips) — not seedable. `state.events` grows unbounded.
 - AI is greedy: never retreats, never uses powers, only plays Bill/Potion/PlusPower. `strategy.ts` has `console.log`s.
