@@ -127,6 +127,7 @@ export {
   startPlayingPhase,
   advanceToSetup,
   knockOutPlayerActive,
+  endGameIfNoPokemonLeft,
 } from "./lib/gameState";
 
 // Validation
@@ -235,6 +236,23 @@ export {
   decideOpponentSetup,
   executeAIAction,
 } from "./domain/ai";
+
+// =============================================================================
+// Simulation (headless bot games; used by scripts/simulate.ts and tests)
+// =============================================================================
+
+export type { GameOptions, GameOutcome, SideId, Policy, ViewAction, Rng, PolicyName, PolicyPair, BatchResult, BatchFailure } from "./domain/simulation";
+export {
+  playAIGame,
+  runBatch,
+  policyPair,
+  SimulationFailure,
+  randomLegalPolicy,
+  createGreedyPolicy,
+  buildRandomDeck,
+  checkInvariants,
+  mulberry32,
+} from "./domain/simulation";
 
 // =============================================================================
 // Card Catalog
