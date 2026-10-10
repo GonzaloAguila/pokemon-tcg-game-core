@@ -17,6 +17,8 @@ export type {
   GameEvent,
 } from "./domain/match";
 
+export type { ExecuteAttackOptions } from "./lib/gameState";
+
 export type {
   Card,
   PokemonCard,
@@ -79,6 +81,7 @@ export {
 export {
   executeAttack,
   executeMetronome,
+  getAttackCoinFlipCount,
   resolveConfusionFlip,
   endTurn,
   executeRetreat,

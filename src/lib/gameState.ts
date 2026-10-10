@@ -11,6 +11,7 @@ import {
   AttackTarget,
   BenchDamageTarget,
   PokemonPowerType,
+  type CoinFlipResult,
 } from "@/domain/constants";
 import { decks, findCardBySetAndNumber, type Deck, type DeckEntry } from "@/domain/decks";
 import { getDamageReaction, getRetreatCostReduction, hasBlockingStatus, hasStatusImmunity, isDamageBlocked } from "@/domain/powers";
@@ -2220,8 +2221,10 @@ export function getAttackDiscardRequirement(pokemonInPlay: PokemonInPlay, attack
  * - Numeric damage is the printed value.
  * - "Nx" damage starts at 0: the multiplier is always described by an effect —
  *   `DamagePerCounter` (Self) for Flail ("10 × each damage counter on Magikarp"),
- *   or a coin flip (`CoinFlipDamage`: Bonemerang, Double Kick, Fury Swipes) that the
- *   coin-flip handler applies after executeAttack.
+ *   or a coin flip (`CoinFlipDamage`: Bonemerang, Double Kick, Fury Swipes) that
+ *   executeAttack resolves when the caller passes `coinResults`.
+ * - Effects that still carry `coinFlip` are ignored here; a `CoinFlipDamage` without
+ *   `coinFlip` (already resolved, see resolveCoinFlipEffects) adds its amount.
  * - "N+" / "N-" start at N and are adjusted by the non-coin-flip effects below.
  *
  * @param attackerBench - bench of the attacking side (BonusDamage "benchCount"/"namedPokemon")
@@ -2295,6 +2298,12 @@ export function calculateBaseDamage(
       baseDamage = Math.ceil(halfHP / 10) * 10;
     }
 
+    // CoinFlipDamage already resolved by resolveCoinFlipEffects (no `coinFlip` left):
+    // the amount is the total coin damage (amount × matching coins)
+    if (effect.type === AttackEffectType.CoinFlipDamage && effect.amount) {
+      baseDamage += effect.amount;
+    }
+
     // ExtraEnergy: bonus damage per extra energy of a type beyond attack cost
     if (effect.type === AttackEffectType.ExtraEnergy && effect.extraDamagePerEnergy) {
       const energyType = effect.extraEnergyType;
@@ -2315,23 +2324,169 @@ export function calculateBaseDamage(
   return { damage: Math.max(0, baseDamage), description };
 }
 
+// ============================================================================
+// COIN-FLIP ATTACK EFFECTS
+// ============================================================================
+
+/** Options for executeAttack / executeMetronome (object form). */
+export type ExecuteAttackOptions = {
+  /** Don't call endTurn after the attack (the caller will). */
+  skipEndTurn?: boolean;
+  /** After a KO, let the defending side choose its new active instead of auto-promoting. */
+  skipDefenderPromotion?: boolean;
+  /** Energy cards chosen to pay a discard cost (Fire Spin...). */
+  selectedEnergyIds?: string[];
+  /**
+   * The attacker's coin flips, flipped by the caller (UI or server), in order.
+   * Must have exactly `getAttackCoinFlipCount(state, attackIndex)` entries — omit it
+   * (or pass []) for attacks without coins. The engine resolves every coin effect.
+   */
+  coinResults?: CoinFlipResult[];
+};
+
+/** Coins needed by an attack used by `attacker` (shared by all its coin effects). */
+function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack): number {
+  let count = 0;
+  for (const effect of attack.effects ?? []) {
+    if (!effect.coinFlip) continue;
+    // Big Eggsplosion: one coin per Energy attached (Double Colorless provides 2)
+    const n = effect.coinCountFromEnergy
+      ? getTotalEnergyValue(attacker.attachedEnergy)
+      : effect.coinFlip.count;
+    count = Math.max(count, n);
+  }
+  return count;
+}
 
 /**
- * Ejecuta un ataque del Pokémon activo del jugador contra el Pokémon activo del oponente
- * @param gameState - Estado actual del juego
- * @param attackIndex - Índice del ataque a usar
- * @param skipEndTurn - Si es true, no termina el turno automáticamente (usado para ataques con coin flip)
- * @param skipDefenderPromotion - Si es true, no promueve al defensor después de un KO
- * @param selectedEnergyIds - IDs de las energías seleccionadas para descartar (si el ataque lo requiere)
- * @returns Nuevo estado del juego con el daño aplicado
+ * How many coins the side whose turn it is ("player") must flip before using an attack:
+ * pass the result to executeAttack / executeMetronome as `coinResults`.
+ *
+ * @param attack - index of the active Pokémon's attack, or an Attack object for an attack
+ *   used through Metronome (the copied attack; Energy-based counts use the Metronome user).
+ * @returns 0 when the attack has no coin effects (or there is no active Pokémon/attack).
  */
+export function getAttackCoinFlipCount(state: GameState, attack: number | Attack): number {
+  const attacker = state.playerActivePokemon;
+  if (!attacker || attacker.pokemon.kind !== CardKind.Pokemon) return 0;
+  const resolved = typeof attack === "number" ? attacker.pokemon.attacks[attack] : attack;
+  if (!resolved) return 0;
+  return coinFlipCountFor(attacker, resolved);
+}
+
+const NON_STATUS_COIN_OUTCOMES = ["damage", "protection", "preventRetreat"];
+
+type CoinResolution = {
+  /** The attack's effects with every coin effect turned into a plain effect (or dropped). */
+  effects: AttackEffect[];
+  /** Coin effects that did not happen (tails on Scrunch...), for log messages. */
+  missed: AttackEffect[];
+  /** The attack has coin damage (CoinFlipDamage / coin BonusDamage). */
+  hasCoinDamage: boolean;
+};
+
+/**
+ * Turn coin effects into the equivalent non-coin effects for these flips, so the regular
+ * effects pipeline in executeAttack applies them (one damage value before weakness and
+ * resistance, KO checks, protection, immunity...). All coin effects of an attack share the
+ * same coins (Thrash: one coin decides +10 or 10 to itself).
+ *
+ * - An effect "happens" once per matching coin: heads if `onHeads` is set, tails if
+ *   `onTails` is set (the value only matters for ApplyStatus, where it is the status).
+ * - CoinFlipDamage / coin BonusDamage → CoinFlipDamage with amount × matching coins
+ *   (calculateBaseDamage adds it to the base damage).
+ * - SelfDamage → amount × matching coins. ApplyStatus → the status for the coin side.
+ * - Protection, PreventRetreat, Draw (Pay Day) and anything else → kept once if any coin matches.
+ */
+function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipResult[]): CoinResolution {
+  const heads = coins.filter((c) => c === "heads").length;
+  const tails = coins.length - heads;
+  const resolved: AttackEffect[] = [];
+  const missed: AttackEffect[] = [];
+  let hasCoinDamage = false;
+
+  for (const effect of effects) {
+    if (!effect.coinFlip) {
+      resolved.push(effect);
+      continue;
+    }
+    const { coinFlip, coinCountFromEnergy: _fromEnergy, ...plain } = effect;
+    const hits = (coinFlip.onHeads ? heads : 0) + (coinFlip.onTails ? tails : 0);
+
+    if (effect.type === AttackEffectType.CoinFlipDamage || effect.type === AttackEffectType.BonusDamage) {
+      hasCoinDamage = true;
+      resolved.push({ ...plain, type: AttackEffectType.CoinFlipDamage, target: AttackTarget.Defender, amount: (effect.amount ?? 0) * hits });
+      continue;
+    }
+
+    if (effect.type === AttackEffectType.ApplyStatus) {
+      const isStatus = (v: string | undefined): v is StatusCondition => !!v && !NON_STATUS_COIN_OUTCOMES.includes(v);
+      const status =
+        heads > 0 && isStatus(coinFlip.onHeads) ? coinFlip.onHeads
+        : tails > 0 && isStatus(coinFlip.onTails) ? coinFlip.onTails
+        : undefined;
+      if (status) resolved.push({ ...plain, status });
+      else missed.push(effect);
+      continue;
+    }
+
+    if (hits === 0) {
+      missed.push(effect);
+      continue;
+    }
+    if (effect.type === AttackEffectType.SelfDamage) {
+      resolved.push({ ...plain, amount: (effect.amount ?? 0) * hits });
+    } else {
+      resolved.push(plain);
+    }
+  }
+
+  return { effects: resolved, missed, hasCoinDamage };
+}
+
+
+/**
+ * Uses an attack of the active Pokémon of the side whose turn it is ("player") against the
+ * opponent's active Pokémon, resolving damage, effects, knockouts and (by default) endTurn.
+ *
+ * Two call forms:
+ *
+ * - **Options object (engine-owned coins)**: `executeAttack(state, i, { coinResults, ... })`.
+ *   The caller flips `getAttackCoinFlipCount(state, i)` coins and passes them; the engine
+ *   resolves every coin effect (coin damage before weakness/resistance, statuses, self
+ *   damage, protection, prevent retreat, Pay Day...). Throws if the number of coins doesn't
+ *   match (a caller bug: it would otherwise silently change the outcome).
+ * - **Legacy positional booleans** `(state, i, skipEndTurn?, skipDefenderPromotion?, selectedEnergyIds?)`:
+ *   unchanged behaviour — effects with `coinFlip` are SKIPPED and the caller applies them.
+ *   Deprecated; kept so consumers can migrate one at a time.
+ *
+ * @example
+ * const coins = Array.from({ length: getAttackCoinFlipCount(state, 1) }, flipCoin);
+ * const next = executeAttack(state, 1, { coinResults: coins });
+ */
+export function executeAttack(gameState: GameState, attackIndex: number, options?: ExecuteAttackOptions): GameState;
+/** @deprecated Coin effects are skipped in this form; pass `{ coinResults }` instead. */
 export function executeAttack(
   gameState: GameState,
   attackIndex: number,
-  skipEndTurn: boolean = false,
-  skipDefenderPromotion: boolean = false,
+  skipEndTurn?: boolean,
+  skipDefenderPromotion?: boolean,
   selectedEnergyIds?: string[]
+): GameState;
+export function executeAttack(
+  gameState: GameState,
+  attackIndex: number,
+  skipEndTurnOrOptions: boolean | ExecuteAttackOptions = false,
+  skipDefenderPromotionArg: boolean = false,
+  selectedEnergyIdsArg?: string[]
 ): GameState {
+  const options = typeof skipEndTurnOrOptions === "object" && skipEndTurnOrOptions !== null
+    ? skipEndTurnOrOptions
+    : undefined;
+  const skipEndTurn = options ? !!options.skipEndTurn : !!skipEndTurnOrOptions;
+  const skipDefenderPromotion = options ? !!options.skipDefenderPromotion : skipDefenderPromotionArg;
+  const selectedEnergyIds = options ? options.selectedEnergyIds : selectedEnergyIdsArg;
+
   const attacker = gameState.playerActivePokemon;
   const defender = gameState.opponentActivePokemon;
 
@@ -2349,8 +2504,22 @@ export function executeAttack(
     return gameState;
   }
 
-  const attack = attacker.pokemon.attacks[attackIndex];
-  if (!attack) return gameState;
+  const printedAttack = attacker.pokemon.attacks[attackIndex];
+  if (!printedAttack) return gameState;
+
+  // Coin flips: in the options form the engine resolves coin effects from the caller's coins
+  const coinsNeeded = coinFlipCountFor(attacker, printedAttack);
+  const coinResults = options ? (options.coinResults ?? []) : undefined;
+  if (coinResults && coinResults.length !== coinsNeeded) {
+    throw new Error(
+      `executeAttack: "${printedAttack.name}" needs ${coinsNeeded} coin result(s) ` +
+      `(getAttackCoinFlipCount), got ${coinResults.length}`
+    );
+  }
+  const coinResolution = coinResults && coinsNeeded > 0
+    ? resolveCoinFlipEffects(printedAttack.effects ?? [], coinResults)
+    : null;
+  const attack: Attack = coinResolution ? { ...printedAttack, effects: coinResolution.effects } : printedAttack;
 
   // RequireStatus (Dream Eater): the attack can't be used unless the defender has the status
   if (!meetsAttackRequirements(attack, defender)) {
@@ -2483,6 +2652,12 @@ export function executeAttack(
   // Crear eventos
   const events: GameEvent[] = [...gameState.events];
 
+  // Coin results first, so the log reads: coins → attack → effects
+  if (coinResolution && coinResults) {
+    const tokens = coinResults.map((r) => `[coin:${r}]`).join(" ");
+    events.push(createGameEvent(coinResults.length === 1 ? `Moneda: ${tokens}` : `Monedas: ${tokens}`, "info"));
+  }
+
   // Add deferred messages for next-turn effects (computed before events array was created)
   if (bonusDamageMessage) {
     events.push(createGameEvent(bonusDamageMessage, "action"));
@@ -2525,9 +2700,11 @@ export function executeAttack(
     } else {
       damageMessage = ` e hizo ${effectiveDamage} de daño${damageMultiplierDescription}`;
     }
+  } else if (coinResolution?.hasCoinDamage && baseDamage === 0) {
+    // Coin damage attack with no matching coins (Twineedle tails/tails, Leek Slap tails)
+    damageMessage = " pero no hizo daño";
   } else if (damageMultiplierDescription && baseDamage === 0) {
     // Ataque por contadores propios (Azote/Flail) sin contadores: indicarlo.
-    // Coin-flip "Nx" attacks (Bonemerang...) get their damage message from the coin-flip handler.
     damageMessage = " pero no hizo daño (0 contadores)";
   } else if (hasResistance && baseDamage > 0) {
     // El ataque tenía daño pero fue reducido a 0 por resistencia
@@ -2543,6 +2720,11 @@ export function executeAttack(
       "action"
     )
   );
+
+  // Coin protection that didn't happen (Scrunch, Stiffen, Withdraw, Agility on tails)
+  if (coinResolution?.missed.some((e) => e.type === AttackEffectType.Protection)) {
+    events.push(createGameEvent(`${attacker.pokemon.name} no logró protegerse`, "info"));
+  }
 
   // Verificar si el defensor fue noqueado
   const isKnockedOut = newDamage >= defenderHP;
@@ -3134,6 +3316,10 @@ export function executeAttack(
           confused: "confundido",
           poisoned: "envenenado",
         };
+        const statusMessage = (name: string, s: StatusCondition) =>
+          s === StatusCondition.CannotAttack
+            ? `¡${name} no podrá atacar durante el próximo turno!`
+            : `¡${name} está ${statusMessages[s] || s}!`;
 
         // Collect all statuses to apply (primary + additionalStatuses)
         const allStatuses = [status, ...(effect.additionalStatuses || [])];
@@ -3149,12 +3335,7 @@ export function executeAttack(
                 if (s === StatusCondition.Poisoned && effect.poisonDamage) {
                   newPlayerActive = { ...newPlayerActive, poisonDamage: effect.poisonDamage };
                 }
-                events.push(
-                  createGameEvent(
-                    `¡${newPlayerActive.pokemon.name} está ${statusMessages[s] || s}!`,
-                    "action"
-                  )
-                );
+                events.push(createGameEvent(statusMessage(newPlayerActive.pokemon.name, s), "action"));
               }
             }
           }
@@ -3169,17 +3350,23 @@ export function executeAttack(
                   "action"
                 )
               );
-            // Check StatusImmunity (Snorlax's Thick Skinned)
-            } else if (hasStatusImmunity(newOpponentActive)) {
-              const immunityPowerName = isPokemonCard(newOpponentActive.pokemon) ? newOpponentActive.pokemon.power?.name || "Piel Gruesa" : "Piel Gruesa";
-              events.push(
-                createGameEvent(
-                  `¡${newOpponentActive.pokemon.name} es inmune a estados alterados gracias a ${immunityPowerName}!`,
-                  "action"
-                )
-              );
             } else {
-              for (const s of allStatuses) {
+              // StatusImmunity (Snorlax's Thick Skinned) stops special conditions only;
+              // Leer's "can't attack" is not a special condition
+              let statusesToApply = allStatuses;
+              if (hasStatusImmunity(newOpponentActive)) {
+                statusesToApply = allStatuses.filter((s) => s === StatusCondition.CannotAttack);
+                const immunityPowerName = isPokemonCard(newOpponentActive.pokemon) ? newOpponentActive.pokemon.power?.name || "Piel Gruesa" : "Piel Gruesa";
+                if (statusesToApply.length < allStatuses.length) {
+                  events.push(
+                    createGameEvent(
+                      `¡${newOpponentActive.pokemon.name} es inmune a estados alterados gracias a ${immunityPowerName}!`,
+                      "action"
+                    )
+                  );
+                }
+              }
+              for (const s of statusesToApply) {
                 const before: PokemonInPlay = newOpponentActive;
                 newOpponentActive = applyStatusCondition(newOpponentActive, s, gameState.turnNumber);
                 if (newOpponentActive !== before) {
@@ -3187,12 +3374,7 @@ export function executeAttack(
                   if (s === StatusCondition.Poisoned && effect.poisonDamage) {
                     newOpponentActive = { ...newOpponentActive, poisonDamage: effect.poisonDamage };
                   }
-                  events.push(
-                    createGameEvent(
-                      `¡${newOpponentActive.pokemon.name} está ${statusMessages[s] || s}!`,
-                      "action"
-                    )
-                  );
+                  events.push(createGameEvent(statusMessage(newOpponentActive.pokemon.name, s), "action"));
                 }
               }
             }
@@ -3720,11 +3902,23 @@ export function resolveConfusionFlip(
  * @param gameState - Estado actual del juego
  * @param copiedAttack - El ataque copiado del Pokémon rival
  * @returns Nuevo estado del juego después de ejecutar el ataque copiado
+ *
+ * Same two call forms as executeAttack: `{ coinResults, skipEndTurn, skipDefenderPromotion }`
+ * (coins counted with `getAttackCoinFlipCount(state, copiedAttack)`, resolved by the engine)
+ * or the deprecated positional booleans (coin effects skipped).
  */
+export function executeMetronome(gameState: GameState, copiedAttack: Attack, options?: ExecuteAttackOptions): GameState;
+/** @deprecated Coin effects are skipped in this form; pass `{ coinResults }` instead. */
 export function executeMetronome(
   gameState: GameState,
   copiedAttack: Attack,
-  skipEndTurn: boolean = false,
+  skipEndTurn?: boolean,
+  skipDefenderPromotion?: boolean
+): GameState;
+export function executeMetronome(
+  gameState: GameState,
+  copiedAttack: Attack,
+  skipEndTurnOrOptions: boolean | ExecuteAttackOptions = false,
   skipDefenderPromotion: boolean = false
 ): GameState {
   const attacker = gameState.playerActivePokemon;
@@ -3780,7 +3974,10 @@ export function executeMetronome(
   };
 
   // Ejecutar el ataque copiado usando executeAttack
-  const resultState = executeAttack(tempState, 0, skipEndTurn, skipDefenderPromotion, undefined);
+  // Metronome never discards Energy, so selectedEnergyIds is dropped
+  const resultState = typeof skipEndTurnOrOptions === "object" && skipEndTurnOrOptions !== null
+    ? executeAttack(tempState, 0, { ...skipEndTurnOrOptions, selectedEnergyIds: undefined })
+    : executeAttack(tempState, 0, !!skipEndTurnOrOptions, skipDefenderPromotion, undefined);
 
   // Restaurar el Pokémon original (con sus ataques reales) después de ejecutar
   return {

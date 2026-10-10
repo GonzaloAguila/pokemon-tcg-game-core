@@ -18,6 +18,7 @@ export type {
   GameState,
   DrawCardResult,
 } from "./types";
+export type { ExecuteAttackOptions } from "@/lib/gameState";
 
 // Helpers
 export {
@@ -72,6 +73,8 @@ export {
   drawCard,
   endTurn,
   executeAttack,
+  executeMetronome,
+  getAttackCoinFlipCount,
   resolveConfusionFlip,
   executeRetreat,
   takePrize,
