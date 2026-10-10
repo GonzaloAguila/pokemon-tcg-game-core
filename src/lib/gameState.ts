@@ -1484,7 +1484,8 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
           );
         } else {
           const promoted = updatedState.opponentBench[opponentPromoteIndex]!;
-          updatedState.opponentBench.splice(opponentPromoteIndex, 1);
+          // Copy instead of splice: updatedState is a shallow copy, the array is the caller's
+          updatedState.opponentBench = updatedState.opponentBench.filter((_, i) => i !== opponentPromoteIndex);
           updatedState.opponentActivePokemon = promoted;
           events.push(
             createGameEvent(`${promoted.pokemon.name} pasa a ser el Pokémon activo del rival`, "info")
