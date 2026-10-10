@@ -4,8 +4,8 @@
  */
 
 import type { Card } from "@/domain/cards";
-import { baseSetCards, jungleCards } from "@/domain/catalog";
-import { CardSet } from "@/domain/constants";
+import { ALL_CARDS, findCardDefinition } from "@/domain/catalog";
+import type { CardSet } from "@/domain/constants";
 import type { Deck, DeckEntry } from "./types";
 
 export type ResolvedDeckEntry = {
@@ -19,16 +19,12 @@ export type GroupedDeck = {
   trainer: ResolvedDeckEntry[];
 };
 
-/** All cards across all sets (for findCardByNumber fallback) */
-const allCards = [...baseSetCards, ...jungleCards];
-
 /**
  * Finds a card by (set, number). Card numbers repeat across sets, so the set is
  * required to disambiguate; `undefined` means Base Set (DeckEntry backward compatibility).
  */
 export function findCardBySetAndNumber(set: CardSet | undefined, cardNumber: number): Card | undefined {
-  const searchPool = set === CardSet.Jungle ? jungleCards : baseSetCards;
-  return searchPool.find((c) => c.number === cardNumber);
+  return findCardDefinition(set, cardNumber);
 }
 
 /**
@@ -78,8 +74,9 @@ export function groupDeckByKind(entries: ResolvedDeckEntry[]): GroupedDeck {
 }
 
 /**
- * Finds a card in the catalog by its set number
+ * Finds a card in the catalog by its number, first match across all sets (registry order).
+ * Ambiguous across sets: prefer findCardBySetAndNumber.
  */
 export function findCardByNumber(cardNumber: number): Card | undefined {
-  return allCards.find((c) => c.number === cardNumber);
+  return ALL_CARDS.find((c) => c.number === cardNumber);
 }

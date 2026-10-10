@@ -183,11 +183,21 @@ export {
   getBaseSetImageUrl,
   getJungleImageUrl,
   getCardImageUrl as getCatalogImageUrl,
+  // Set registry: iterate these instead of hard-coding the sets
+  CARD_SETS,
+  ALL_CARDS,
+  getSetById,
+  getSet,
+  getSetForCard,
+  findCardById,
+  findCardDefinition,
+  findCardByName,
 } from "./domain/catalog";
+export type { CardSetId, CardSetInfo, CardImageInput } from "./domain/catalog";
 
 // =============================================================================
 // Decks
 // =============================================================================
 
 export type { DeckEntry, FeaturedPokemonRef, Deck, ResolvedDeckEntry, GroupedDeck } from "./domain/decks";
-export { decks, resolveDeck, findCardBySetAndNumber, getDeckById, getDeckEnergyTypes, getDeckCardCount, getDeckFeaturedPokemon, groupDeckByKind } from "./domain/decks";
+export { decks, resolveDeck, findCardBySetAndNumber, findCardByNumber, getDeckById, getDeckEnergyTypes, getDeckCardCount, getDeckFeaturedPokemon, groupDeckByKind } from "./domain/decks";

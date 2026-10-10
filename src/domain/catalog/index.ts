@@ -1,7 +1,20 @@
 /**
- * Card catalog - Card data and image helpers
+ * Card catalog - Card data, set registry and image helpers
  */
 
 export { baseSetCards } from "./base-set";
 export { jungleCards } from "./jungle";
-export { getBaseSetImageUrl, getJungleImageUrl, getCardImageUrl } from "./image-urls";
+export { getBaseSetImageUrl, getJungleImageUrl } from "./image-urls";
+export type { CardImageInput } from "./image-urls";
+export {
+  CARD_SETS,
+  ALL_CARDS,
+  getSetById,
+  getSet,
+  getSetForCard,
+  findCardById,
+  findCardDefinition,
+  findCardByName,
+  getCardImageUrl,
+} from "./sets";
+export type { CardSetId, CardSetInfo } from "./sets";

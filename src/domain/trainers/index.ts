@@ -11,12 +11,10 @@ import {
   clearAllStatusConditions,
   shuffle,
 } from "@/lib/gameState";
-import { baseSetCards, jungleCards } from "@/domain/catalog";
+import { ALL_CARDS } from "@/domain/catalog";
 import { isBasicEnergy, isPokemonCard } from "@/domain/cards";
 import { GamePhase, CardKind, PokemonStage } from "@/domain/constants";
 
-// Combined card catalog (all sets) for evolution chain lookups
-const allCards = [...baseSetCards, ...jungleCards];
 
 // ============================================================================
 // VALIDATION
@@ -1444,7 +1442,7 @@ export function canPlayPokemonBreeder(
     console.log("[Breeder] stage2.evolvesFrom is missing");
     return false;
   }
-  const stage1InCatalog = allCards.find(
+  const stage1InCatalog = ALL_CARDS.find(
     (c) => c.kind === CardKind.Pokemon && c.name === stage2.evolvesFrom
   );
   if (!stage1InCatalog || stage1InCatalog.kind !== CardKind.Pokemon) {

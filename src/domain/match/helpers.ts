@@ -2,7 +2,6 @@
  * Match helper functions
  */
 
-import { baseSetCards } from "@/domain/catalog";
 import { shuffle as shuffleArray } from "../../shared/utils";
 import type { Card } from "@/domain/cards";
 import type { GameCard, GameEvent } from "./types";
@@ -27,12 +26,8 @@ export function createGameEvent(
   };
 }
 
-/**
- * Finds a card in the Base Set by name
- */
-export function findCardByName(name: string): Card | undefined {
-  return baseSetCards.find((card) => card.name === name);
-}
+/** Catalog card by name across all sets (see the set registry). */
+export { findCardByName } from "@/domain/catalog";
 
 /**
  * Creates a GameCard instance with unique ID

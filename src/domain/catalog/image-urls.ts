@@ -1,9 +1,13 @@
 /**
- * Card image URL helpers
+ * Card image URL helpers (pkmncards.com). `getCardImageUrl` (any set) lives in sets.ts.
  */
 
-import type { Card } from "@/domain/cards";
-import { CardSet } from "@/domain/constants";
+/** What an image URL needs from a card */
+export type CardImageInput = {
+  name: string;
+  number: number;
+  imageSetVersion?: "bs" | "b2";
+};
 
 /** Shared slug generation for card names */
 const toSlug = (name: string): string =>
@@ -21,11 +25,7 @@ const toSlug = (name: string): string =>
 /**
  * Generates the image URL for a Base Set card
  */
-export const getBaseSetImageUrl = (card: {
-  name: string;
-  number: number;
-  imageSetVersion?: "bs" | "b2";
-}): string => {
+export const getBaseSetImageUrl = (card: CardImageInput): string => {
   let slug = toSlug(card.name);
 
   // Special cases for slug mismatches
@@ -45,10 +45,7 @@ export const getBaseSetImageUrl = (card: {
 /**
  * Generates the image URL for a Jungle card
  */
-export const getJungleImageUrl = (card: {
-  name: string;
-  number: number;
-}): string => {
+export const getJungleImageUrl = (card: CardImageInput): string => {
   let slug = toSlug(card.name);
 
   // Special cases for slug mismatches
@@ -61,11 +58,3 @@ export const getJungleImageUrl = (card: {
 
   return `https://pkmncards.com/wp-content/uploads/${slug}-jungle-ju-${card.number}.jpg`;
 };
-
-/**
- * Gets the image URL for any card (dispatches by set)
- */
-export function getCardImageUrl(card: Card & { id?: string }): string {
-  if (card.set === CardSet.Jungle) return getJungleImageUrl(card);
-  return getBaseSetImageUrl(card);
-}

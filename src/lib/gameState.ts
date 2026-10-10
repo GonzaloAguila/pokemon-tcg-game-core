@@ -1,4 +1,4 @@
-import { baseSetCards, getCardImageUrl as getCatalogImageUrl } from "@/domain/catalog";
+import { getCardImageUrl as getCatalogImageUrl } from "@/domain/catalog";
 import type { Card, ProtectionType, EnergyType, Attack, PokemonCard, AttackEffect } from "@/domain/cards";
 import { isEnergyCard, isPokemonCard } from "@/domain/cards";
 import {
@@ -202,12 +202,8 @@ export function createGameEvent(
   };
 }
 
-/**
- * Busca una carta en el Base Set por nombre
- */
-export function findCardByName(name: string): Card | undefined {
-  return baseSetCards.find((card) => card.name === name);
-}
+/** Catalog card by name across all sets (see the set registry). */
+export { findCardByName } from "@/domain/catalog";
 
 /**
  * Mezcla un array usando el algoritmo Fisher-Yates
