@@ -9,6 +9,19 @@
  * | `ReorderDeckTop` | Prophecy (Hypno) | self | step 1: "player" / "opponent" (deck); step 2: new order "0".."n-1" of its top cards |
  * | `DiscardEnergyForMill` | Wildfire (Moltres) | self | 0..all attached Fire Energy cards |
  * | `RecoverFromDiscard` | Energy Conversion (Gastly), Scavenge (Slowpoke) | self | cards of the discard pile (up to `amount`) |
+ * | `SelfSwitch` + `optional` | Teleport Blast (Dark Alakazam) | self | 0–1 of your Benched Pokémon |
+ * | `ChooseTargetDamage` | Stare, Flitter, Dig Under, Coin Hurl (heads) | self | 1 of the opponent's Pokémon (Active or Benched): it takes `amount` |
+ * | `ChooseTargetDamage` + `switchWithDefender` | Drag Off (Dark Machoke) | self | 1 of the opponent's Benched Pokémon: switched in, then takes `amount` (W/R) |
+ * | `ChooseTargetDamage` + `optionalEnergyDiscard` | Flame Pillar (Dark Rapidash) | self | step 1: 0–1 Fire Energy card to discard; step 2 (if discarded): 1 of the opponent's Benched Pokémon |
+ * | `MoveDefenderEnergyToBench` | Magnetic Lines (Dark Magneton) | self | step 1: 1 basic Energy of the Defending Pokémon; step 2: 1 of the opponent's Benched Pokémon |
+ * | `MoveAllEnergyToBench` | Energy Bomb (Dark Electrode) | self | one step per attached Energy card (the first one each time): 1 of your Benched Pokémon |
+ * | `DiscardEnergyToDraw` | Third Eye (Dark Golduck) | self | step 1: 1 attached Energy card; step 2: how many cards to draw, "0".."3" |
+ * | `EvolveFromDeck` | Rapid Evolution (Magikarp) | self | 1 Gyarados / Dark Gyarados card of the deck |
+ * | `AttachEnergyFromDeck` | Afternoon Nap (Slowpoke) | self | 1 basic Psychic Energy card of the deck |
+ *
+ * Damage done by a choice (ChooseTargetDamage) is attack damage: PlusPower and Defender when the
+ * target is the Defending Pokémon, Kabuto Armor, protection / Invisible Wall, Strikes Back,
+ * Mirror Shell, Destiny Bond and Final Beam all apply (dealChosenTargetDamage).
  *
  * executeAttack sets `state.pendingAttackChoice` (a SelectionStep with `chooser`) when one of
  * these effects has something to choose; the turn can't end and no other action is allowed
@@ -19,12 +32,35 @@
  */
 
 import type { AttackEffect } from "@/domain/cards";
+import { isEnergyCard, isPokemonCard } from "@/domain/cards";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkSelection } from "@/domain/effects/validate";
-import { AttackEffectType, AttackTarget, CardKind } from "@/domain/constants";
+import { AttackEffectType, AttackTarget, CardKind, type CoinFlipResult } from "@/domain/constants";
+import {
+  applyDamageHalving,
+  getDamageReaction,
+  getEffectivePokemonCard,
+  getEffectiveHp,
+  getKnockOutRetaliation,
+  isDamageBlocked,
+} from "@/domain/powers";
+import { evolvePokemonInPlay, getEvolutionBlocker } from "@/domain/board";
 import { IllegalActionError } from "@/shared/errors";
 import type { GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
-import { checkKnockouts, clearStatusConditionsOnRetreat, createGameEvent, endTurn, energyCardLabel, energyProvidesType, getEnergyTypeInSpanish } from "./gameState";
+import {
+  checkKnockouts,
+  clearStatusConditionsOnRetreat,
+  createGameEvent,
+  drawCard,
+  endTurn,
+  energyCardLabel,
+  energyProvidesType,
+  getEnergyTypeInSpanish,
+  knockOutPlayerActive,
+  knockOutRetaliationDamage,
+  protectionBlocksDamage,
+  shuffle,
+} from "./gameState";
 
 /** What the attack left behind for its choices (captured when it resolved). */
 export type AttackChoiceContext = {
@@ -39,6 +75,8 @@ export type AttackChoiceContext = {
   defenderBlocksEffects: boolean;
   /** Ids of the cards in the attacker's discard pile before the attack (RecoverFromDiscard) */
   discardIdsBefore: string[];
+  /** Final Beam's coin (the attack's defender coin) when the Defending Pokémon is a Dark Gyarados */
+  finalBeamCoin?: CoinFlipResult;
 };
 
 /** Effects whose outcome is chosen by a player after the attack (see the table above). */
@@ -47,7 +85,15 @@ export function isAttackChoiceEffect(effect: AttackEffect): boolean {
     case AttackEffectType.ReorderDeckTop:
     case AttackEffectType.DiscardEnergyForMill:
     case AttackEffectType.RecoverFromDiscard:
+    case AttackEffectType.ChooseTargetDamage:
+    case AttackEffectType.MoveDefenderEnergyToBench:
+    case AttackEffectType.MoveAllEnergyToBench:
+    case AttackEffectType.DiscardEnergyToDraw:
+    case AttackEffectType.EvolveFromDeck:
+    case AttackEffectType.AttachEnergyFromDeck:
       return true;
+    case AttackEffectType.SelfSwitch:
+      return !!effect.optional;
     case AttackEffectType.Discard:
       return effect.target === AttackTarget.Defender;
     case AttackEffectType.ForceSwitch:
@@ -71,10 +117,164 @@ function defenderOf(state: GameState, context: AttackChoiceContext): PokemonInPl
 
 const energyLabel = (card: GameCard) => energyCardLabel(card);
 
+type Where = "Activo" | "Banca" | "Activo rival" | "Banca rival";
+const pokemonChoice = (p: PokemonInPlay, where: Where) => ({ id: p.pokemon.id, label: `${p.pokemon.name} (${where})` });
+
+/** The opponent's Pokémon a ChooseTargetDamage effect can hit. */
+function chooseTargets(state: GameState, effect: AttackEffect): { pokemon: PokemonInPlay; where: Where }[] {
+  const bench = state.opponentBench.map((pokemon) => ({ pokemon, where: "Banca rival" as const }));
+  if (effect.targetScope === "opponentBench") return bench;
+  return state.opponentActivePokemon ? [{ pokemon: state.opponentActivePokemon, where: "Activo rival" as const }, ...bench] : bench;
+}
+
 /** The question for one choice effect, or null when there is nothing to choose (skipped). */
-function stepFor(state: GameState, effect: AttackEffect, context: AttackChoiceContext, deck?: "player" | "opponent"): SelectionStep | null {
+function stepFor(
+  state: GameState,
+  effect: AttackEffect,
+  context: AttackChoiceContext,
+  deck?: "player" | "opponent",
+  picked?: string[]
+): SelectionStep | null {
   const title = context.attackName;
   switch (effect.type) {
+    case AttackEffectType.SelfSwitch: {
+      const attacker = attackerOf(state, context);
+      if (!attacker || state.playerBench.length === 0) return null;
+      return {
+        title,
+        description: `Puedes cambiar a ${attacker.pokemon.name} por 1 de tus Pokémon en la Banca`,
+        options: state.playerBench.map((p) => pokemonChoice(p, "Banca")),
+        maxSelections: 1,
+        minSelections: 0,
+        thumbnails: state.playerBench.map((p) => p.pokemon),
+        disableAutoSelect: true,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.ChooseTargetDamage: {
+      const attacker = attackerOf(state, context);
+      if (!attacker) return null;
+      if (effect.optionalEnergyDiscard && !picked) {
+        const type = effect.optionalEnergyDiscard;
+        const energies = attacker.attachedEnergy.filter((e) => energyProvidesType(e, type));
+        if (energies.length === 0) return null;
+        return {
+          title,
+          description: `Puedes descartar 1 Energía ${getEnergyTypeInSpanish(type)} de ${attacker.pokemon.name}: si lo haces, este ataque hace ${effect.amount ?? 0} de daño a 1 Pokémon en la Banca de tu rival`,
+          options: energies.map((e) => ({ id: e.id, label: energyLabel(e) })),
+          maxSelections: 1,
+          minSelections: 0,
+          thumbnails: energies,
+          disableAutoSelect: true,
+          chooser: "self",
+        };
+      }
+      const targets = chooseTargets(state, effect);
+      if (targets.length === 0) return null;
+      return {
+        title,
+        description: effect.switchWithDefender
+          ? `Elige el Pokémon de la Banca de tu rival que pasa a ser el Pokémon Defensor: recibe ${effect.amount ?? 0} de daño`
+          : `Elige 1 de los Pokémon de tu rival: recibe ${effect.amount ?? 0} de daño`,
+        options: targets.map(({ pokemon, where }) => pokemonChoice(pokemon, where)),
+        maxSelections: 1,
+        thumbnails: targets.map(({ pokemon }) => pokemon.pokemon),
+        disableAutoSelect: true,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.MoveDefenderEnergyToBench: {
+      const defender = defenderOf(state, context);
+      if (!defender || state.opponentBench.length === 0) return null;
+      if (!picked) {
+        const basics = defender.attachedEnergy.filter((e) => isEnergyCard(e) && e.isBasic);
+        if (basics.length === 0) return null;
+        return {
+          title,
+          description: `Elige 1 Energía básica de ${defender.pokemon.name} para moverla a un Pokémon en la Banca de tu rival`,
+          options: basics.map((e) => ({ id: e.id, label: energyLabel(e) })),
+          maxSelections: 1,
+          thumbnails: basics,
+          chooser: "self",
+        };
+      }
+      return {
+        title,
+        description: "Elige el Pokémon en la Banca de tu rival que recibe esa Energía",
+        options: state.opponentBench.map((p) => pokemonChoice(p, "Banca rival")),
+        maxSelections: 1,
+        thumbnails: state.opponentBench.map((p) => p.pokemon),
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.MoveAllEnergyToBench: {
+      const attacker = attackerOf(state, context);
+      const next = attacker?.attachedEnergy[0];
+      if (!attacker || !next || state.playerBench.length === 0) return null;
+      return {
+        title,
+        description: `¿A cuál de tus Pokémon en la Banca va ${energyLabel(next)}? (quedan ${attacker.attachedEnergy.length})`,
+        options: state.playerBench.map((p) => pokemonChoice(p, "Banca")),
+        maxSelections: 1,
+        thumbnails: state.playerBench.map((p) => p.pokemon),
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.DiscardEnergyToDraw: {
+      const attacker = attackerOf(state, context);
+      if (!attacker) return null;
+      if (!picked) {
+        const energies = attacker.attachedEnergy;
+        if (energies.length === 0) return null;
+        return {
+          title,
+          description: `Elige 1 carta de Energía de ${attacker.pokemon.name} para descartar y robar hasta ${effect.amount ?? 3} cartas`,
+          options: energies.map((e) => ({ id: e.id, label: energyLabel(e) })),
+          maxSelections: 1,
+          thumbnails: energies,
+          chooser: "self",
+        };
+      }
+      const most = Math.min(effect.amount ?? 3, state.playerDeck.length);
+      if (most === 0) return null;
+      return {
+        title,
+        description: `¿Cuántas cartas robas? (hasta ${most})`,
+        options: Array.from({ length: most + 1 }, (_, n) => ({ id: String(n), label: `${n} carta${n === 1 ? "" : "s"}` })),
+        maxSelections: 1,
+        disableAutoSelect: true,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.EvolveFromDeck: {
+      const attacker = attackerOf(state, context);
+      if (!attacker || getEvolutionBlocker(state)) return null;
+      const cards = state.playerDeck.filter(
+        (c) => isPokemonCard(c) && !!effect.searchPokemonNames?.includes(c.name) && c.evolvesFrom === attacker.pokemon.name
+      );
+      if (cards.length === 0) return null;
+      return {
+        title,
+        description: `Elige la carta de Evolución de tu mazo que pones sobre ${attacker.pokemon.name}`,
+        options: cards.map((c) => ({ id: c.id, label: c.name })),
+        maxSelections: 1,
+        cards,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.AttachEnergyFromDeck: {
+      const attacker = attackerOf(state, context);
+      const cards = state.playerDeck.filter((c) => isEnergyCard(c) && c.isBasic && c.energyType === effect.energyType);
+      if (!attacker || cards.length === 0) return null;
+      return {
+        title,
+        description: `Elige una carta de Energía ${getEnergyTypeInSpanish(effect.energyType ?? "")} de tu mazo para unirla a ${attacker.pokemon.name}`,
+        options: cards.map((c) => ({ id: c.id, label: energyLabel(c) })),
+        maxSelections: 1,
+        cards,
+        chooser: "self",
+      };
+    }
     case AttackEffectType.Discard: {
       const defender = defenderOf(state, context);
       const energies = defender?.attachedEnergy ?? [];
@@ -198,8 +398,123 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
   const { effect, context } = pending;
   const name = context.attackName;
   const log = (s: GameState, message: string): GameState => ({ ...s, events: [...s.events, createGameEvent(message, "action")] });
+  /** Same effect, a follow-up step after `picked` (null when there's nothing left to ask). */
+  const followUp = (s: GameState, picked: string[]): PendingAttackChoice | undefined => {
+    const step = stepFor(s, effect, context, undefined, picked);
+    return step ? { ...pending, picked, step } : undefined;
+  };
 
   switch (effect.type) {
+    case AttackEffectType.SelfSwitch: {
+      if (selection.length === 0) return { state: log(state, `${name}: no se cambió`) };
+      const oldActive = state.playerActivePokemon!;
+      const index = state.playerBench.findIndex((p) => p.pokemon.id === selection[0]);
+      const incoming = state.playerBench[index];
+      const toBench: PokemonInPlay = { ...clearStatusConditionsOnRetreat(oldActive), modifiedWeakness: undefined, modifiedResistance: undefined };
+      const next: GameState = { ...state, playerActivePokemon: incoming, playerBench: [...state.playerBench.filter((_, i) => i !== index), toBench] };
+      return { state: log(next, `${name}: ${oldActive.pokemon.name} se cambió con ${incoming.pokemon.name}`) };
+    }
+    case AttackEffectType.ChooseTargetDamage: {
+      if (effect.optionalEnergyDiscard && !pending.picked) {
+        if (selection.length === 0) return { state: log(state, `${name}: no se descartó Energía`) };
+        const attacker = state.playerActivePokemon!;
+        const discarded = attacker.attachedEnergy.filter((e) => selection.includes(e.id));
+        const next = log(
+          {
+            ...state,
+            playerActivePokemon: { ...attacker, attachedEnergy: attacker.attachedEnergy.filter((e) => !selection.includes(e.id)) },
+            playerDiscard: [...state.playerDiscard, ...discarded],
+          },
+          `${name}: descartó ${discarded.map(energyLabel).join(", ")}`
+        );
+        return { state: next, next: followUp(next, selection) };
+      }
+      let next = state;
+      if (effect.switchWithDefender) {
+        const oldActive = state.opponentActivePokemon!;
+        const index = state.opponentBench.findIndex((p) => p.pokemon.id === selection[0]);
+        const incoming = state.opponentBench[index];
+        const toBench: PokemonInPlay = { ...clearStatusConditionsOnRetreat(oldActive), modifiedWeakness: undefined, modifiedResistance: undefined };
+        next = log(
+          { ...state, opponentActivePokemon: incoming, opponentBench: [...state.opponentBench.filter((_, i) => i !== index), toBench] },
+          `${name}: ${incoming.pokemon.name} pasa a ser el Pokémon activo del rival`
+        );
+      }
+      return { state: dealChosenTargetDamage(next, selection[0], effect, context) };
+    }
+    case AttackEffectType.MoveDefenderEnergyToBench: {
+      if (!pending.picked) return { state, next: followUp(state, selection) };
+      const defender = state.opponentActivePokemon!;
+      const energy = defender.attachedEnergy.find((e) => e.id === pending.picked![0])!;
+      const next: GameState = {
+        ...state,
+        opponentActivePokemon: { ...defender, attachedEnergy: defender.attachedEnergy.filter((e) => e.id !== energy.id) },
+        opponentBench: state.opponentBench.map((p) => (p.pokemon.id === selection[0] ? { ...p, attachedEnergy: [...p.attachedEnergy, energy] } : p)),
+      };
+      const receiver = state.opponentBench.find((p) => p.pokemon.id === selection[0])!;
+      return { state: log(next, `${name}: ${energyLabel(energy)} pasó de ${defender.pokemon.name} a ${receiver.pokemon.name}`) };
+    }
+    case AttackEffectType.MoveAllEnergyToBench: {
+      const attacker = state.playerActivePokemon!;
+      const [energy, ...rest] = attacker.attachedEnergy;
+      const receiver = state.playerBench.find((p) => p.pokemon.id === selection[0])!;
+      const next = log(
+        {
+          ...state,
+          playerActivePokemon: { ...attacker, attachedEnergy: rest },
+          playerBench: state.playerBench.map((p) => (p.pokemon.id === receiver.pokemon.id ? { ...p, attachedEnergy: [...p.attachedEnergy, energy] } : p)),
+        },
+        `${name}: ${energyLabel(energy)} pasó a ${receiver.pokemon.name}`
+      );
+      const step = stepFor(next, effect, context);
+      return { state: next, next: step ? { ...pending, step } : undefined };
+    }
+    case AttackEffectType.DiscardEnergyToDraw: {
+      if (!pending.picked) {
+        const attacker = state.playerActivePokemon!;
+        const discarded = attacker.attachedEnergy.filter((e) => selection.includes(e.id));
+        const next = log(
+          {
+            ...state,
+            playerActivePokemon: { ...attacker, attachedEnergy: attacker.attachedEnergy.filter((e) => !selection.includes(e.id)) },
+            playerDiscard: [...state.playerDiscard, ...discarded],
+          },
+          `${name}: descartó ${discarded.map(energyLabel).join(", ")}`
+        );
+        return { state: next, next: followUp(next, selection) };
+      }
+      let deck = state.playerDeck;
+      let hand = state.playerHand;
+      const count = Number(selection[0]);
+      for (let i = 0; i < count; i++) {
+        const drawn = drawCard(deck, hand);
+        if (!drawn.success) break;
+        deck = drawn.newDeck;
+        hand = drawn.newHand;
+      }
+      return { state: log({ ...state, playerDeck: deck, playerHand: hand }, `${name}: robó ${count} carta${count === 1 ? "" : "s"}`) };
+    }
+    case AttackEffectType.EvolveFromDeck: {
+      const attacker = state.playerActivePokemon!;
+      const card = state.playerDeck.find((c) => c.id === selection[0])!;
+      const evolved = evolvePokemonInPlay(attacker, card, state.turnNumber);
+      const next: GameState = {
+        ...state,
+        playerActivePokemon: evolved,
+        playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== card.id)),
+      };
+      return { state: log(next, `${name}: ${attacker.pokemon.name} evolucionó a ${card.name}. Se mezcló el mazo`) };
+    }
+    case AttackEffectType.AttachEnergyFromDeck: {
+      const attacker = state.playerActivePokemon!;
+      const card = state.playerDeck.find((c) => c.id === selection[0])!;
+      const next: GameState = {
+        ...state,
+        playerActivePokemon: { ...attacker, attachedEnergy: [...attacker.attachedEnergy, card] },
+        playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== card.id)),
+      };
+      return { state: log(next, `${name}: unió ${energyLabel(card)} a ${attacker.pokemon.name}. Se mezcló el mazo`) };
+    }
     case AttackEffectType.Discard: {
       const defender = state.opponentActivePokemon!;
       const discarded = defender.attachedEnergy.filter((e) => selection.includes(e.id));
@@ -269,6 +584,114 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
     default:
       return { state };
   }
+}
+
+/**
+ * Attack damage done to the opponent's Pokémon `targetId` by a choice (ChooseTargetDamage):
+ * Weakness/Resistance only with `applyWeaknessResistance`; PlusPower, Defender and Minimize
+ * only on the Active; Kabuto Armor; protection and Invisible Wall; Transparency / Agility on
+ * the original Defending Pokémon stop it (and Stare's power stop). Then Strikes Back, Mirror
+ * Shell, Destiny Bond and Final Beam on the attacker, and Knock Outs (Prizes taken at once).
+ */
+export function dealChosenTargetDamage(state: GameState, targetId: string, effect: AttackEffect, context: AttackChoiceContext): GameState {
+  const attacker = attackerOf(state, context);
+  const isActive = state.opponentActivePokemon?.pokemon.id === targetId;
+  const target = isActive ? state.opponentActivePokemon! : state.opponentBench.find((p) => p.pokemon.id === targetId);
+  if (!attacker || !target) return state;
+  const name = context.attackName;
+  const events = [...state.events];
+  const isOriginalDefender = targetId === context.defenderId;
+  if (isOriginalDefender && (context.defenderBlocksEffects || context.defenderKnockedOut)) {
+    events.push(createGameEvent(`${name}: ${target.pokemon.name} evitó todos los efectos del ataque`, "action"));
+    return { ...state, events };
+  }
+
+  const attackerCard = getEffectivePokemonCard(state, attacker);
+  const targetCard = getEffectivePokemonCard(state, target);
+  let damage = effect.amount ?? 0;
+  if (effect.applyWeaknessResistance && attackerCard && targetCard) {
+    const type = attacker.shiftedType ?? attackerCard.types[0];
+    const weaknesses = target.modifiedWeakness ? [target.modifiedWeakness] : targetCard.weaknesses ?? [];
+    const resistances = target.modifiedResistance ? [target.modifiedResistance] : targetCard.resistances ?? [];
+    if (type && weaknesses.includes(type)) damage *= 2;
+    if (type && resistances.includes(type)) damage = Math.max(0, damage - 30);
+  }
+  let consumedReduction = false;
+  if (isActive) {
+    const plusPower = state.activeModifiers.filter((m) => m.source === "plusPower" && m.playerId === "player").reduce((sum, m) => sum + m.amount, 0);
+    if (damage > 0) damage += plusPower;
+  }
+  const defenderReduction = state.activeModifiers
+    .filter((m) => m.source === "defender" && m.targetPokemonId === targetId)
+    .reduce((sum, m) => sum + Math.abs(m.amount), 0);
+  damage = Math.max(0, damage - defenderReduction);
+  if (isActive && target.nextTurnDamageReduction && damage > 0) {
+    damage = Math.max(0, damage - target.nextTurnDamageReduction);
+    consumedReduction = true;
+  }
+  damage = applyDamageHalving(target, damage, state);
+  if ((isActive && protectionBlocksDamage(target, damage) && damage > 0) || isDamageBlocked(target, damage, state)) {
+    events.push(createGameEvent(`${name}: el daño a ${target.pokemon.name} fue prevenido`, "action"));
+    damage = 0;
+  }
+
+  const blockedEffects = isActive && target.protection?.type === "damageAndEffects";
+  let hit: PokemonInPlay = {
+    ...target,
+    currentDamage: (target.currentDamage ?? 0) + damage,
+    ...(isActive && damage > 0 && { lastDamageReceived: damage }),
+    ...(consumedReduction && { nextTurnDamageReduction: undefined }),
+  };
+  if (damage > 0) events.push(createGameEvent(`${name}: ${target.pokemon.name} recibió ${damage} de daño`, "action"));
+  const knockedOut = (hit.currentDamage ?? 0) >= getEffectiveHp(state, hit);
+
+  // Stare: the chosen Pokémon's power stops until the end of the opponent's next turn
+  let powersSuppressed = state.powersSuppressed;
+  if (effect.suppressTargetPower && !blockedEffects && !knockedOut && isPokemonCard(target.pokemon) && target.pokemon.power) {
+    powersSuppressed = [...(powersSuppressed ?? []), { source: name, pokemonId: targetId, expiresAfterTurn: state.turnNumber + 1 }];
+    events.push(createGameEvent(`${name}: ${target.pokemon.power.name} de ${target.pokemon.name} deja de funcionar hasta el final del próximo turno del rival`, "action"));
+  }
+  if (!knockedOut) hit = { ...hit };
+
+  // Reactions of the damaged Pokémon on the attacker
+  let retaliation = 0;
+  if (damage > 0) {
+    const reaction = getDamageReaction(target, isActive, state);
+    if (reaction) {
+      retaliation += reaction.reactionDamage;
+      events.push(createGameEvent(`¡${reaction.powerName}! ${target.pokemon.name} contraataca con ${reaction.reactionDamage} de daño`, "action"));
+    }
+    if (isActive && target.mirrorShellOnTurn === state.turnNumber - 1) {
+      retaliation += damage;
+      events.push(createGameEvent(`¡Caparazón Espejo! ${target.pokemon.name} le devuelve ${damage} de daño a ${attacker.pokemon.name}`, "action"));
+    }
+    if (knockedOut && isOriginalDefender && context.finalBeamCoin && getKnockOutRetaliation(state, target)) {
+      const powerName = isPokemonCard(target.pokemon) ? target.pokemon.power?.name ?? "Rayo Final" : "Rayo Final";
+      events.push(createGameEvent(`${powerName} de ${target.pokemon.name} - Moneda: [coin:${context.finalBeamCoin}]`, "info"));
+      if (context.finalBeamCoin === "heads") {
+        const beam = knockOutRetaliationDamage(state, target, attacker);
+        retaliation += beam;
+        if (beam > 0) events.push(createGameEvent(`¡${powerName}! ${target.pokemon.name} le hizo ${beam} de daño a ${attacker.pokemon.name}`, "action"));
+      }
+    }
+  }
+  const destinyBond = knockedOut && damage > 0 && isActive && !!target.destinyBondActive;
+
+  let next: GameState = {
+    ...state,
+    ...(isActive ? { opponentActivePokemon: hit } : { opponentBench: state.opponentBench.map((p) => (p.pokemon.id === targetId ? hit : p)) }),
+    playerActivePokemon: retaliation > 0 ? { ...attacker, currentDamage: (attacker.currentDamage ?? 0) + retaliation } : attacker,
+    powersSuppressed,
+    events,
+  };
+  next = checkKnockouts(next);
+  if (destinyBond && next.gameResult === null && next.playerActivePokemon?.pokemon.id === attacker.pokemon.id) {
+    next = knockOutPlayerActive(
+      { ...next, events: [...next.events, createGameEvent(`¡Unión de Destino! ${target.pokemon.name} se lleva a ${attacker.pokemon.name} consigo`, "action")] },
+      "El rival tomó un premio por Unión de Destino"
+    );
+  }
+  return next;
 }
 
 /**

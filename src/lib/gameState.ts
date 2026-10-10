@@ -6,6 +6,7 @@ import {
   isPlayableAsBasic,
   isTrainerInPlay,
   cardsLeavingPlay,
+  cardOutOfPlay,
   givesPrizeWhenKnockedOut,
 } from "@/domain/cards";
 import {
@@ -102,6 +103,11 @@ export type PokemonInPlay = {
   destinyBondActive?: boolean;
   /** Turn number when Destiny Bond was activated (for expiration) */
   destinyBondTurn?: number;
+  /**
+   * Mirror Shell (Dark Wartortle): turn number when it was used. During the next turn (the
+   * opponent's), attack damage done to it is done back to the attacker. Cleared on bench/evolve.
+   */
+  mirrorShellOnTurn?: number;
   /** Sand-Attack / SmokeScreen: opponent must flip coin to attack. Clears on bench/evolve. */
   mustFlipToAttack?: boolean;
   /** Turn number when mustFlipToAttack was set (for expiration) */
@@ -140,6 +146,8 @@ export type PendingAttackChoice = {
   context: AttackChoiceContext;
   /** Prophecy: the deck chosen in its first step */
   deck?: "player" | "opponent";
+  /** Multi-step choices (Magnetic Lines, Third Eye, Flame Pillar): the answer to the first step */
+  picked?: string[];
   /** Choice effects of the same attack still to ask, in order */
   queue: AttackEffect[];
 };
@@ -548,6 +556,7 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     // Clear Sand-Attack/SmokeScreen when going to bench
     mustFlipToAttack: undefined,
     mustFlipToAttackTurn: undefined,
+    mirrorShellOnTurn: undefined,
   };
 }
 
@@ -2405,20 +2414,51 @@ export function findValidEvolutionTargets(
 export function meetsAttackRequirements(
   attack: Attack,
   defender: PokemonInPlay | null | undefined,
-  attacker?: PokemonInPlay | null
+  attacker?: PokemonInPlay | null,
+  defenderBench?: PokemonInPlay[]
 ): boolean {
+  return getAttackRequirementFailure(attack, defender, attacker, defenderBench) === null;
+}
+
+/**
+ * Why an attack's own requirement isn't met (Spanish reason), or null. Requirements on the
+ * attacker are only checked when it is given, the opponent's Bench only when `defenderBench`
+ * is given (Fling, Drag Off, Fascinate: "can't be used if your opponent has no Benched Pokémon").
+ */
+export function getAttackRequirementFailure(
+  attack: Attack,
+  defender: PokemonInPlay | null | undefined,
+  attacker?: PokemonInPlay | null,
+  defenderBench?: PokemonInPlay[]
+): string | null {
   for (const effect of attack.effects ?? []) {
     if (effect.type === AttackEffectType.RequireStatus && effect.requiredStatus) {
       if (effect.target === AttackTarget.Defender && (!defender || !hasStatusCondition(defender, effect.requiredStatus))) {
-        return false;
+        return `No puedes usar ${attack.name}: el Pokémon defensor no cumple el requisito del ataque`;
       }
     }
     // Spacing Out: "can't be used if Slowpoke has no damage counters on it" (checked when the attacker is known)
     if (effect.type === AttackEffectType.RequireDamageCounters && attacker && (attacker.currentDamage ?? 0) <= 0) {
-      return false;
+      return `No puedes usar ${attack.name}: ${attacker.pokemon.name} no tiene contadores de daño`;
+    }
+    // Fireball / Playing with Fire: an Energy card of that type attached (Rainbow Energy counts)
+    if (effect.type === AttackEffectType.RequireAttachedEnergy && effect.energyType && attacker &&
+        !attacker.attachedEnergy.some((e) => energyProvidesType(e, effect.energyType!))) {
+      return `No puedes usar ${attack.name}: ${attacker.pokemon.name} no tiene Energía ${getEnergyTypeInSpanish(effect.energyType)} unida`;
+    }
+    if (effect.type === AttackEffectType.RequireOpponentBench && defenderBench && defenderBench.length === 0) {
+      return `No puedes usar ${attack.name}: tu rival no tiene Pokémon en la Banca`;
     }
   }
-  return true;
+  return null;
+}
+
+/** The Bench of the side `pokemon` is the Active of (for requirements on the defender's Bench). */
+function benchOfActive(state: GameState, pokemon: PokemonInPlay | null | undefined): PokemonInPlay[] | undefined {
+  if (!pokemon) return undefined;
+  if (state.opponentActivePokemon?.pokemon.id === pokemon.pokemon.id) return state.opponentBench;
+  if (state.playerActivePokemon?.pokemon.id === pokemon.pokemon.id) return state.playerBench;
+  return undefined;
 }
 
 /**
@@ -2442,7 +2482,7 @@ export function canUseAttack(
   const attack = pokemon.attacks[attackIndex];
   if (!attack) return false;
 
-  if (defender !== undefined && !meetsAttackRequirements(attack, defender, pokemonInPlay)) {
+  if (defender !== undefined && !meetsAttackRequirements(attack, defender, pokemonInPlay, state ? benchOfActive(state, defender) : undefined)) {
     return false;
   }
 
@@ -2611,7 +2651,8 @@ export function calculateBaseDamage(
   attacker: PokemonInPlay,
   defender: PokemonInPlay,
   attack: Attack,
-  attackerBench: PokemonInPlay[]
+  attackerBench: PokemonInPlay[],
+  defenderBench: PokemonInPlay[] = []
 ): { damage: number; description: string } {
   let baseDamage = 0;
   let description = "";
@@ -2646,6 +2687,12 @@ export function calculateBaseDamage(
           if (bp && bp.pokemon.name === name) count++;
         }
         multiplier = count;
+      } else if (effect.bonusDamageSource === "namedOnBench" && effect.names) {
+        // Magnetism: each named Pokémon on your Bench
+        multiplier = attackerBench.filter((p) => p && effect.names!.includes(p.pokemon.name)).length;
+      } else if (effect.bonusDamageSource === "namedInPlay" && effect.names) {
+        // Mass Explosion: each named Pokémon in play, both sides (Actives included)
+        multiplier = [attacker, defender, ...attackerBench, ...defenderBench].filter((p) => p && effect.names!.includes(p.pokemon.name)).length;
       }
       baseDamage += effect.amount * multiplier;
     }
@@ -2716,6 +2763,12 @@ export type ExecuteAttackOptions = {
   /** Energy cards chosen to pay a discard cost (Fire Spin...). */
   selectedEnergyIds?: string[];
   /**
+   * Conversion 1 / Conversion 2 (Porygon): the type chosen by the attacker. When given, the
+   * engine sets the Defending Pokémon's Weakness (if it has one) / the attacker's Resistance
+   * (never Colorless). Omitted: unchanged (the consumer applies it, as before).
+   */
+  chosenType?: EnergyType;
+  /**
    * The attacker's coin flips, flipped by the caller (UI or server), in order.
    * Must have exactly `getAttackCoinFlipCount(state, attackIndex)` entries — omit it
    * (or pass []) for attacks without coins. The engine resolves every coin effect.
@@ -2732,7 +2785,10 @@ function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?: GameS
     if (effect.coinFlip.untilTails) return "untilTails";
     // Big Eggsplosion: one coin per Energy attached (Double Colorless provides 2)
     // Thunderstorm: one coin per opponent's Benched Pokémon
-    const n = effect.coinCountFromEnergy
+    // Continuous Fireball: one coin per Energy card providing that type (Rainbow Energy counts)
+    const n = effect.coinCountFromEnergyType
+      ? attacker.attachedEnergy.filter((e) => energyProvidesType(e, effect.coinCountFromEnergyType!)).length
+      : effect.coinCountFromEnergy
       ? getTotalEnergyValue(attacker.attachedEnergy)
       : effect.coinCountSource === "opponentBench"
         ? (state?.opponentBench.length ?? 0)
@@ -2760,6 +2816,11 @@ export type AttackCoinPlan = {
   smokescreen: number;
   attack: number | "untilTails";
   defender: number;
+  /**
+   * Who flips the attack's own coins: present ("opponent") only when the defending player flips
+   * them (Knock Down, Bench Manipulation: "your opponent flips"). Same position in coinResults.
+   */
+  attackFlipper?: "opponent";
 };
 
 /** Effect types that do something to the Defending Pokémon (Transparency flips for them). */
@@ -2771,6 +2832,9 @@ const DEFENDER_EFFECT_TYPES: ReadonlySet<string> = new Set([
   AttackEffectType.ReturnToHand,
   AttackEffectType.Discard,
   AttackEffectType.ChangeWeakness,
+  AttackEffectType.ChooseTargetDamage,
+  AttackEffectType.ShuffleDefenderIntoDeck,
+  AttackEffectType.MoveDefenderEnergyToBench,
 ]);
 
 /** Can the attack do anything to the Defending Pokémon (damage, or an effect on it)? */
@@ -2848,10 +2912,12 @@ export function getAttackCoinPlan(state: GameState, attack: number | Attack): At
   const defenderCoin =
     (defenderFlipsToPrevent(state, defender) && attackCanAffectDefender(resolved)) ||
     (!!defender && !!getKnockOutRetaliation(state, defender) && attackCanDamageDefender(resolved));
+  const opponentFlips = (resolved.effects ?? []).some((e) => e.coinFlip && e.coinFlippedBy === "opponent");
   return {
     smokescreen: smokescreenCoins(attacker),
     attack: coinFlipCountFor(attacker, resolved, state),
     defender: defenderCoin ? 1 : 0,
+    ...(opponentFlips && { attackFlipper: "opponent" as const }),
   };
 }
 
@@ -2919,6 +2985,32 @@ function smokescreenCoins(attacker: PokemonInPlay): number {
   return attacker.mustFlipToAttack ? 1 : 0;
 }
 
+/** An attached card as it is once it leaves play (a Mysterious Fossil can't be attached, but be safe). */
+function cardOutOfPlayEnergy(card: GameCard): GameCard {
+  return cardOutOfPlay(card);
+}
+
+/**
+ * Mass Explosion's second part (DamageNamedInPlay) as the effects the pipeline already knows:
+ * self damage when the attacker is named, and bench damage to the named Benched Pokémon of
+ * both sides (the Defending Pokémon's share is added in executeAttack).
+ */
+function expandNamedDamage(attack: Attack, attackerName: string): Attack {
+  if (!attack.effects?.some((e) => e.type === AttackEffectType.DamageNamedInPlay)) return attack;
+  return {
+    ...attack,
+    effects: attack.effects.flatMap((e): AttackEffect[] => {
+      if (e.type !== AttackEffectType.DamageNamedInPlay || e.coinFlip) return [e];
+      const names = e.names ?? [];
+      return [
+        e,
+        ...(names.includes(attackerName) ? [{ type: AttackEffectType.SelfDamage, target: AttackTarget.Self, amount: e.amount } as AttackEffect] : []),
+        { type: AttackEffectType.BenchDamage, target: AttackTarget.Defender, amount: e.amount, benchTarget: BenchDamageTarget.Both, benchNameFilter: names },
+      ];
+    }),
+  };
+}
+
 // ============================================================================
 // ATTACK LEGALITY
 // ============================================================================
@@ -2951,12 +3043,8 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   if (hasStatusCondition(attacker, StatusCondition.Asleep)) return `${name} está dormido y no puede atacar`;
   if (hasStatusCondition(attacker, StatusCondition.Paralyzed)) return `${name} está paralizado y no puede atacar`;
   if (hasStatusCondition(attacker, StatusCondition.CannotAttack)) return `${name} no puede atacar este turno`;
-  if (!meetsAttackRequirements(attack, defender, attacker)) {
-    if (!meetsAttackRequirements(attack, defender)) {
-      return `No puedes usar ${attack.name}: el Pokémon defensor no cumple el requisito del ataque`;
-    }
-    return `No puedes usar ${attack.name}: ${name} no tiene contadores de daño`;
-  }
+  const requirement = getAttackRequirementFailure(attack, defender, attacker, state.opponentBench);
+  if (requirement) return requirement;
   const isUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (isUseOnce && attacker.usedOnceAttacks?.includes(attack.name)) return `${attack.name} ya fue usado`;
   if (!canUseAttack(attacker, attackIndex, undefined, state)) return `${name} no tiene la energía necesaria para ${attack.name}`;
@@ -2989,9 +3077,8 @@ export function canExecuteMetronome(state: GameState, copiedAttack: Attack): str
   const defenderCard = getEffectivePokemonCard(state, defender);
   const copyable = !!defenderCard && defenderCard.attacks.some((a) => a.name === copiedAttack.name);
   if (!copyable) return "Metrónomo solo puede copiar un ataque del Pokémon Defensor";
-  if (!meetsAttackRequirements(copiedAttack, defender)) {
-    return `No puedes usar ${copiedAttack.name}: el Pokémon defensor no cumple el requisito del ataque`;
-  }
+  const requirement = getAttackRequirementFailure(copiedAttack, defender, undefined, state.opponentBench);
+  if (requirement) return requirement;
   return null;
 }
 
@@ -3035,6 +3122,18 @@ function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipResult[]
     const { coinFlip, coinCountFromEnergy: _fromEnergy, ...plain } = effect;
     const hits = (coinFlip.onHeads ? heads : 0) + (coinFlip.onTails ? tails : 0);
 
+    // Surprise Thunder: the first coin must be heads; the second one picks the amount
+    if (effect.secondCoinAmounts) {
+      if (coins[0] !== "heads") missed.push(effect);
+      else resolved.push({ ...plain, amount: coins[1] === "heads" ? effect.secondCoinAmounts.heads : effect.secondCoinAmounts.tails });
+      continue;
+    }
+    // Petal Whirlwind: the effect needs at least `minHits` matching coins
+    if (coinFlip.minHits !== undefined && hits < coinFlip.minHits) {
+      missed.push(effect);
+      continue;
+    }
+
     if (effect.type === AttackEffectType.CoinFlipDamage || effect.type === AttackEffectType.BonusDamage) {
       hasCoinDamage = true;
       resolved.push({ ...plain, type: AttackEffectType.CoinFlipDamage, target: AttackTarget.Defender, amount: (effect.amount ?? 0) * hits });
@@ -3065,6 +3164,9 @@ function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipResult[]
     }
     if (effect.type === AttackEffectType.SelfDamage) {
       resolved.push({ ...plain, amount: (effect.amount ?? 0) * hits });
+    } else if (effect.type === AttackEffectType.Discard && effect.energyType) {
+      // Continuous Fireball: one Fire Energy card per heads
+      resolved.push({ ...plain, amount: (effect.amount ?? 1) * hits });
     } else {
       resolved.push(plain);
     }
@@ -3179,7 +3281,10 @@ function executeAttackUnchecked(
   const coinResolution = coinResults && coinResults.length > 0
     ? resolveCoinFlipEffects(printedAttack.effects ?? [], coinResults)
     : null;
-  const attack: Attack = coinResolution ? { ...printedAttack, effects: coinResolution.effects } : printedAttack;
+  const attack: Attack = expandNamedDamage(
+    coinResolution ? { ...printedAttack, effects: coinResolution.effects } : printedAttack,
+    attacker.pokemon.name
+  );
   // The defending side's coin, last in the list: Transparency (Haunter) or Final Beam (Dark Gyarados)
   const defenderCoin = splitCoins?.defender[0];
   const defenderPowerType = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.type : undefined;
@@ -3202,7 +3307,7 @@ function executeAttackUnchecked(
   }
 
   // RequireStatus (Dream Eater): the attack can't be used unless the defender has the status
-  if (!meetsAttackRequirements(attack, defender, attacker)) {
+  if (!meetsAttackRequirements(attack, defender, attacker, gameState.opponentBench)) {
     return {
       ...gameState,
       events: [
@@ -3228,8 +3333,10 @@ function executeAttackUnchecked(
   }
 
   // Daño base: printed damage + non-coin-flip damage effects (see calculateBaseDamage)
-  const base = calculateBaseDamage(attackerView, defenderView, attack, gameState.playerBench);
+  const base = calculateBaseDamage(attackerView, defenderView, attack, gameState.playerBench, gameState.opponentBench);
   let baseDamage = base.damage;
+  // Drag Off: its damage goes to the Benched Pokémon switched in by its choice (attackChoices)
+  if (attack.effects?.some((e) => e.type === AttackEffectType.ChooseTargetDamage && e.switchWithDefender)) baseDamage = 0;
   const damageMultiplierDescription = base.description;
 
   // Frenzy (Dark Primeape): it does 30 more damage while Confused
@@ -3340,8 +3447,16 @@ function executeAttackUnchecked(
     damageBarrierBlocked = true;
   }
 
+  // Mass Explosion: its second part also hits the Defending Pokémon when it is named (no W/R),
+  // unless everything was prevented
+  const namedDamage = attack.effects?.find((e) => e.type === AttackEffectType.DamageNamedInPlay && !e.coinFlip);
+  const namedDefenderDamage =
+    namedDamage?.names?.includes(defender.pokemon.name) && !transparencyPrevents && !(defenderIsProtected && damage > 0)
+      ? applyDamageHalving(defender, namedDamage.amount ?? 0, gameState)
+      : 0;
+
   // Aplicar daño al defensor
-  const newDamage = (defender.currentDamage || 0) + effectiveDamage;
+  const newDamage = (defender.currentDamage || 0) + effectiveDamage + namedDefenderDamage;
   const defenderHP = defenderCard.hp;
 
   // Crear eventos
@@ -3498,6 +3613,8 @@ function executeAttackUnchecked(
   let newOpponentHand = [...gameState.opponentHand];
   let newOpponentDeck = [...gameState.opponentDeck];
   let attackerKnockedOut = false;
+  // Vanish: the attacker left play without a Knock Out
+  let attackerLeftPlay = false;
   let attackerNeedsToPromote = false;
   let pendingBenchDamageSelection: GameState["pendingBenchDamageSelection"] = undefined;
 
@@ -3609,10 +3726,14 @@ function executeAttackUnchecked(
           // Thunderstorm: only the Benched Pokémon whose coin was heads (by bench position)
           const coinIndexes = effect.benchTargetIndexes;
 
+          // Mass Explosion: only the named Benched Pokémon
+          const nameFilter = effect.benchNameFilter;
+          const named = (p: PokemonInPlay) => !nameFilter || nameFilter.includes(p.pokemon.name);
           // Count available targets
           const getAvailableTargets = (bench: PokemonInPlay[]): PokemonInPlay[] => {
             return bench.filter((p) => {
               if (!p) return false;
+              if (!named(p)) return false;
               if (effect.matchDefenderType && isPokemonCard(p.pokemon)) {
                 return p.pokemon.types.some((t) => defenderTypes.includes(t));
               }
@@ -3652,6 +3773,7 @@ function executeAttackUnchecked(
               newOpponentBench = newOpponentBench.map((benchPokemon, benchIndex) => {
                 if (!benchPokemon || opponentHitsRemaining <= 0) return benchPokemon;
                 if (coinIndexes && !coinIndexes.includes(benchIndex)) return benchPokemon;
+                if (!named(benchPokemon)) return benchPokemon;
 
                 // Filter by defender type if matchDefenderType is set
                 if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
@@ -3704,6 +3826,7 @@ function executeAttackUnchecked(
               let ownHitsRemaining = maxTargets;
               newPlayerBench = newPlayerBench.map((benchPokemon) => {
                 if (!benchPokemon || ownHitsRemaining <= 0) return benchPokemon;
+                if (!named(benchPokemon)) return benchPokemon;
 
                 // Filter by defender type if matchDefenderType is set
                 if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
@@ -3738,6 +3861,8 @@ function executeAttackUnchecked(
           if (newPlayerActive && !attackerKnockedOut) {
             for (const benchPokemon of newOpponentBench) {
               if (!benchPokemon) continue;
+              // Not damaged by this bench damage (Mass Explosion only hits named Pokémon)
+              if (effect.benchNameFilter && !effect.benchNameFilter.includes(benchPokemon.pokemon.name)) continue;
               const reaction = getDamageReaction(benchPokemon, false, gameState); // false = from bench
               if (reaction) {
                 const counterDamage = reaction.reactionDamage;
@@ -3874,9 +3999,54 @@ function executeAttackUnchecked(
         }
       }
 
+      // Energy Bomb with no Benched Pokémon: every Energy card attached is discarded
+      if (effect.type === AttackEffectType.MoveAllEnergyToBench && newPlayerActive && !attackerKnockedOut && newPlayerBench.length === 0) {
+        const discarded = newPlayerActive.attachedEnergy;
+        if (discarded.length > 0) {
+          newPlayerDiscard.push(...discarded.map(cardOutOfPlayEnergy));
+          newPlayerActive = { ...newPlayerActive, attachedEnergy: [] };
+          events.push(createGameEvent(`${newPlayerActive.pokemon.name} descartó todas sus energías (no hay Pokémon en la Banca)`, "action"));
+        }
+      }
+
+      // Mirror Shell: remember the turn (checked during the opponent's next attack)
+      if (effect.type === AttackEffectType.MirrorShell && newPlayerActive && !attackerKnockedOut) {
+        newPlayerActive = { ...newPlayerActive, mirrorShellOnTurn: gameState.turnNumber };
+        events.push(createGameEvent(`${newPlayerActive.pokemon.name} devolverá el daño que reciba durante el próximo turno del rival`, "action"));
+      }
+
+      // Conversion 1 / 2 (Porygon), when the caller passed the chosen type
+      if (options?.chosenType && options.chosenType !== EnergyTypeEnum.Colorless) {
+        if (effect.type === AttackEffectType.ChangeWeakness && newOpponentActive && !isKnockedOut && !defenderBlocksEffects) {
+          const hasWeakness = !!newOpponentActive.modifiedWeakness || (defenderCard.weaknesses ?? []).length > 0;
+          if (hasWeakness) {
+            newOpponentActive = { ...newOpponentActive, modifiedWeakness: options.chosenType };
+            events.push(createGameEvent(`La Debilidad de ${newOpponentActive.pokemon.name} pasa a ser ${getEnergyTypeInSpanish(options.chosenType)}`, "action"));
+          }
+        }
+        if (effect.type === AttackEffectType.ChangeResistance && newPlayerActive && !attackerKnockedOut) {
+          newPlayerActive = { ...newPlayerActive, modifiedResistance: options.chosenType };
+          events.push(createGameEvent(`La Resistencia de ${newPlayerActive.pokemon.name} pasa a ser ${getEnergyTypeInSpanish(options.chosenType)}`, "action"));
+        }
+      }
+
       // Descarte de energía como costo del ataque
       if (effect.type === AttackEffectType.Discard && newPlayerActive) {
-        if (effect.discardAll) {
+        if (effect.target === AttackTarget.Self && effect.energyType && effect.amount && !effect.discardCostRequirement) {
+          // Continuous Fireball / Fireball / Playing with Fire: N Energy cards of that type
+          // (cards printed with the type first, Rainbow Energy last)
+          const type = effect.energyType;
+          const candidates = [
+            ...newPlayerActive.attachedEnergy.filter((e) => energyProvidesType(e, type) && !(isEnergyCard(e) && e.providesAllTypes)),
+            ...newPlayerActive.attachedEnergy.filter((e) => isEnergyCard(e) && e.providesAllTypes),
+          ].slice(0, effect.amount);
+          if (candidates.length > 0) {
+            const ids = candidates.map((e) => e.id);
+            newPlayerDiscard.push(...candidates);
+            newPlayerActive = { ...newPlayerActive, attachedEnergy: newPlayerActive.attachedEnergy.filter((e) => !ids.includes(e.id)) };
+            events.push(createGameEvent(`${newPlayerActive.pokemon.name} descartó ${candidates.map(energyCardLabel).join(", ")}`, "action"));
+          }
+        } else if (effect.discardAll) {
           // Descartar TODAS las energías (ej: Zapdos' Rayo)
           const allEnergy = [...newPlayerActive.attachedEnergy];
           if (allEnergy.length > 0) {
@@ -4120,7 +4290,7 @@ function executeAttackUnchecked(
 
       // ForceSwitch: opponent must switch active with a bench Pokemon (Lure, Whirlwind, Ram).
       // Terror Strike (the opponent chooses) is a pending attack choice instead.
-      if (effect.type === AttackEffectType.ForceSwitch && effect.target === AttackTarget.Defender && effect.switchChosenBy !== "opponent") {
+      if (effect.type === AttackEffectType.ForceSwitch && effect.target === AttackTarget.Defender && effect.switchChosenBy !== "opponent" && !effect.coinFlip) {
         // DamageAndEffects protection blocks ForceSwitch
         if (defenderBlocksEffects) {
           events.push(
@@ -4145,8 +4315,49 @@ function executeAttackUnchecked(
         }
       }
 
-      // SelfSwitch: attacker switches with own bench Pokemon (Teleport)
-      if (effect.type === AttackEffectType.SelfSwitch && effect.target === AttackTarget.Self) {
+      // Fling: the Defending Pokémon and everything attached go into its owner's deck
+      if (effect.type === AttackEffectType.ShuffleDefenderIntoDeck && newOpponentActive && !isKnockedOut) {
+        if (defenderBlocksEffects) {
+          events.push(createGameEvent(`¡${newOpponentActive.pokemon.name} está protegido y no es afectado por ${attack.name}!`, "action"));
+        } else {
+          newOpponentDeck = shuffle([...newOpponentDeck, ...cardsLeavingPlay(newOpponentActive)]);
+          events.push(createGameEvent(`¡${newOpponentActive.pokemon.name} y todas sus cartas se barajaron en el mazo del rival!`, "action"));
+          newOpponentActive = null;
+          opponentNeedsToPromote = newOpponentBench.length > 0;
+        }
+      }
+
+      // Vanish: the attacker goes into its owner's deck, the cards attached to the discard pile
+      if (effect.type === AttackEffectType.ShuffleSelfIntoDeck && newPlayerActive && !attackerKnockedOut) {
+        const leaving = newPlayerActive;
+        newPlayerDeck = shuffle([...newPlayerDeck, ...[leaving.pokemon, ...(leaving.previousEvolutions ?? [])].map(cardOutOfPlay)]);
+        newPlayerDiscard.push(...[...leaving.attachedEnergy, ...(leaving.attachedTrainers ?? [])].map(cardOutOfPlay));
+        events.push(createGameEvent(`¡${leaving.pokemon.name} se barajó en tu mazo!`, "action"));
+        newPlayerActive = null;
+        attackerLeftPlay = true;
+        attackerNeedsToPromote = newPlayerBench.length > 0;
+        if (attackerNeedsToPromote) events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
+      }
+
+      // Mischief: shuffle the opponent's deck
+      if (effect.type === AttackEffectType.ShuffleOpponentDeck) {
+        newOpponentDeck = shuffle(newOpponentDeck);
+        events.push(createGameEvent("Se mezcló el mazo del rival", "action"));
+      }
+
+      // Rapid Evolution / Afternoon Nap with nothing to find: the deck is searched and shuffled
+      if (effect.type === AttackEffectType.EvolveFromDeck || effect.type === AttackEffectType.AttachEnergyFromDeck) {
+        const finds = effect.type === AttackEffectType.EvolveFromDeck
+          ? newPlayerDeck.some((c) => isPokemonCard(c) && effect.searchPokemonNames?.includes(c.name))
+          : newPlayerDeck.some((c) => isEnergyCard(c) && c.isBasic && c.energyType === effect.energyType);
+        if (!finds) {
+          newPlayerDeck = shuffle(newPlayerDeck);
+          events.push(createGameEvent(`${attack.name}: no se encontró nada en el mazo. Se mezcló el mazo`, "info"));
+        }
+      }
+
+      // SelfSwitch: attacker switches with own bench Pokemon (Teleport). Teleport Blast ("you may") is a pending attack choice.
+      if (effect.type === AttackEffectType.SelfSwitch && effect.target === AttackTarget.Self && !effect.optional) {
         if (newPlayerActive && !attackerKnockedOut) {
           const hasBench = newPlayerBench.some(p => p != null);
           if (hasBench) {
@@ -4384,6 +4595,22 @@ function executeAttackUnchecked(
     }
   }
 
+  // MIRROR SHELL (Dark Wartortle): attack damage done to it during this turn is done back to the
+  // attacker, even if Dark Wartortle was Knocked Out (no Weakness/Resistance)
+  if (effectiveDamage > 0 && defender.mirrorShellOnTurn === gameState.turnNumber - 1 && newPlayerActive && !attackerKnockedOut) {
+    const newAttackerDamage = (newPlayerActive.currentDamage || 0) + effectiveDamage;
+    events.push(createGameEvent(`¡Caparazón Espejo! ${defender.pokemon.name} le devuelve ${effectiveDamage} de daño a ${newPlayerActive.pokemon.name}`, "action"));
+    if (newAttackerDamage >= attackerCard.hp) {
+      attackerKnockedOut = true;
+      events.push(createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por Caparazón Espejo!`, "action"));
+      ({ newPlayerDiscard, newOpponentPrizes, newOpponentHand, attackerNeedsToPromote } =
+        applyAttackerKnockout(newPlayerActive, "El rival tomó un premio por Caparazón Espejo"));
+      newPlayerActive = null;
+    } else {
+      newPlayerActive = { ...newPlayerActive, currentDamage: newAttackerDamage };
+    }
+  }
+
   // Marcar ataques de uso único como utilizados
   const hasUseOnceEffect = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (hasUseOnceEffect && newPlayerActive && !attackerKnockedOut) {
@@ -4418,7 +4645,7 @@ function executeAttackUnchecked(
   // Construir el estado después del ataque
   let stateAfterAttack: GameState = {
     ...gameState,
-    playerActivePokemon: attackerKnockedOut ? newPlayerActive : (newPlayerActive ?? attacker),
+    playerActivePokemon: attackerKnockedOut || attackerLeftPlay ? newPlayerActive : (newPlayerActive ?? attacker),
     playerBench: newPlayerBench,
     playerDiscard: newPlayerDiscard,
     playerDeck: newPlayerDeck,
@@ -4542,6 +4769,7 @@ function executeAttackUnchecked(
       defenderKnockedOut: isKnockedOut,
       defenderBlocksEffects,
       discardIdsBefore: gameState.playerDiscard.map((c) => c.id),
+      finalBeamCoin,
     });
   }
 
