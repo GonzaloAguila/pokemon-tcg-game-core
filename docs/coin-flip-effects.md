@@ -72,3 +72,29 @@ All coin effects of one attack share the same flips (Thrash: one coin decides +1
 - **Metronome as an AI attack**: the attack has no effect data, so the AI choosing it deals 0.
 - AI damage estimates (`ai/actions.ts`) still use the nominal printed number for coin attacks
   (Twineedle estimates 0).
+
+## Fossil (Stage B): coin plans
+
+`getAttackCoinPlan(state, attack)` describes the coins of an attack in the order they go in
+`coinResults`; `flipAttackCoins(plan, flip)` builds that list:
+
+| Part | When | Count |
+|---|---|---|
+| `smokescreen` | the attacker is under Sand-attack / Smokescreen | 1 coin, FIRST; tails = the attack does nothing |
+| `attack` | the attack's own coin effects (they all share these coins) | a fixed number, or `"untilTails"` = a run of heads ending in the first tails (Stone Barrage) |
+| `defender` | the Defending Pokémon is a Haunter with a working Transparency and the attack can do something to it | 1 coin, LAST; flipped for the defending player; heads = everything the attack does to Haunter is prevented |
+
+`getAttackCoinFlipCount` is the total for fixed plans (for `"untilTails"` it is only the
+minimum). `executeAttack` throws when `coinResults` doesn't fit the plan.
+
+New coin effects in the Fossil catalog:
+
+| Effect (data) | Cards | Rule |
+|---|---|---|
+| `coinFlipDamage` + `untilTails` | Geodude Stone Barrage | 10 × heads, flipping until tails |
+| `benchDamage` `perCoinBenchTarget` + `coinCountSource: "opponentBench"`, `selfDamage` on tails | Zapdos Thunderstorm | one coin per opponent's Benched Pokémon (bench order): heads 20 to it; Zapdos takes 10 × tails |
+| `benchDamage` heads (opponent) / tails (own) | Articuno Blizzard | 10 to each Benched Pokémon of that side |
+| `attackFails` on tails | Moltres Dive Bomb, Cloyster Clamp | tails: the attack does nothing (not even damage) |
+| `forceSwitch` heads + `switchChosenBy: "opponent"` | Arbok Terror Strike | heads: damage first, then the opponent picks the new Defending Pokémon (pending attack choice) |
+| `heal` heads | Slowpoke Spacing Out | remove 1 counter (needs damage counters to be used) |
+| `protection` heads | Shellder Hide in Shell, Seadra Agility | as Withdraw / Agility |

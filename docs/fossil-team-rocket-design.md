@@ -71,6 +71,20 @@ Catalog `src/domain/catalog/fossil.ts` (47 cards, `CardSet.Fossil = "Fossil"`, i
 - **Trainers**: Mr. Fuji, Energy Search, Gambler (coin), Recycle (coin).
 - AI: must at least not break on the new cards (play Fossil only when it has an evolution, never Mysterious Fossil as its only Active if avoidable; use simple powers optionally).
 
+### Stage B status (2026-10-10, branch `feature/fossil-team-rocket`) — done
+
+- **Catalog**: `src/domain/catalog/fossil.ts`, 47 cards, registry entry `fossil` (FO, 1999-10-10, 62 printed), checked programmatically against `base3.json` (`test/fossil-catalog.test.ts`). Spanish attack/power names (repeated attacks reuse Base Set/Jungle names; power names are Spanish, unlike the English Base/Jungle power names — see doubts).
+- **Images**: `npm run check-images -- --set <id>`: Fossil 47/47, Base Set 102/102, Jungle 48/48 (Mr. Fuji = `mr.-fuji`).
+- **Mysterious Fossil / Clefairy Doll**: `playsAsBasic: { hp: 10 }`; in play a Pokémon form (`toInPlayCard`) that becomes the Trainer again when it leaves play (`cardsLeavingPlay`); no Prize, can't retreat, no Special Conditions, `canDiscardFromPlay` / `discardFromPlay`.
+- **Powers**: passive Toxic Gas (`isPowerSuppressed`), Prehistoric Power (`getEvolutionBlocker`), Clairvoyance (`isHandRevealed`), Kabuto Armor (`applyDamageHalving`), Transform (`getEffectivePokemonCard` + state-based `checkKnockouts`), Transparency (defender coin in the attack's coin plan); activated (`POWER_EFFECTS`): Entrada (Step In), Maldición (Curse), Comportamiento Extraño (Strange Behavior), Cobardía (Cowardice).
+- **Attacks**: coin plans (`getAttackCoinPlan` / `flipAttackCoins`: until-tails, per-bench coins, Transparency last); the generic **pending attack choice** (`pendingAttackChoice` + `resolveAttackChoice`, `lib/attackChoices.ts`) for Hyper Beam, Terror Strike (opponent chooses), Prophecy, Wildfire, Energy Conversion, Scavenge; Sonicboom, Dive Bomb/Clamp, Spacing Out, Headache (`noTrainersOnTurn`), Absorb/Leech Life, Gigashock, Blizzard, Thunderstorm, Selfdestruct.
+- **Trainers**: Mr. Fuji, Energy Search, Gambler, Recycle (`TRAINER_EFFECTS`; `UNSUPPORTED_TRAINERS` is empty).
+- **AI**: plays a Fossil only with an evolution in hand or no other Basic, discards an Active Fossil it can't evolve, answers its own attack choices (`ai/pending.ts`); `answerStepForAI` for the human's attacks that the AI must answer (Terror Strike).
+- **Bots**: `--stats` prints a coverage report (`--coverage <sets>`); 0 failures on `--sets fossil` and `--sets base-set,jungle,fossil` (numbers in the final report); vitest runs 30-game Fossil batches.
+- Fixes found on the way: AI deck search swapping cards between sides, AI never resolving Spark-style choices, endTurn not waiting for the opponent's promotion, Dragonair's Hyper Beam doing nothing, Venonat's Leech Life, Agility vs Hurricane. Doubts: `docs/card-doubts.md` "Stage B".
+
+**Consumer work for Stage C (new):** handle `pendingAttackChoice` (render `step`; `chooser: "opponent"` goes to the other player; answer with `resolveAttackChoice` on the attacking side's view), flip attack coins from `getAttackCoinPlan` (`flipAttackCoins`; Stone Barrage until tails; Transparency's coin last, shown as the defender's), list a Ditto's attacks from `getEffectivePokemonCard`, a "discard from play" button (`canDiscardFromPlay`), `isHandRevealed` (API masking), Headache via `canPlayTrainerCard`/`canPlayBasicPokemon`, and the mid-turn promotions of Cowardice / Fossil discard / Curse (`playerNeedsToPromote` / `opponentNeedsToPromote` during the turn).
+
 ## Stage C — Fossil in API and frontend
 
 - **API**: set registry in catalog/boosters/market/prizes/battle-pass/draft/handlers; `fossil-booster` (11 cards, 1 rare 33% holo, 3 uncommon, 5 common, same price as Jungle, energy as Jungle); generic trainer/power dispatch; engine board actions; coin-flip consumer migration (delete `applyCoinFlipEffects`, roll `getAttackCoinFlipCount` coins server-side, `executeAttack(state, i, { coinResults })`); masking honours Clairvoyance; zod schemas for new payloads; tests.
