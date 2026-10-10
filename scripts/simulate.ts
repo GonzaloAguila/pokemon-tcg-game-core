@@ -1,14 +1,34 @@
 /**
  * Bot simulator: plays seeded headless games and reports invariant violations.
  *
- *   npm run simulate -- --games 200 --seed 1 --sets base-set,jungle --policy greedy|random|mixed|all
+ *   npm run simulate -- --games 200 --seed 1 --sets base-set,jungle --policy greedy|random|mixed|all [--stats [--coverage fossil]]
+ *
+ * --stats prints how often each kind of action ran and a coverage report (Trainers, activated
+ * powers and attacks of the --coverage sets, default the --sets, never used by the bots).
  *
  * Game i uses seed (seed + i); replay a failure with `--games 1 --seed <seed>`.
  * Exit code 1 when any game failed.
  */
 
 import { runBatch, allSetIds, type PolicyPair } from "../src/domain/simulation";
-import type { CardSetId } from "../src/domain/catalog";
+import { getSet, type CardSetId } from "../src/domain/catalog";
+import { ACTIVATED_POWER_TYPES } from "../src/domain/effects";
+
+/**
+ * What the chosen sets offer that the bots should exercise: every Trainer (played, or put
+ * into play as a Basic), every activated Pokémon Power and every attack ("Pokémon: Attack").
+ */
+function coverageTargets(setIds: CardSetId[]): { trainers: string[]; powers: string[]; attacks: string[] } {
+  const cards = setIds.flatMap((id) => getSet(id)?.cards ?? []);
+  const unique = (items: string[]) => [...new Set(items)].sort();
+  return {
+    trainers: unique(cards.flatMap((c) => (c.kind === "trainer" ? [c.playsAsBasic ? `benchTrainer ${c.name}` : `playTrainer ${c.name}`] : []))),
+    powers: unique(
+      cards.flatMap((c) => (c.kind === "pokemon" && c.power && ACTIVATED_POWER_TYPES.includes(c.power.type) ? [`usePower ${c.power.name}`] : []))
+    ),
+    attacks: unique(cards.flatMap((c) => (c.kind === "pokemon" ? c.attacks.map((a) => `attack ${c.name}: ${a.name}`) : []))),
+  };
+}
 
 function argValue(name: string, fallback: string): string {
   const index = process.argv.indexOf(`--${name}`);
@@ -48,10 +68,16 @@ for (const policy of pairs) {
     }
     console.log(
       Object.entries(totals)
+        .filter(([kind]) => !kind.startsWith("attack "))
         .sort((a, b) => b[1] - a[1])
         .map(([kind, count]) => `    ${kind}: ${count}`)
         .join("\n")
     );
+    const targets = coverageTargets(argValue("coverage", sets.join(",")).split(",") as CardSetId[]);
+    for (const [group, names] of Object.entries(targets)) {
+      const missing = names.filter((name) => !totals[name]);
+      console.log(`  coverage ${group}: ${names.length - missing.length}/${names.length}${missing.length ? ` — never used: ${missing.join(", ")}` : ""}`);
+    }
   }
   for (const failure of result.failures) {
     failed = true;

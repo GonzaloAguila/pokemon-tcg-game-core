@@ -175,9 +175,16 @@ const isCopyAttack = (attack: Attack) => attack.effects?.some((e) => e.type === 
  * Attack with the Active: confusion flip first (any attack, Metronome included), then the
  * attack with its coins. The runner ends the turn (attackedThisTurn) and resolves pendings.
  */
-export function attackAction(attackIndex: number, rng: Rng): ViewAction {
+/** "Pokémon: Attack" of the acting side's Active attack (for labels / coverage stats). */
+export function attackName(view: GameState, attackIndex: number): string {
+  const active = view.playerActivePokemon;
+  const card = active ? getEffectivePokemonCard(view, active) : undefined;
+  return card ? `${card.name}: ${card.attacks[attackIndex]?.name ?? `#${attackIndex}`}` : `#${attackIndex}`;
+}
+
+export function attackAction(attackIndex: number, rng: Rng, name = `#${attackIndex}`): ViewAction {
   return {
-    label: `attack #${attackIndex}`,
+    label: `attack ${name}`,
     run: (view) => {
       let state = view;
       const active = state.playerActivePokemon!;
@@ -230,7 +237,9 @@ export function legalActions(view: GameState, rng: Rng, answer: (step: Selection
 
   for (const card of view.playerHand) {
     if (canPlayBasicPokemon(view, card.id, "bench") === null) {
-      add("bench", { label: `bench ${card.name}`, run: (v) => playBasicPokemon(v, card.id, "bench") });
+      // Trainers played as Basics keep their name in the stats ("benchTrainer Mysterious Fossil")
+      const label = card.kind === "trainer" ? `benchTrainer ${card.name}` : `bench ${card.name}`;
+      add("bench", { label, run: (v) => playBasicPokemon(v, card.id, "bench") });
     }
     if (isPokemonCard(card) && card.stage !== PokemonStage.Basic) {
       for (const targetId of getEvolutionTargets(view, card.id)) {
@@ -260,7 +269,7 @@ export function legalActions(view: GameState, rng: Rng, answer: (step: Selection
   const activeCard = active ? getEffectivePokemonCard(view, active) : undefined;
   if (activeCard) {
     activeCard.attacks.forEach((_, index) => {
-      if (canExecuteAttack(view, index) === null) add("attack", attackAction(index, rng));
+      if (canExecuteAttack(view, index) === null) add("attack", attackAction(index, rng, attackName(view, index)));
     });
   }
   return categories;
@@ -300,19 +309,21 @@ export const randomLegalPolicy: Policy = {
  * plan is kept per turn and executed one action at a time; every action runs on the AI's
  * view (actor = "opponent") through executeAIAction.
  */
-export function createGreedyPolicy(): Policy & { aiViewAction(action: AIAction): ViewAction } {
+export function createGreedyPolicy(): Policy & { aiViewAction(action: AIAction, view?: GameState): ViewAction } {
   let planKey = "";
   let plan: AIAction[] = [];
   const toAiView = (view: GameState) => swapSides(view);
-  const aiViewAction = (action: AIAction): ViewAction => ({
-    label: `greedy ${action.type}${"trainerName" in action ? ` ${action.trainerName}` : ""}`,
+  const aiViewAction = (action: AIAction, view?: GameState): ViewAction => ({
+    label: `greedy ${action.type}${"trainerName" in action ? ` ${action.trainerName}` : ""}${
+      action.type === "attack" && view ? ` ${attackName(view, action.attackIndex)}` : ""
+    }`,
     run: (view) => swapSides(executeAIAction(toAiView(view), action)),
   });
   return {
     name: "greedy",
     aiViewAction,
     setup(view) {
-      return decideOpponentSetup(toAiView(view)).map(aiViewAction);
+      return decideOpponentSetup(toAiView(view)).map((action) => aiViewAction(action));
     },
     nextAction(view, _rng, actionsThisTurn) {
       const key = `${view.turnNumber}`;
@@ -321,7 +332,7 @@ export function createGreedyPolicy(): Policy & { aiViewAction(action: AIAction):
         plan = decideOpponentTurn(toAiView(view));
       }
       const next = plan.shift();
-      return next ? aiViewAction(next) : null;
+      return next ? aiViewAction(next, view) : null;
     },
     answer: (step) => firstAnswer(step),
     promotion: () => 0,

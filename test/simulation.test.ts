@@ -69,3 +69,19 @@ describe("headless games (Base Set + Jungle)", () => {
     expect(result.outcomes).toHaveLength(30);
   }, 120_000);
 });
+
+describe("headless games with Fossil", () => {
+  it.each([
+    ["fossil", "greedy"],
+    ["fossil", "random"],
+    ["fossil", "mixed"],
+    ["base-set,jungle,fossil", "greedy"],
+    ["base-set,jungle,fossil", "random"],
+    ["base-set,jungle,fossil", "mixed"],
+  ] as const)("30 seeded games (%s, %s) finish without invariant violations", (sets, policy) => {
+    const result = runBatch({ games: 30, seed: 2000, sets: sets.split(",") as ("base-set" | "jungle" | "fossil")[], policy });
+    const report = result.failures.map((f) => `seed ${f.seed}: ${f.problem} after "${f.action}"\n  ${f.lastEvents.slice(-8).join("\n  ")}`);
+    expect(report).toEqual([]);
+    expect(result.outcomes).toHaveLength(30);
+  }, 120_000);
+});

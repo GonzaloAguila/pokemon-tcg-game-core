@@ -74,8 +74,13 @@ export class SimulationFailure extends Error {
 
 const EVENTS_KEPT = 200;
 
-/** "playTrainer Bill" / "usePower Heal" keep the card; other labels keep their first word(s) */
+/**
+ * "playTrainer Bill" / "usePower Heal" / "attack Kabutops: Absorber" keep the card (and attack);
+ * other labels keep their first word(s)
+ */
 function actionKind(label: string): string {
+  if (label.startsWith("attack ") || label.startsWith("greedy attack ")) return label.replace(/^greedy /, "");
+  if (label.startsWith("benchTrainer ") || label.startsWith("discardFromPlay ")) return label;
   if (label.startsWith("playTrainer ") || label.startsWith("greedy playTrainer ")) return label.replace(/^greedy /, "");
   if (label.startsWith("usePower ")) return label.replace(/ \(.*\)$/, "");
   if (label.startsWith("greedy ")) return label.split(" ").slice(0, 2).join(" ");
