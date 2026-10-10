@@ -1056,6 +1056,33 @@ function knockOutActingActive(
 }
 
 /**
+ * Knock out the acting side's ("player") Active Pokémon outside an attack (a Trainer or a
+ * Power left it with damage >= HP, e.g. Devolution Spray). Same flow as an attacker self-KO:
+ * discard it with everything attached, the opponent automatically takes one prize, then the
+ * player must promote (or loses when the bench is empty / that was the last prize).
+ */
+export function knockOutPlayerActive(state: GameState, prizeMessage: string = "El rival tomó un premio"): GameState {
+  const active = state.playerActivePokemon;
+  if (!active) return state;
+  const ko = knockOutActingActive(
+    active,
+    { bench: state.playerBench, discard: state.playerDiscard, opponentPrizes: state.opponentPrizes, opponentHand: state.opponentHand },
+    prizeMessage
+  );
+  const defeated = ko.prizedOut || !ko.needsToPromote;
+  return {
+    ...state,
+    playerActivePokemon: null,
+    playerDiscard: ko.discard,
+    opponentPrizes: ko.opponentPrizes,
+    opponentHand: ko.opponentHand,
+    playerNeedsToPromote: ko.needsToPromote,
+    ...(defeated && { gameResult: "defeat" as const, gamePhase: GamePhase.GameOver }),
+    events: [...state.events, createGameEvent(`¡${active.pokemon.name} fue noqueado!`, "action"), ...ko.events],
+  };
+}
+
+/**
  * KO sweep for BOTH benches (classic rule: knockouts are checked after every
  * damage source, including bench damage and self-damage attacks).
  *

@@ -15,7 +15,10 @@ import {
   playBasicToBench,
   attachEnergy,
   evolve,
+  actAs,
 } from "./actions";
+import { canPlayTrainerCard, playTrainerCard } from "@/domain/effects";
+import { IllegalActionError } from "@/shared/errors";
 
 /** The AI's coin flips (the engine logs and resolves them). */
 function flipCoins(count: number): CoinFlipResult[] {
@@ -494,105 +497,28 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
 }
 
 /**
- * Ejecuta un trainer del oponente
- * Implementación simplificada para game-core (sin dependencia de trainer-registry)
+ * Ejecuta un trainer del oponente a través del registro de efectos del engine
+ * (las selecciones significan lo mismo que para el jugador; sin monedas: la IA no juega Poké Ball).
  */
 function executeTrainer(
   state: GameState,
   cardId: string,
-  trainerName: string,
+  _trainerName: string,
   selections: string[][]
 ): GameState {
-  // Implementación inline de trainers básicos que la IA puede usar
-  switch (trainerName) {
-    case "Bill": {
-      // Bill: robar 2 cartas del deck del oponente a su mano
-      const deck = [...state.opponentDeck];
-      const hand = [...state.opponentHand];
-      const discard = [...state.opponentDiscard];
-
-      // Mover Bill al descarte
-      const billCard = hand.find(c => c.id === cardId);
-      const newHand = hand.filter(c => c.id !== cardId);
-      if (billCard) {
-        discard.push(billCard);
+  return actAs(
+    state,
+    "opponent",
+    (s) => canPlayTrainerCard(s, cardId),
+    (s) => {
+      try {
+        return playTrainerCard(s, cardId, selections);
+      } catch (error) {
+        if (error instanceof IllegalActionError) return s;
+        throw error;
       }
-
-      // Robar 2 cartas
-      const drawnCards = deck.splice(0, 2);
-      newHand.push(...drawnCards);
-
-      return {
-        ...state,
-        opponentDeck: deck,
-        opponentHand: newHand,
-        opponentDiscard: discard,
-        events: [
-          ...state.events,
-          { id: `evt-${Date.now()}`, timestamp: Date.now(), message: "Rival usó Bill y robó 2 cartas", type: "action" },
-        ],
-      };
     }
-
-    case "Potion": {
-      // Potion: curar 20 de daño
-      const targetId = selections[0]?.[0];
-      if (!targetId) return state;
-
-      let newState = { ...state };
-
-      if (state.opponentActivePokemon?.pokemon.id === targetId) {
-        const currentDamage = state.opponentActivePokemon.currentDamage || 0;
-        const healed = Math.min(20, currentDamage);
-        newState.opponentActivePokemon = {
-          ...state.opponentActivePokemon,
-          currentDamage: currentDamage - healed,
-        };
-        newState.events = [
-          ...state.events,
-          { id: `evt-${Date.now()}`, timestamp: Date.now(), message: `Rival usó Potion y curó ${healed} de daño`, type: "action" },
-        ];
-      }
-
-      // Mover Potion al descarte
-      const potionCard = state.opponentHand.find(c => c.id === cardId);
-      if (potionCard) {
-        newState.opponentHand = state.opponentHand.filter(c => c.id !== cardId);
-        newState.opponentDiscard = [...state.opponentDiscard, potionCard];
-      }
-
-      return newState;
-    }
-
-    case "PlusPower": {
-      // PlusPower: +10 daño al próximo ataque
-      const plusPowerCard = state.opponentHand.find(c => c.id === cardId);
-      if (!plusPowerCard) return state;
-
-      return {
-        ...state,
-        opponentHand: state.opponentHand.filter(c => c.id !== cardId),
-        activeModifiers: [
-          ...state.activeModifiers,
-          {
-            id: `mod-${Date.now()}`,
-            source: "plusPower",
-            card: plusPowerCard,
-            amount: 10,
-            expiresAfterTurn: state.turnNumber,
-            playerId: "opponent",
-          },
-        ],
-        events: [
-          ...state.events,
-          { id: `evt-${Date.now()}`, timestamp: Date.now(), message: "Rival usó PlusPower (+10 daño)", type: "action" },
-        ],
-      };
-    }
-
-    default:
-      return state;
-  }
+  );
 }
 
 /**

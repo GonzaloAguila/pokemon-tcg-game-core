@@ -10,3 +10,13 @@ Each entry: card, the question, what was implemented meanwhile. Agents append he
 - **Mysterious Fossil in setup/mulligan**: treated as a Basic Pokémon ("play as if it were a Basic Pokémon").
 
 ## Open questions
+
+### Stage A (wrapping Base Set / Jungle trainers and powers — behavior kept unless noted)
+
+- **Devolution Spray (BS #72)**: the printed card says "choose a Stage, *discard* all Evolution cards of that Stage or higher". The engine (and the catalog's Spanish text) removes ONE stage and returns it to the hand. Kept as is. Fixed meanwhile (unambiguous): the devolved Pokémon loses Special Conditions and attack effects ("just as if you had evolved it") and is Knocked Out when its damage ≥ the lower stage's HP (it used to stay in play with damage ≥ HP).
+- **Energy Removal (BS #92)**: the printed card allows an Energy on *any* of the opponent's Pokémon; the engine and catalog text only allow the opponent's Active. Kept.
+- **Super Energy Removal (BS #79)**: the catalog text says "the opponent's Active", the engine allows any opponent Pokémon (matches the printed card). Catalog text is the doubt.
+- **Full Heal (BS #82)**: the engine refuses it when the Active has no condition (the card can be played anyway, to no effect), and it also removes Leer's "can't attack", which is not a Special Condition. Kept.
+- **Poké Ball (JU #64)**: on heads the player "may" search; the registry requires choosing a Pokémon when the deck has one, and the deck is not shuffled when nothing is taken. Kept.
+- **Peek (Mankey)**: "one of either player's Prizes" — the engine picks the prize at random instead of letting the player choose. Kept.
+- **Damage Swap (Alakazam)**: one use = one move of N counters between two Pokémon (the API's `amount` semantics); the card moves 1 counter per use, as often as you like. Equivalent outcomes.

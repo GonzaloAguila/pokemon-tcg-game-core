@@ -199,9 +199,20 @@ export function attachEnergyCard(state: GameState, energyCardId: string, targetP
  */
 export function evolvePokemonInPlay(target: PokemonInPlay, evolutionCard: GameCard, turnNumber: number): PokemonInPlay {
   return {
-    ...target,
+    ...clearEffectsAsIfEvolved(target),
     pokemon: evolutionCard,
     previousEvolutions: [...(target.previousEvolutions ?? []), target.pokemon],
+    playedOnTurn: turnNumber,
+  };
+}
+
+/**
+ * What evolving (or devolving: Devolution Spray "just as if you had evolved it") removes:
+ * Special Conditions (and Toxic's poison damage) and every effect of attacks on the Pokémon.
+ */
+export function clearEffectsAsIfEvolved(target: PokemonInPlay): PokemonInPlay {
+  return {
+    ...target,
     statusConditions: [],
     paralyzedOnTurn: undefined,
     poisonDamage: undefined,
@@ -217,7 +228,6 @@ export function evolvePokemonInPlay(target: PokemonInPlay, evolutionCard: GameCa
     mustFlipToAttackTurn: undefined,
     modifiedWeakness: undefined,
     modifiedResistance: undefined,
-    playedOnTurn: turnNumber,
   };
 }
 

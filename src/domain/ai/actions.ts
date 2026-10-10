@@ -53,7 +53,7 @@ function getDiscard(state: GameState, side: Side): GameCard[] {
  * perspective for the opponent, then rewrite the new log lines from the human's point of
  * view. Illegal actions leave the state unchanged (the AI plans on a simulated state).
  */
-function actAs(
+export function actAs(
   state: GameState,
   side: Side,
   isLegal: (s: GameState) => string | null,
@@ -74,8 +74,10 @@ function actAs(
 }
 
 /** Board-action log lines written for "player", as seen by the human when the AI acts. */
-function toOpponentMessage(message: string): string {
+export function toOpponentMessage(message: string): string {
   if (message.startsWith("Colocaste ")) return `Rival colocó ${message.slice("Colocaste ".length)}`;
+  if (message.startsWith("Jugaste ")) return `Rival jugó ${message.slice("Jugaste ".length)}`;
+  if (message.startsWith("Robaste ")) return `Rival robó ${message.slice("Robaste ".length)}`;
   if (message.startsWith("Adjuntaste ")) return `Rival adjuntó ${message.slice("Adjuntaste ".length)}`;
   if (message.startsWith("Rain Dance:")) return `Rival usó ${message}`;
   return message;

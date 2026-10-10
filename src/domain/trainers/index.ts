@@ -10,11 +10,13 @@ import {
   clearStatusConditionsOnRetreat,
   clearAllStatusConditions,
   shuffle,
+  knockOutPlayerActive,
+  processBenchKnockouts,
 } from "@/lib/gameState";
 import { ALL_CARDS } from "@/domain/catalog";
 import { isBasicEnergy, isPokemonCard } from "@/domain/cards";
 import { GamePhase, CardKind, PokemonStage } from "@/domain/constants";
-import { evolvePokemonInPlay } from "@/domain/board";
+import { evolvePokemonInPlay, clearEffectsAsIfEvolved } from "@/domain/board";
 
 
 // ============================================================================
@@ -1338,12 +1340,12 @@ export function playDevolutionSpray(
   const previousStage = previousEvos[previousEvos.length - 1];
   const remainingEvos = previousEvos.slice(0, -1);
 
+  // Keeps damage and Energy. "Just as if you had evolved it": no more Special Conditions
+  // or attack effects. A Pokémon left with damage >= its new HP is Knocked Out (below).
   const devolvedPokemon: PokemonInPlay = {
-    ...target,
+    ...clearEffectsAsIfEvolved(target),
     pokemon: previousStage,
     previousEvolutions: remainingEvos.length > 0 ? remainingEvos : undefined,
-    // Keep damage, energy, etc. but cap damage to new HP
-    // If damage >= new HP, the Pokemon is knocked out (handled by caller)
   };
 
   let newActive = state.playerActivePokemon;
@@ -1365,7 +1367,7 @@ export function playDevolutionSpray(
     ),
   ];
 
-  return {
+  const devolved: GameState = {
     ...state,
     playerHand: newHand,
     playerDiscard: newDiscard,
@@ -1373,6 +1375,13 @@ export function playDevolutionSpray(
     playerBench: newBench,
     events,
   };
+
+  // Knockouts are checked after every change of damage/HP
+  const hp = isPokemonCard(previousStage) ? previousStage.hp : 0;
+  if (targetIndex === -1 && (devolvedPokemon.currentDamage ?? 0) >= hp) {
+    return knockOutPlayerActive(devolved);
+  }
+  return processBenchKnockouts(devolved);
 }
 
 // ============================================================================

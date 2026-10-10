@@ -126,6 +126,7 @@ export {
   setPlayerReady,
   startPlayingPhase,
   advanceToSetup,
+  knockOutPlayerActive,
 } from "./lib/gameState";
 
 // Validation
@@ -174,6 +175,35 @@ export {
   protectionBlocksDamage,
   clearProtection,
 } from "./lib/gameState";
+
+// =============================================================================
+// Card effect registry (generic Trainer / activated Pokémon Power dispatch)
+// =============================================================================
+
+export type {
+  SelectionOption,
+  SelectionStep,
+  CardEffectDef,
+  CardEffectContext,
+  CoinFlipRequirement,
+} from "./domain/effects";
+export {
+  TRAINER_EFFECTS,
+  POWER_EFFECTS,
+  UNSUPPORTED_TRAINERS,
+  ACTIVATED_POWER_TYPES,
+  canPlayTrainerCard,
+  getTrainerSteps,
+  getTrainerCoinFlips,
+  playTrainerCard,
+  canUsePokemonPower,
+  getPowerSteps,
+  getPowerCoinFlips,
+  usePokemonPower,
+  getUsablePowerPokemonIds,
+  checkSelection,
+  minSelectionsOf,
+} from "./domain/effects";
 
 // =============================================================================
 // Trainers
