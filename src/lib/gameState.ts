@@ -395,13 +395,15 @@ export function clearProtection(pokemon: PokemonInPlay): PokemonInPlay {
 }
 
 /**
- * Limpia estados al retirarse (todos excepto veneno) y protección
+ * Resets everything that ends when a Pokémon moves to the bench (retreat, Switch,
+ * Whirlwind/Lure, Teleport...). Classic rule: moving to the bench removes ALL
+ * special conditions, including Poison. Also clears protection and "next turn" effects.
  */
 export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonInPlay {
-  const keepPoisoned = hasStatusCondition(pokemon, StatusCondition.Poisoned);
   return {
     ...pokemon,
-    statusConditions: keepPoisoned ? [StatusCondition.Poisoned] : [],
+    statusConditions: [],
+    poisonDamage: undefined,
     paralyzedOnTurn: undefined,
     protection: undefined,
     // Clear all "next turn" attack effects when going to bench (per TCG rules)
@@ -579,7 +581,7 @@ export function executeRetreat(
   const energiesToDiscard = activePokemon.attachedEnergy.filter(e => energyIdsToDiscard.includes(e.id));
   const remainingEnergy = activePokemon.attachedEnergy.filter(e => !energyIdsToDiscard.includes(e.id));
 
-  // Limpiar estados especiales del Pokémon que se retira (excepto veneno)
+  // Limpiar todos los estados especiales del Pokémon que se retira (incluido veneno)
   const retreatingPokemon = clearStatusConditionsOnRetreat(activePokemon);
 
   // Crear el nuevo Pokémon en banca (el que estaba activo)

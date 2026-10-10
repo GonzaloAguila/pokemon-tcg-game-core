@@ -6,7 +6,7 @@
  */
 
 import type { GameState } from "@/domain/match";
-import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition, executeDeckSearch, applyProtection } from "@/domain/match";
+import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition, executeDeckSearch, applyProtection, clearStatusConditionsOnRetreat } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
 import { PokemonStage, ProtectionType } from "@/domain/constants";
 import type { AIAction } from "./types";
@@ -627,25 +627,11 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
       // AI picks a random bench Pokemon (or first one)
       const pickIndex = finalState.playerBench.findIndex(p => p != null);
       const picked = finalState.playerBench[pickIndex]!;
+      // Moving to the bench clears ALL special conditions (incl. Poison) and active-only effects
       const goingToBench = {
-        ...finalState.playerActivePokemon,
-        // Clear status/effects when going to bench
-        statusConditions: (finalState.playerActivePokemon.statusConditions?.includes("poisoned")
-          ? ["poisoned" as const]
-          : []) as ("paralyzed" | "poisoned" | "confused" | "asleep")[],
-        paralyzedOnTurn: undefined,
-        protection: undefined,
-        nextTurnBonusDamage: undefined,
-        nextTurnDamageReduction: undefined,
-        nextTurnEffectAppliedOnTurn: undefined,
-        retreatPrevented: undefined,
-        retreatPreventedOnTurn: undefined,
+        ...clearStatusConditionsOnRetreat(finalState.playerActivePokemon),
         modifiedWeakness: undefined,
         modifiedResistance: undefined,
-        destinyBondActive: undefined,
-        destinyBondTurn: undefined,
-        mustFlipToAttack: undefined,
-        mustFlipToAttackTurn: undefined,
       };
       const newBench = [...finalState.playerBench];
       newBench.splice(pickIndex, 1);
@@ -675,24 +661,11 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
     if (aiBench.length > 0) {
       const pickIndex = finalState.opponentBench.findIndex(p => p != null);
       const picked = finalState.opponentBench[pickIndex]!;
+      // Moving to the bench clears ALL special conditions (incl. Poison) and active-only effects
       const goingToBench = {
-        ...finalState.opponentActivePokemon,
-        statusConditions: (finalState.opponentActivePokemon.statusConditions?.includes("poisoned")
-          ? ["poisoned" as const]
-          : []) as ("paralyzed" | "poisoned" | "confused" | "asleep")[],
-        paralyzedOnTurn: undefined,
-        protection: undefined,
-        nextTurnBonusDamage: undefined,
-        nextTurnDamageReduction: undefined,
-        nextTurnEffectAppliedOnTurn: undefined,
-        retreatPrevented: undefined,
-        retreatPreventedOnTurn: undefined,
+        ...clearStatusConditionsOnRetreat(finalState.opponentActivePokemon),
         modifiedWeakness: undefined,
         modifiedResistance: undefined,
-        destinyBondActive: undefined,
-        destinyBondTurn: undefined,
-        mustFlipToAttack: undefined,
-        mustFlipToAttackTurn: undefined,
       };
       const newBench = [...finalState.opponentBench];
       newBench.splice(pickIndex, 1);
