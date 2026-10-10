@@ -274,6 +274,7 @@ describe("generic power entry points", () => {
     const next = usePokemonPower(state, electrode.pokemon.id, [[Lightning], [pikachu.pokemon.id]]);
     expect(next.playerBench).toHaveLength(0);
     expect(next.playerActivePokemon!.attachedEnergy[0].buzzapEnergyType).toBe(Lightning);
+    expect(next.playerActivePokemon!.attachedEnergy[0].id).toBe(electrode.pokemon.id); // same physical card
     expect(next.opponentCanTakePrize).toBe(true);
   });
 

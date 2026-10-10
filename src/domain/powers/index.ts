@@ -1149,9 +1149,10 @@ export function executeBuzzap(
   const energyValue = power.becomesEnergyValue ?? 2;
 
   // Create the Buzzap energy card
+  // Same physical card, same id: it is Energy while attached and an Electrode again
+  // wherever it goes next (hand, discard, deck). A new id lost the card's identity.
   const buzzapEnergy: GameCard = {
     ...pokemon.pokemon,
-    id: `buzzap-${pokemon.pokemon.id}-${Date.now()}`,
     buzzapSourceId: pokemon.pokemon.id,
     buzzapEnergyType: chosenEnergyType,
   };
