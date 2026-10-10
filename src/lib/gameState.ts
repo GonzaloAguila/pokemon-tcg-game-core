@@ -1346,9 +1346,16 @@ export function startPlayingPhase(gameState: GameState, coinFlipResult: "heads" 
   };
 }
 
+/**
+ * Between-turns checkup for one active Pokémon.
+ * @param isOwnersTurnEnding - true when this Pokémon's owner is the player ending the turn.
+ *   Effects that last "during your opponent's next turn" (Leer / CannotAttack) wear off
+ *   only at the end of the affected Pokémon's own turn.
+ */
 function processStatusEffectsForPokemon(
   pokemon: PokemonInPlay,
-  currentTurn: number
+  currentTurn: number,
+  isOwnersTurnEnding: boolean
 ): { pokemon: PokemonInPlay; events: GameEvent[]; isKnockedOut: boolean } {
   let updated = { ...pokemon };
   const events: GameEvent[] = [];
@@ -1387,9 +1394,9 @@ function processStatusEffectsForPokemon(
     }
   }
 
-  // CannotAttack: se limpia automáticamente al final del turno del defensor
-  // (después de aplicar el ataque que lo causó, el efecto dura un turno del oponente)
-  if (hasStatusCondition(updated, StatusCondition.CannotAttack)) {
+  // CannotAttack (Leer): applied during the opponent's turn, it must last through the
+  // affected Pokémon's next turn, so it is only cleared when its OWNER ends a turn.
+  if (isOwnersTurnEnding && hasStatusCondition(updated, StatusCondition.CannotAttack)) {
     updated = removeStatusCondition(updated, StatusCondition.CannotAttack);
     events.push(createGameEvent(`${updated.pokemon.name} ya puede atacar`, "info"));
   }
@@ -1512,7 +1519,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     : updatedState.opponentActivePokemon;
 
   if (ownPokemon && gameResult === null) {
-    const result = processStatusEffectsForPokemon(ownPokemon, currentTurn);
+    const result = processStatusEffectsForPokemon(ownPokemon, currentTurn, true);
     events.push(...result.events);
 
     if (result.isKnockedOut) {
@@ -1532,7 +1539,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     : updatedState.playerActivePokemon;
 
   if (otherPokemon && gameResult === null) {
-    const result = processStatusEffectsForPokemon(otherPokemon, currentTurn);
+    const result = processStatusEffectsForPokemon(otherPokemon, currentTurn, false);
     events.push(...result.events);
 
     if (result.isKnockedOut) {
