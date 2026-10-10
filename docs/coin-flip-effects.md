@@ -98,3 +98,17 @@ New coin effects in the Fossil catalog:
 | `forceSwitch` heads + `switchChosenBy: "opponent"` | Arbok Terror Strike | heads: damage first, then the opponent picks the new Defending Pokémon (pending attack choice) |
 | `heal` heads | Slowpoke Spacing Out | remove 1 counter (needs damage counters to be used) |
 | `protection` heads | Shellder Hide in Shell, Seadra Agility | as Withdraw / Agility |
+
+## Team Rocket (Stage D): coin conventions
+
+| Coins | Where | Who flips | Meaning |
+|---|---|---|---|
+| attack coins with `attackFlipper: "opponent"` | `getAttackCoinPlan` | the defending player | Knock Down (tails +20), Bench Manipulation (one per opponent's Benched Pokémon, 20 × tails, no W/R) |
+| `defender` coin of a Defending Dark Gyarados | `getAttackCoinPlan` (LAST, like Transparency) | the defending player | Final Beam: used only when the attack Knocks it Out; heads = 20 × Water Energy to the attacker (W/R) |
+| `coinCountFromEnergyType: Fire` | Continuous Fireball | attacker | one coin per Fire Energy card; 50 × heads and that many Fire Energy cards discarded |
+| `minHits: 2` | Petal Whirlwind | attacker | 3 coins, 30 × heads; Confused with 2+ heads |
+| `secondCoinAmounts` | Surprise Thunder | attacker | always 2 coins: heads/heads 20, heads/tails 10 to each opponent's Benched Pokémon, tails first = nothing |
+| `getRetreatCoinFlips(state)` → `executeRetreat(state, ids, i, { coinResults })` | retreat | the retreating player | Sinkhole: one coin per working Dark Dugtrio of the opponent; tails = 20 to the Pokémon that retreated |
+| `getTrainerCoinFlips` = `"untilTails"` | Digger | coin i: you (even i), the opponent (odd i) | the one who got the tails does 10 to their own Active |
+| `getPowerCoinFlips` = 1 | Long-Distance Hypnosis, Pollen Stench | power owner | heads: Defending Pokémon Asleep / Confused; tails: your Active |
+| `getTrainerCoinFlips` = 1 | Sleep! | player | heads: Defending Pokémon Asleep |
