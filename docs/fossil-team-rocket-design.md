@@ -1,0 +1,80 @@
+# Fossil + Team Rocket — design and plan
+
+**Date:** 2026-10-10 · **Owner request:** add Fossil, then Team Rocket, following how Base Set and Jungle work, fully playable (SP and MP), tested with bots. Card doubts go to `docs/card-doubts.md` for the owner to review.
+**Mode:** autonomous (owner away, no approvals possible). Feature branches + worktrees only; no publish, no merge, no deploy.
+
+| Repo | Worktree | Branch | Base |
+|---|---|---|---|
+| game-core | `D:/Proyectos/pokemon-tcg-wt-gc` | `feature/fossil-team-rocket` | `refactor/engine-coin-flips` (unpublished, 118 tests) |
+| API | `D:/Proyectos/pokemon-tcg-wt-api` | `feature/fossil-team-rocket` | `hardening/socket-validation` (unmerged) |
+| frontend | `D:/Proyectos/pokemon-tcg-wt-fe` | `feature/fossil-team-rocket` | `main` |
+
+The original checkouts belong to other agents (frontend: `design/slab-identity`; API: `hardening/socket-validation`) — never touch them.
+
+## Source data
+
+`data/pokemontcg/base3.json` (Fossil) and `base5.json` (Team Rocket) from api.pokemontcg.io, plus readable dumps `fossil.txt` / `rocket.txt` (non-holo duplicates removed). They are the source of truth for card text; translate names of attacks/powers/texts to Spanish like Base/Jungle, keep Pokémon names in English.
+
+- **Fossil:** 62 cards → **47 unique** (exclude non-holo duplicates #16–30, same as Jungle excluded #17–32). 10 Pokémon Powers, 4 trainers + Mysterious Fossil.
+- **Team Rocket:** 83 cards → **66 unique** (exclude #18–31, #71, #72, #80 which duplicate #1–14, #15, #16, #17). 16 powers, 9 trainers, 3 special energies, Dark Raichu (#83, "Rare Secret" → `CardRarity.RareHolo`, logged as a doubt).
+- Images: `https://pkmncards.com/wp-content/uploads/{slug}-fossil-fo-{n}.jpg` and `{slug}-team-rocket-tr-{n}.jpg`. Verified: aerodactyl/mysterious-fossil/kabuto (fo), dark-charizard/here-comes-team-rocket/rockets-sneak-attack/dark-raichu/imposter-oaks-revenge (tr). `mr-fuji-fossil-fo-58` is 404 (try `mr.-fuji`, like `mr.-mime`). A test/script must HEAD every catalog image URL.
+
+## Why not "just copy Jungle"
+
+Today every mechanic is wired 4 times by card name / power type: game-core function, frontend SP (`usePokemonPowers`, `trainer-registry.ts`, `useBoardActions`), frontend MP (`MultiplayerGamePage.tsx`), API (`rooms.ts` per-name `switch`), plus the AI. Energy attach, evolution and basic placement are re-implemented in FE, API and AI with drifting rules. Sets are enumerated by hand in ~36 files. Adding 113 cards with ~26 powers, 13 trainers and 3 special energies that way multiplies bugs. So stage A moves behavior into game-core once; consumers become generic.
+
+## Stage A — game-core foundations (no new cards)
+
+1. **Set registry** (`src/domain/catalog/sets.ts`): `CARD_SETS: CardSetInfo[]` = `{ id: "base-set"|"jungle"|…, name: CardSet, code: "BS"|"JU"|"FO"|"TR", releaseDate, cards, imageUrl(card) }`, plus `ALL_CARDS`, `getSetById`, `getSetForCard`, `findCardById`, `findCardDefinition(set, number)`. Every engine lookup (`findCardByName`, `resolve.ts`, trainers `allCards`, `getCardImageUrl`) goes through it. Exported from `src/index.ts`. Consumers replace their `[...baseSetCards, ...jungleCards]` copies with `ALL_CARDS` / `CARD_SETS`.
+2. **Engine-owned board actions**: `playBasicPokemon(state, cardId, "active"|"bench")`, `attachEnergyCard(state, energyCardId, targetPokemonId)` (with special-energy on-attach hook + Rain Dance), `evolvePokemonCard(state, evolutionCardId, targetPokemonId)` (with `findValidEvolutionTargets` rules + Prehistoric Power), and `isPlayableAsBasic(card)` (Mysterious Fossil, Clefairy Doll). Player side only, like every engine function; callers swap perspective. FE, API and AI switch to them.
+3. **Card effect registry** — one contract for trainers and activated powers, moved from the frontend's `TrainerDef`:
+   ```ts
+   interface SelectionStep { title; description; options: { id; label; … }[]; maxSelections; minSelections?; source?; cards?; thumbnails?; orderingCards?; disableAutoSelect?; chooser?: "self" | "opponent" }
+   interface CardEffectDef {
+     canUse(state, sourceId): string | null;                      // null = OK, else Spanish reason
+     getSteps(state, sourceId, selections: string[][], coins?: CoinFlipResult[]): SelectionStep | null;
+     coinFlips?(state, sourceId, selections): number | "untilTails" | 0;  // flipped by the caller (server in MP)
+     resolve(state, sourceId, selections, { coinResults }): GameState;
+   }
+   TRAINER_EFFECTS: Record<trainerName, CardEffectDef>   // sourceId = card id in hand
+   POWER_EFFECTS:   Record<powerName,  CardEffectDef>    // sourceId = PokemonInPlay id
+   playTrainerCard(state, cardId, selections, { coinResults })
+   usePokemonPower(state, pokemonId, selections, { coinResults })
+   getTrainerSteps / getPowerSteps / getTrainerCoinFlips / getPowerCoinFlips
+   ```
+   Base Set + Jungle trainers and activated powers are wrapped (no rule changes) so the frontend SP/MP and the API dispatch generically: FE `trainer-registry.ts` and the per-power switches disappear; API `rooms.ts` replaces the name `switch` with `playTrainerCard` / `usePokemonPower` (keep zod validation: `selections: string[][]` bounded, `coinResults` server-rolled from `getXCoinFlips`). Opponent choices ("he or she chooses") use a pending state answered by the other side (`chooser: "opponent"`).
+4. **Passive power query**: `isPowerActive(state, pokemon)` = has power ∧ not Asleep/Confused/Paralyzed ∧ not suppressed (Toxic Gas, Goop Gas Attack, Dark Arbok Stare). All existing passive checks (Invisible Wall, Thick Skinned, Strikes Back, Retreat Aid, …) use it.
+5. **Bots** (`src/domain/simulation/` + `scripts/simulate.ts`, `npm run simulate -- --games 200 --sets fossil --seed 1`):
+   - `playAIGame(deckA, deckB, { rng, policyA, policyB, maxTurns })` runs a full headless game: mulligan, setup, turns, prizes, promotions, pending states on both sides, until `GAME_OVER` or turn cap. Exports `swapSides`.
+   - Policies: `greedyAI` (existing strategy) and `randomLegal` (fuzzer: picks uniformly among legal actions — every playable basic/evolution/energy/trainer/power with random valid selections, retreat, attack, end turn — using the registry's `canUse`/`getSteps`).
+   - Seeded RNG (mulberry32) replaces `Math.random` during a run so failures replay.
+   - Invariants after every action: no exception; card conservation (each side always owns exactly its 60 cards across deck/hand/discard/prizes/in play/attached); damage ≥ 0 and multiple of 10; no Pokémon in play with damage ≥ HP after KO processing; no pending flag left when the turn passes; game ends.
+   - Vitest runs a small fixed batch (e.g. 30 seeded games per set) in CI; the script runs large batches and prints failures with seeds.
+
+## Stage B — Fossil (game-core)
+
+Catalog `src/domain/catalog/fossil.ts` (47 cards, `CardSet.Fossil = "Fossil"`, id slug `fossil-NNN-name`). New mechanics, each with a failing card-scenario test first:
+
+- **Mysterious Fossil**: trainer playable as Basic (bench/active, setup counts? — the card text says "play as if it were a Basic Pokémon": allowed in setup, counts for mulligan; doubt logged), 10 HP, no attacks, can't retreat, status immune, KO gives no prize, may be discarded from play during your turn. Aerodactyl/Kabuto/Omanyte evolve from it.
+- **Powers**: Prehistoric Power (no evolutions while active), Toxic Gas (suppression), Transform (Ditto copies Defending: type, HP, W/R, attacks; energy of any type), Step In, Curse, Transparency (coin per attack effect, defender's coin), Strange Behavior, Kabuto Armor (half damage, rounded down), Clairvoyance (opponent hand visible — API masking must reveal it), Cowardice.
+- **Attack effects**: Blizzard (heads → opponent bench, tails → own bench), Dark Mind / Stretch Kick (choose bench target), Prophecy (look/reorder top 3 of either deck), Absorb (heal half dealt rounded up), Sonicboom (no W/R), Selfdestruct (both benches + self), Wildfire (discard X Fire → mill X), Dive Bomb (tails nothing), Gigashock (choose 3 bench), Thunderstorm (coin per bench + tails self), Terror Strike (opponent chooses switch), Clamp (tails nothing), Energy Conversion (2 energy from discard + self dmg), Leech Life (heal = dealt), Hyper Beam (discard defender energy), Harden (≤30 prevented), Smokescreen, Stone Barrage (until tails), Call for Family (Krabby to bench), Headache (no trainers next turn), Hide in Shell, Spacing Out (requires damage), Scavenge (discard Psychic → trainer from discard). Reuse existing `AttackEffectType`s where they fit; add new ones as needed.
+- **Trainers**: Mr. Fuji, Energy Search, Gambler (coin), Recycle (coin).
+- AI: must at least not break on the new cards (play Fossil only when it has an evolution, never Mysterious Fossil as its only Active if avoidable; use simple powers optionally).
+
+## Stage C — Fossil in API and frontend
+
+- **API**: set registry in catalog/boosters/market/prizes/battle-pass/draft/handlers; `fossil-booster` (11 cards, 1 rare 33% holo, 3 uncommon, 5 common, same price as Jungle, energy as Jungle); generic trainer/power dispatch; engine board actions; coin-flip consumer migration (delete `applyCoinFlipEffects`, roll `getAttackCoinFlipCount` coins server-side, `executeAttack(state, i, { coinResults })`); masking honours Clairvoyance; zod schemas for new payloads; tests.
+- **Frontend**: registry-driven set lists (cards pages, catalog, detail, pack opening, market tiles, sidebar, home, deck preview, card reveal); Fossil logo `public/sets/fossil.png` and pack art `public/packs/fossil/` (if pack art can't be sourced, use the set logo on the existing pack tile style and log it); generic trainer/power flow in SP and MP via `getTrainerSteps`/`getPowerSteps` (one modal path for all), engine board actions; coin-flip consumer migration in `useCoinFlipHandler`/`useAttackFlow`; `npm run build` green.
+- Local verification without publishing: in game-core `npm run build && npm pack`, then in each consumer worktree `npm install --no-save <tgz>` (package.json untouched). Final version bump (0.6.0) is left to the owner.
+
+## Stage D — Team Rocket
+
+Same pipeline as B+C. Key mechanics: Dark Pokémon (separate names, `evolvesFrom` "Dark X"), special energies (Rainbow: any type, 10 dmg on attach from hand; Full Heal Energy: clears conditions on attach; Potion Energy: remove 1 counter on attach — all provide 1 energy), Summon Minions / Sneak Attack / Reel In (on play-from-hand triggers), Final Beam (on KO), Sinkhole (on retreat), Hay Fever (no trainers), Sticky Goo (+2 retreat), Frenzy, Evolutionary Light, Matter Exchange, Gather Fire, Long-Distance Hypnosis, Pollen Stench, Trickery (prizes ↔ top deck), opponent-flipped coins (Knock Down, Bench Manipulation), Mirror Shell, Rapid Evolution, Fling, Drag Off, Magnetic Lines, Energy Bomb, Mass Explosion, Continuous Fireball, Vanish, Mischief, Afternoon Nap; trainers Here Comes Team Rocket! (prizes face up — masking), Rocket's Sneak Attack (see opponent hand), The Boss's Way, Challenge! (opponent accepts/declines), Digger, Imposter Oak's Revenge, Nightly Garbage Run, Goop Gas Attack, Sleep!. `team-rocket-booster` and assets.
+
+## Out of scope (logged in card-doubts for the owner)
+
+Starter/theme deck changes, cosmetic skins for new cards, landing page, publishing game-core, merging, deploying.
+
+## Done criteria per set
+
+game-core: `npx tsc --noEmit`, `npm test` (all old + new scenario tests), `npm run simulate` 500 games per policy pair with 0 invariant failures, image URL check 100%. API: `npx tsc --noEmit`, tests green, local boot + catalog endpoints list the set. Frontend: `npx tsc --noEmit`, `npm run build`, local smoke (catalog page renders, pack opens, a SP game with a Fossil deck plays a trainer and a power).

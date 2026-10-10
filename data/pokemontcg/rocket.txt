@@ -1,0 +1,236 @@
+### 1 | Dark Alakazam | Pokémon | Stage 2 | Rare Holo | HP60 | Psychic | from Dark Kadabra
+  ATK Teleport Blast [PPC] 30: You may switch Dark Alakazam with 1 of your Benched Pokémon. (Do the damage before switching the Pokémon.)
+  ATK Mind Shock [PPP] 40: Don't apply Weakness and Resistance for this attack. (Any other effects that would happen after applying Weakness and Resistance still happen.)
+  W:Psychic×2 R: Retreat:3
+### 2 | Dark Arbok | Pokémon | Stage 1 | Rare Holo | HP60 | Grass | from Ekans
+  ATK Stare [GG] : Choose 1 of your opponent's Pokémon. This attack does 10 damage to that Pokémon. Don't apply Weakness and Resistance for this attack. (Any other effects that would happen after applying Weakness and Resistance still happen.) If that Pokémon has a Pokémon Power, that power stops working until the end of your opponent's next turn.
+  ATK Poison Vapor [GGG] 10: The Defending Pokémon is now Poisoned. This attack does 10 damage to each of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)
+  W:Psychic×2 R: Retreat:2
+### 3 | Dark Blastoise | Pokémon | Stage 2 | Rare Holo | HP70 | Water | from Dark Wartortle
+  ATK Hydrocannon [WW] 30+: Does 30 damage plus 20 more damage for each Water Energy attached to Dark Blastoise but not used to pay for this attack. You can't add more than 40 damage in this way.
+  ATK Rocket Tackle [WCC] 40: Dark Blastoise does 10 damage to itself. Flip a coin. If heads, prevent all damage done to Dark Blastoise during your opponent's next turn. (Any other effects of attacks still happen.)
+  W:Lightning×2 R: Retreat:2
+### 4 | Dark Charizard | Pokémon | Stage 2 | Rare Holo | HP80 | Fire | from Dark Charmeleon
+  ATK Nail Flick [C] 10: 
+  ATK Continuous Fireball [FF] 50×: Flip a number of coins equal to the number of Fire Energy cards attached to Dark Charizard. This attack does 50 damage times the number of heads. Discard a number of Fire Energy cards attached to Dark Charizard equal to the number of heads.
+  W:Water×2 R:Fighting-30 Retreat:3
+### 5 | Dark Dragonite | Pokémon | Stage 2 | Rare Holo | HP70 | Colorless | from Dark Dragonair
+  [Pokémon Power] Summon Minions: When you play Dark Dragonite from your hand, search your deck for up to 2 Basic Pokémon and put them onto your Bench. Shuffle your deck afterward.
+  ATK Giant Tail [CCCC] 70: Flip a coin. If tails, this attack does nothing.
+  W: R:Fighting-30 Retreat:2
+### 6 | Dark Dugtrio | Pokémon | Stage 1 | Rare Holo | HP50 | Fighting | from Diglett
+  [Pokémon Power] Sinkhole: Whenever your opponent's Active Pokémon retreats, your opponent flips a coin. If tails, this power does 20 damage to that Pokémon. (Don't apply Weakness and Resistance.) This power stops working while Dark Dugtrio is Asleep, Confused, or Paralyzed.
+  ATK Knock Down [FF] 20+: Your opponent flips a coin. If tails, this attack does 20 damage plus 20 more damage; if heads, this attack does 20 damage.
+  W:Grass×2 R:Lightning-30 Retreat:2
+### 7 | Dark Golbat | Pokémon | Stage 1 | Rare Holo | HP50 | Grass | from Zubat
+  [Pokémon Power] Sneak Attack: When you play Dark Golbat from your hand, you may choose 1 of your opponent's Pokémon. If you do, Dark Golbat does 10 damage to that Pokémon. Apply Weakness and Resistance.
+  ATK Flitter [GG] : Choose 1 of your opponent's Pokémon. This attack does 20 damage to that Pokémon. Don't apply Weakness and Resistance for this attack. (Any other effects that would happen after applying Weakness and Resistance still happen.)
+  W:Psychic×2 R:Fighting-30 Retreat:0
+### 8 | Dark Gyarados | Pokémon | Stage 1 | Rare Holo | HP70 | Water | from Magikarp
+  [Pokémon Power] Final Beam: When Dark Gyarados is Knocked Out by an attack, flip a coin. If heads, this power does 20 damage for each Water Energy attached to Dark Gyarados to the Pokémon that Knocked Out Dark Gyarados. Apply Weakness and Resistance. This power doesn't work if Dark Gyarados is Asleep, Confused, or Paralyzed.
+  ATK Ice Beam [WWW] 30: Flip a coin. If heads, the Defending Pokémon is now Paralyzed.
+  W:Grass×2 R:Fighting-30 Retreat:2
+### 9 | Dark Hypno | Pokémon | Stage 1 | Rare Holo | HP60 | Psychic | from Drowzee
+  ATK Psypunch [P] 20: 
+  ATK Bench Manipulation [PPC] 20×: Your opponent flips a number of coins equal to the number of Pokémon on his or her Bench. This attack does 20 damage times the number of tails. Don't apply Weakness and Resistance for this attack. (Any other effects that would happen after applying Weakness and Resistance still happen.)
+  W:Psychic×2 R: Retreat:2
+### 10 | Dark Machamp | Pokémon | Stage 2 | Rare Holo | HP70 | Fighting | from Dark Machoke
+  ATK Mega Punch [FF] 30: 
+  ATK Fling [FFFC] : Your opponent shuffles his or her Active Pokémon and all cards attached to it into his or her deck. This attack can't be used if your opponent has no Benched Pokémon.
+  W:Psychic×2 R: Retreat:3
+### 11 | Dark Magneton | Pokémon | Stage 1 | Rare Holo | HP60 | Lightning | from Magnemite
+  ATK Sonicboom [CC] 20: Don't apply Weakness and Resistance for this attack. (Any other effects that would happen after applying Weakness and Resistance still happen.)
+  ATK Magnetic Lines [LL] 30: If the Defending Pokémon has any basic Energy cards attached to it, choose 1 of them. If your opponent has any Benched Pokémon, choose 1 of them and attach that Energy card to it.
+  W:Fighting×2 R: Retreat:2
+### 12 | Dark Slowbro | Pokémon | Stage 1 | Rare Holo | HP60 | Psychic | from Slowpoke
+  [Pokémon Power] Reel In: When you play Dark Slowbro from your hand, choose up to 3 Basic Pokémon and/or Evolution cards from your discard pile and put them into your hand.
+  ATK Fickle Attack [PP] 40: Flip a coin. If tails, this attack does nothing.
+  W:Psychic×2 R: Retreat:2
+### 13 | Dark Vileplume | Pokémon | Stage 2 | Rare Holo | HP60 | Grass | from Dark Gloom
+  [Pokémon Power] Hay Fever: No Trainer cards can be played. This power stops working while Dark Vileplume is Asleep, Confused, or Paralyzed.
+  ATK Petal Whirlwind [GGG] 30×: Flip a coins. This attack does 30 damage times the number of heads. If you get 2 or more heads, Dark Vileplume is now Confused (after doing damage).
+  W:Fire×2 R: Retreat:2
+### 14 | Dark Weezing | Pokémon | Stage 1 | Rare Holo | HP60 | Grass | from Koffing
+  ATK Mass Explosion [GC] 20×: Does 20 damage times the total number of Koffings, Weezings, and Dark Weezings in play (Apply Weakness and Resistance.). Then, this attack does 20 damage to each Koffing, Weezing, and Dark Weezing (even your own). Don't apply Weakness and Resistance.
+  ATK Stun Gas [GGG] 20: Flip a coin. If heads, the Defending Pokémon is now Poisoned; if tails, the Defending Pokémon is now Paralyzed.
+  W:Psychic×2 R: Retreat:1
+### 15 | Here Comes Team Rocket! | Trainer | Rare Holo
+  RULE Each player plays with his or her Prize cards face up for the rest of the game.
+### 16 | Rocket's Sneak Attack | Trainer | Rare Holo
+  RULE Look at your opponent's hand. If he or she has any Trainer cards, choose 1 of them. Your opponent shuffles that card into his or her deck.
+### 17 | Rainbow Energy | Energy | Special | Rare Holo
+  RULE Attach Rainbow Energy to 1 of your Pokémon. While in play, Rainbow Energy counts as every type of basic Energy but only provides 1 Energy at a time. (Doesn't count as a basic Energy card when not in play.) When you attach this card from your hand to 1 of your Pokémon, it does 10 damage to that Pokémon. (Don't apply Weakness and Resistance.)
+### 32 | Dark Charmeleon | Pokémon | Stage 1 | Uncommon | HP50 | Fire | from Charmander
+  ATK Tail Slap [CC] 20: 
+  ATK Fireball [FFF] 70: Use this attack only if there are any Fire Energy cards attached to Dark Charmeleon. Flip a coin. If heads, discard 1 of those Energy cards. If tails, this attack does nothing (not even damage).
+  W:Water×2 R: Retreat:2
+### 33 | Dark Dragonair | Pokémon | Stage 1 | Uncommon | HP60 | Colorless | from Dratini
+  [Pokémon Power] Evolutionary Light: Once during your turn (before your attack), you may search your deck for an Evolution card. Show it to your opponent and put it into your hand. Shuffle your deck afterward. This power can't be used if Dark Dragonair is Asleep, Confused, or Paralyzed.
+  ATK Tail Strike [CCC] 20+: Flip a coin. If heads, this attack does 20 damage plus 20 more damage; if tails, this attack does 20 damage.
+  W: R:Psychic-30 Retreat:2
+### 34 | Dark Electrode | Pokémon | Stage 1 | Uncommon | HP60 | Lightning | from Voltorb
+  ATK Rolling Tackle [C] 10: 
+  ATK Energy Bomb [LL] 30: Take all Energy cards attached to Dark Electrode and attach them to your Benched Pokémon (in any way you choose). If you have no Benched Pokémon, discard all Energy cards attached to Dark Electrode.
+  W:Fighting×2 R: Retreat:1
+### 35 | Dark Flareon | Pokémon | Stage 1 | Uncommon | HP50 | Fire | from Eevee
+  ATK Rage [C] 10+: Does 10 damage plus 10 more damage for each damage counter on Dark Flareon.
+  ATK Playing with Fire [FF] 30+: Use this attack only if there are any Fire Energy cards attached to Dark Flareon. Flip a coin. If heads, discard 1 of those Energy cards and this attack does 30 damage plus 20 more damage; if tails, this attack does 30 damage.
+  W:Water×2 R: Retreat:1
+### 36 | Dark Gloom | Pokémon | Stage 1 | Uncommon | HP50 | Grass | from Oddish
+  [Pokémon Power] Pollen Stench: Once during your turn (before your attack), you may flip a coin. If heads, the Defending Pokémon is now Confused; if tails, your Active Pokémon is now Confused. This power can't be used if Dark Gloom is Asleep, Confused, or Paralyzed.
+  ATK Poisonpowder [GG] 10: The Defending Pokémon is now Poisoned.
+  W:Fire×2 R: Retreat:2
+### 37 | Dark Golduck | Pokémon | Stage 1 | Uncommon | HP60 | Water | from Psyduck
+  ATK Third Eye [P] : Discard 1 Energy card attached to Dark Golduck in order to draw up to 3 cards.
+  ATK Super Psy [PPC] 50: 
+  W:Lightning×2 R: Retreat:2
+### 38 | Dark Jolteon | Pokémon | Stage 1 | Uncommon | HP50 | Lightning | from Eevee
+  ATK Lightning Flash [L] 20: If the Defending Pokémon tries to attack during your opponent's next turn, your opponent flips a coin. If tails, that attack does nothing.
+  ATK Thunder Attack [LLC] 30: Flip a coin. If heads, the Defending Pokémon is now Paralyzed. If tails, Dark Jolteon does 10 damage to itself.
+  W:Fighting×2 R: Retreat:1
+### 39 | Dark Kadabra | Pokémon | Stage 1 | Uncommon | HP50 | Psychic | from Abra
+  [Pokémon Power] Matter Exchange: Once during your turn (before your attack), you may discard a card from your hand in order to draw a card. This power can't be used if Dark Kadabra is Asleep, Confused, or Paralyzed.
+  ATK Mind Shock [PP] 30: Don't apply Weakness and Resistance for this attack. (Any other effects that would happen after applying Weakness and Resistance still happen.)
+  W:Psychic×2 R: Retreat:2
+### 40 | Dark Machoke | Pokémon | Stage 1 | Uncommon | HP60 | Fighting | from Machop
+  ATK Drag Off [FFC] 20: Before doing damage, choose 1 of your opponent's Benched Pokémon and switch it with the Defending Pokémon. Do the damage to the new Defending Pokémon. This attack can't be used if your opponent has no Benched Pokémon.
+  ATK Knock Back [FFC] 30: If your opponent has any Benched Pokémon, he or she chooses 1 of them and switches it with the Defending Pokémon. (Do the damage before switching the Pokémon.)
+  W:Psychic×2 R: Retreat:2
+### 41 | Dark Muk | Pokémon | Stage 1 | Uncommon | HP60 | Grass | from Grimer
+  [Pokémon Power] Sticky Goo: As long as Dark Muk is your Active Pokémon, your opponent pays ColorlessColorless more to retreat his or her Active Pokémon. This power stops working while Dark Muk is Asleep, Confused, or Paralyzed.
+  ATK Sludge Punch [GG] 20: The Defending Pokémon is now Poisoned.
+  W:Psychic×2 R: Retreat:2
+### 42 | Dark Persian | Pokémon | Stage 1 | Uncommon | HP60 | Colorless | from Meowth
+  ATK Fascinate [C] : Flip a coin. If heads, choose 1 of your opponent's Benched Pokémon and switch it with the Defending Pokémon. This attack can't be used if your opponent has no Benched Pokémon.
+  ATK Poison Claws [CC] 10: Flip a coin. If heads, the Defending Pokémon is now Poisoned.
+  W:Fighting×2 R:Psychic-30 Retreat:0
+### 43 | Dark Primeape | Pokémon | Stage 1 | Uncommon | HP60 | Fighting | from Mankey
+  [Pokémon Power] Frenzy: If Dark Primeape does any damage while it's Confused (even to itself), it does 30 more damage.
+  ATK Frenzied Attack [FF] 40: Dark Primeape is now Confused (after doing damage).
+  W:Psychic×2 R: Retreat:1
+### 44 | Dark Rapidash | Pokémon | Stage 1 | Uncommon | HP60 | Fire | from Ponyta
+  ATK Rear Kick [CC] 20: 
+  ATK Flame Pillar [FF] 30: You may discard 1 Fire Energy card attached to Dark Rapidash when you use this attack. If you do and if your opponent has any Benched Pokémon, choose 1 of them and this attack does 10 damage to it. (Don't apply Weakness and Resistance for Benched Pokémon.)
+  W:Water×2 R: Retreat:0
+### 45 | Dark Vaporeon | Pokémon | Stage 1 | Uncommon | HP60 | Water | from Eevee
+  ATK Bite [CCC] 30: 
+  ATK Whirlpool [WWC] 20: If the Defending Pokémon has any Energy cards attached to it, choose 1 of them and discard it.
+  W:Lightning×2 R: Retreat:1
+### 46 | Dark Wartortle | Pokémon | Stage 1 | Uncommon | HP60 | Water | from Squirtle
+  ATK Doubleslap [W] 10×: Flip 2 coins. This attack does 10 damage times the number of heads.
+  ATK Mirror Shell [WC] : If an attack does damage to Dark Wartortle during your opponent's next turn (even if Dark Wartortle is Knocked Out), Dark Wartortle attacks the Defending Pokémon for an equal amount of damage.
+  W:Lightning×2 R: Retreat:1
+### 47 | Magikarp | Pokémon | Basic | Uncommon | HP30 | Water
+  ATK Flop [C] 10: 
+  ATK Rapid Evolution [WWW] : Search your deck for an Evolution card named Gyarados or Dark Gyarados and put it on Magikarp. (This counts as evolving Magikarp.) Shuffle your deck afterward.
+  W:Lightning×2 R: Retreat:1
+### 48 | Porygon | Pokémon | Basic | Uncommon | HP40 | Colorless
+  ATK Conversion 1 [C] : If the Defending Pokémon has a Weakness, you may change it to a type of your choice other than Colorless.
+  ATK Psybeam [CCC] 20: Flip a coin. If heads, the Defending Pokémon is now Confused.
+  W:Fighting×2 R:Psychic-30 Retreat:0
+### 49 | Abra | Pokémon | Basic | Common | HP40 | Psychic
+  ATK Vanish [P] : Shuffle Abra into your deck. (Discard all cards attached to Abra.)
+  ATK Psyshock [P] 10: Flip a coin. If heads, the Defending Pokémon is now Paralyzed.
+  W:Psychic×2 R: Retreat:1
+### 50 | Charmander | Pokémon | Basic | Common | HP40 | Fire
+  [Pokémon Power] Gather Fire: Once during your turn (before your attack), you may take 1 Fire Energy card attached to 1 of your other Pokémon and attach it to Charmander. This power can't be used if Charmander is Asleep, Confused, or Paralyzed.
+  ATK Fire Tail [F] 20: 
+  W:Water×2 R: Retreat:1
+### 51 | Dark Raticate | Pokémon | Stage 1 | Common | HP50 | Colorless | from Rattata
+  ATK Gnaw [CC] 20: 
+  ATK Hyper Fang [CCC] 50: Flip a coin. If tails, this attack does nothing.
+  W:Fighting×2 R:Psychic-30 Retreat:1
+### 52 | Diglett | Pokémon | Basic | Common | HP40 | Fighting
+  ATK Dig Under [F] : Choose 1 of your opponent's Pokémon. This attack does 10 damage to that Pokémon. Don't apply Weakness and Resistance for this attack. (Any other effects that would happen after applying Weakness and Resistance still happen.)
+  ATK Scratch [FC] 20: 
+  W:Grass×2 R:Lightning-30 Retreat:0
+### 53 | Dratini | Pokémon | Basic | Common | HP40 | Colorless
+  ATK Wrap [CC] 10: Flip a coin. If heads, the Defending Pokémon is now Paralyzed.
+  W: R:Psychic-30 Retreat:1
+### 54 | Drowzee | Pokémon | Basic | Common | HP50 | Psychic
+  [Pokémon Power] Long-Distance Hypnosis: Once during your turn (before your attack), you may flip a coin. If heads, the Defending Pokémon is now Asleep; if tails, your Active Pokémon is now Asleep. This power can't be used if Drowzee is Asleep, Confused, or Paralyzed.
+  ATK Nightmare [PC] 10: The Defending Pokémon is now Asleep.
+  W:Psychic×2 R: Retreat:1
+### 55 | Eevee | Pokémon | Basic | Common | HP40 | Colorless
+  ATK Tackle [C] 10: 
+  ATK Sand-attack [CC] 10: If the Defending Pokémon tries to attack during your opponent's next turn, your opponent flips a coin. If tails, that attack does nothing.
+  W:Fighting×2 R:Psychic-30 Retreat:1
+### 56 | Ekans | Pokémon | Basic | Common | HP50 | Grass
+  ATK Bite [C] 10: 
+  ATK Poison Sting [GG] 20: Flip a coin. If heads, the Defending Pokémon is now Poisoned.
+  W:Psychic×2 R: Retreat:1
+### 57 | Grimer | Pokémon | Basic | Common | HP40 | Grass
+  ATK Poison Gas [G] : The Defending Pokémon is now Asleep.
+  ATK Sticky Hands [GG] 10+: Flip a coin. If heads, this attack does 10 damage plus 20 more damage and the Defending Pokémon is now Paralyzed; if tails, this attack does 10 damage.
+  W:Psychic×2 R: Retreat:1
+### 58 | Koffing | Pokémon | Basic | Common | HP40 | Grass
+  ATK Tackle [C] 10: 
+  ATK Poison Gas [GC] 20: Flip a coin. If heads, the Defending Pokémon is now Poisoned.
+  W:Psychic×2 R: Retreat:1
+### 59 | Machop | Pokémon | Basic | Common | HP50 | Fighting
+  ATK Punch [CC] 20: 
+  ATK Kick [FCC] 30: 
+  W:Psychic×2 R: Retreat:1
+### 60 | Magnemite | Pokémon | Basic | Common | HP40 | Lightning
+  ATK Tackle [CC] 20: 
+  ATK Magnetism [LC] 10+: Does 10 damage plus 10 more damage for each Magnemite, Magneton, and Dark Magneton on your Bench.
+  W:Fighting×2 R: Retreat:1
+### 61 | Mankey | Pokémon | Basic | Common | HP40 | Fighting
+  ATK Mischief [C] : Shuffle your opponent's deck.
+  ATK Anger [FC] 20+: Flip a coin. If heads, this attack does 20 damage plus 20 more damage; if tails, this attack does 20 damage.
+  W:Psychic×2 R: Retreat:0
+### 62 | Meowth | Pokémon | Basic | Common | HP40 | Colorless
+  ATK Coin Hurl [CC] : Choose 1 of your opponent's Pokémon and flip a coin. If heads, this attack does 20 damage to that Pokémon. Don't apply Weakness and Resistance for this attack. (Any other effects that would happen after applying Weakness and Resistance still happen.)
+  W:Fighting×2 R:Psychic-30 Retreat:1
+### 63 | Oddish | Pokémon | Basic | Common | HP50 | Grass
+  ATK Sleep Powder [G] : The Defending Pokémon is now Asleep.
+  ATK Poisonpowder [G] : The Defending Pokémon is now Poisoned.
+  W:Fire×2 R: Retreat:1
+### 64 | Ponyta | Pokémon | Basic | Common | HP50 | Fire
+  ATK Ember [FC] 30: Discard 1 Fire Energy card attached to Ponyta in order to use this attack.
+  W:Water×2 R: Retreat:1
+### 65 | Psyduck | Pokémon | Basic | Common | HP50 | Water
+  ATK Dizziness [P] : Draw a card.
+  ATK Water Gun [WC] 20+: Does 20 damage plus 10 more damage for each Water Energy attached to Psyduck but not used to pay for this attack. You can't add more than 20 damage in this way.
+  W:Lightning×2 R: Retreat:1
+### 66 | Rattata | Pokémon | Basic | Common | HP40 | Colorless
+  [Pokémon Power] Trickery: Once during your turn (before your attack), you may switch 1 of your Prizes with the top card of your deck. This power can't be used if Rattata is Asleep, Confused, or Paralyzed.
+  ATK Quick Attack [C] 10+: Flip a coin. If heads, this attack does 10 damage plus 10 more damage; if tails, this attack does 10 damage.
+  W:Fighting×2 R:Psychic-30 Retreat:0
+### 67 | Slowpoke | Pokémon | Basic | Common | HP50 | Psychic
+  ATK Afternoon Nap [C] : Search your deck for a Psychic Energy card and attach it to Slowpoke. Shuffle your deck afterward.
+  ATK Headbutt [P] 10: 
+  W:Psychic×2 R: Retreat:1
+### 68 | Squirtle | Pokémon | Basic | Common | HP50 | Water
+  ATK Shell Attack [CC] 20: 
+  W:Lightning×2 R: Retreat:1
+### 69 | Voltorb | Pokémon | Basic | Common | HP40 | Lightning
+  ATK Speed Ball [L] 20: 
+  W:Fighting×2 R: Retreat:1
+### 70 | Zubat | Pokémon | Basic | Common | HP40 | Grass
+  ATK Ram [C] 10: 
+  ATK Bite [GC] 20: 
+  W:Psychic×2 R:Fighting-30 Retreat:0
+### 73 | The Boss's Way | Trainer | Uncommon
+  RULE Search your deck for an Evolution card with Dark in its name. Show it to your opponent and put it into your hand. Shuffle your deck afterward.
+### 74 | Challenge! | Trainer | Uncommon
+  RULE Ask your opponent if he or she accepts your challenge. If your opponent declines (or if both Benches are full), draw 2 cards. If your opponent accepts, each of you searches your decks for any number of Basic Pokémon cards and puts them face down onto your Benches. (A player can't do this if his or her Bench is full.) When you both have finished, shuffle your decks and turn those cards face up.
+### 75 | Digger | Trainer | Rocket's Secret Machine | Uncommon
+  RULE Flip a coin. If tails, do 10 damage to your Active Pokémon. If heads, your opponent flips a coin. If tails, your opponent does 10 damage to his or her Active Pokémon. If heads, you flip a coin. Keep doing this until a player gets tails.
+### 76 | Imposter Oak's Revenge | Trainer | Uncommon
+  RULE Discard a card from your hand in order to play this card. Your opponent shuffles his or her hand into his or her deck, then draws 4 cards.
+### 77 | Nightly Garbage Run | Trainer | Rocket's Secret Machine | Uncommon
+  RULE Choose up to 3 Basic Pokémon cards, Evolution cards, and/or basic Energy cards from your discard pile. Show them to your opponent and shuffle them into your deck.
+### 78 | Goop Gas Attack | Trainer | Common
+  RULE All Pokémon Powers stop working until the end of your opponent's next turn.
+### 79 | Sleep! | Trainer | Rocket's Secret Machine | Common
+  RULE Flip a coin. If heads, the Defending Pokémon is now Asleep.
+### 81 | Full Heal Energy | Energy | Special | Uncommon
+  RULE If you play this card from your hand, the Pokémon you attach it to is no longer Asleep, Confused, Paralyzed, or Poisoned.
+  RULE Full Heal Energy provides Colorless energy. (Doesn't count as a basic Energy card.)
+### 82 | Potion Energy | Energy | Special | Uncommon
+  RULE If you play this card from your hand, remove 1 damage counter from the Pokémon you attach it to, if it has any.
+  RULE Potion Energy provides Colorless energy. (Doesn't count as a basic Energy card.)
+### 83 | Dark Raichu | Pokémon | Stage 1 | Rare Secret | HP70 | Lightning | from Pikachu
+  ATK Surprise Thunder [LLL] 30: Flip a coin. If heads, flip another coin. If the second coin is heads, this attack does 20 damage to each of your opponent's Benched Pokémon. If the second coin is tails, this attack does 10 damage to each of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)
+  W:Fighting×2 R: Retreat:1

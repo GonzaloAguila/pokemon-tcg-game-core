@@ -1,0 +1,173 @@
+### 1 | Aerodactyl | Pokémon | Stage 1 | Rare Holo | HP60 | Fighting | from Mysterious Fossil
+  [Pokémon Power] Prehistoric Power: No more Evolution cards can be played. This power stops working while Aerodactyl is Asleep, Confused, or Paralyzed.
+  ATK Wing Attack [CCC] 30: 
+  W:Grass×2 R:Fighting-30 Retreat:2
+### 2 | Articuno | Pokémon | Basic | Rare Holo | HP70 | Water
+  ATK Freeze Dry [WWW] 30: Flip a coin. If heads, the Defending Pokémon is now Paralyzed.
+  ATK Blizzard [WWWW] 50: Flip a coin. If heads, this attack does 10 damage to each of your opponent's Benched Pokémon. If tails, this attack does 10 damage to each of your own Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)
+  W: R:Fighting-30 Retreat:2
+### 3 | Ditto | Pokémon | Basic | Rare Holo | HP50 | Colorless
+  [Pokémon Power] Transform: If Ditto is your Active Pokémon, treat it as if it were the same card as the Defending Pokémon, including type, Hit Points, Weakness, and so on, except Ditto can't evolve, always has this Pokémon Power, and you may treat any Energy attached to Ditto as Energy of any type. Ditto isn't a copy of any other Pokémon while Ditto is Asleep, Confused, or Paralyzed.
+  W:Fighting×2 R:Psychic-30 Retreat:1
+### 4 | Dragonite | Pokémon | Stage 2 | Rare Holo | HP100 | Colorless | from Dragonair
+  [Pokémon Power] Step In: Once during your turn (before your attack), if Dragonite is on your Bench, you may switch it with your Active Pokémon.
+  ATK Slam [CCCC] 40×: Flip 2 coins. This attack does 40 damage times the number of heads.
+  W: R:Fighting-30 Retreat:1
+### 5 | Gengar | Pokémon | Stage 2 | Rare Holo | HP80 | Psychic | from Haunter
+  [Pokémon Power] Curse: Once during your turn (before your attack), you may move 1 damage counter from 1 of your opponent's Pokémon to another (even if it would Knock Out the other Pokémon). This power can't be used if Gengar is Asleep, Confused, or Paralyzed.
+  ATK Dark Mind [PPP] 30: If your opponent has any Benched Pokémon, choose 1 of them and this attack does 10 damage to it. (Don't apply Weakness and Resistance for Benched Pokémon.)
+  W: R:Fighting-30 Retreat:1
+### 6 | Haunter | Pokémon | Stage 1 | Rare Holo | HP50 | Psychic | from Gastly
+  [Pokémon Power] Transparency: Whenever an attack does anything to Haunter, flip a coin. If heads, prevent all effects of that attack, including damage, done to Haunter. This power stops working while Haunter is Asleep, Confused, or Paralyzed.
+  ATK Nightmare [PC] 10: The Defending Pokémon is now Asleep.
+  W: R:Fighting-30 Retreat:0
+### 7 | Hitmonlee | Pokémon | Basic | Rare Holo | HP60 | Fighting
+  ATK Stretch Kick [FF] : If your opponent has any Benched Pokémon, choose 1 of them and this attack does 20 damage to it. (Don't apply Weakness and Resistance for Benched Pokémon.)
+  ATK High Jump Kick [FFF] 50: 
+  W:Psychic×2 R: Retreat:1
+### 8 | Hypno | Pokémon | Stage 1 | Rare Holo | HP90 | Psychic | from Drowzee
+  ATK Prophecy [P] : Look at up to 3 cards from the top of either player's deck and rearrange them as you like.
+  ATK Dark Mind [PPP] 30: If your opponent has any Benched Pokémon, choose 1 of them and this attack does 10 damage to it. (Don't apply Weakness and Resistance for Benched Pokémon.)
+  W:Psychic×2 R: Retreat:2
+### 9 | Kabutops | Pokémon | Stage 2 | Rare Holo | HP60 | Fighting | from Kabuto
+  ATK Sharp Sickle [FF] 30: 
+  ATK Absorb [FFFF] 40: Remove a number of damage counters from Kabutops equal to half the damage done to the Defending Pokémon (after applying Weakness and Resistance) (rounded up to the nearest 10). If Kabutops has fewer damage counters than that, remove all of them.
+  W:Grass×2 R: Retreat:1
+### 10 | Lapras | Pokémon | Basic | Rare Holo | HP80 | Water
+  ATK Water Gun [W] 10+: Does 10 damage plus 10 more damage for each Water Energy attached to Lapras but not used to pay for this attack's Energy cost. You can't add more than 20 damage in this way.
+  ATK Confuse Ray [WW] 10: Flip a coin. If heads, the Defending Pokémon is now Confused.
+  W:Lightning×2 R: Retreat:2
+### 11 | Magneton | Pokémon | Stage 1 | Rare Holo | HP80 | Lightning | from Magnemite
+  ATK Sonicboom [LC] 20: Don't apply Weakness and Resistance for this attack. (Any other effects that would happen after applying Weakness and Resistance still happen.)
+  ATK Selfdestruct [LLLL] 100: Does 20 damage to each Pokémon on each player's Bench. (Don't apply Weakness and Resistance for Benched Pokémon.) Magneton does 100 damage to itself.
+  W:Fighting×2 R: Retreat:2
+### 12 | Moltres | Pokémon | Basic | Rare Holo | HP70 | Fire
+  ATK Wildfire [F] : You may discard any number of Fire Energy cards attached to Moltres when you use this attack. If you do, discard that many cards from the top of your opponent's deck.
+  ATK Dive Bomb [FFFF] 80: Flip a coin. If tails, this attack does nothing.
+  W: R:Fighting-30 Retreat:2
+### 13 | Muk | Pokémon | Stage 1 | Rare Holo | HP70 | Grass | from Grimer
+  [Pokémon Power] Toxic Gas: Ignore all Pokémon Powers other than Toxic Gases. This power stops working while Muk is Asleep, Confused, or Paralyzed.
+  ATK Sludge [GGG] 30: Flip a coin. If heads, the Defending Pokémon is now Poisoned.
+  W:Psychic×2 R: Retreat:2
+### 14 | Raichu | Pokémon | Stage 1 | Rare Holo | HP90 | Lightning | from Pikachu
+  ATK Gigashock [LLLL] 30: Choose 3 of your opponent's Benched Pokémon and this attack does 10 damage to each of them. (Don't apply Weakness and Resistance for Benched Pokémon.) If your opponent has fewer than 3 Benched Pokémon, do the damage to each of them.
+  W:Fighting×2 R: Retreat:1
+### 15 | Zapdos | Pokémon | Basic | Rare Holo | HP80 | Lightning
+  ATK Thunderstorm [LLLL] 40: For each of your opponent's Benched Pokémon, flip a coin. If heads, this attack does 20 damage to that Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.) Then, Zapdos does 10 damage times the number of tails to itself.
+  W: R:Fighting-30 Retreat:2
+### 31 | Arbok | Pokémon | Stage 1 | Uncommon | HP60 | Grass | from Ekans
+  ATK Terror Strike [G] 10: Flip a coin. If heads and if your opponent has any Benched Pokémon, he or she chooses 1 of them and switches it with the Defending Pokémon. (Do the damage before switching the Pokémon.)
+  ATK Poison Fang [GGC] 20: The Defending Pokémon is now Poisoned.
+  W:Psychic×2 R: Retreat:2
+### 32 | Cloyster | Pokémon | Stage 1 | Uncommon | HP50 | Water | from Shellder
+  ATK Clamp [WW] 30: Flip a coin. If heads, the Defending Pokémon is now Paralyzed. If tails, this attack does nothing (not even damage).
+  ATK Spike Cannon [WW] 30×: Flip 2 coins. This attack does 30 damage times the number of heads.
+  W:Lightning×2 R: Retreat:2
+### 33 | Gastly | Pokémon | Basic | Uncommon | HP50 | Psychic
+  ATK Lick [P] 10: Flip a coin. If heads, the Defending Pokémon is now Paralyzed.
+  ATK Energy Conversion [PP] : Put up to 2 Energy cards from your discard pile into your hand. Gastly does 10 damage to itself.
+  W: R:Fighting-30 Retreat:0
+### 34 | Golbat | Pokémon | Stage 1 | Uncommon | HP60 | Grass | from Zubat
+  ATK Wing Attack [CCC] 30: 
+  ATK Leech Life [GGC] 20: Remove a number of damage counters from Golbat equal to the damage done to the Defending Pokémon (after applying Weakness and Resistance). If Golbat has fewer damage counters than that, remove all of them.
+  W:Psychic×2 R:Fighting-30 Retreat:0
+### 35 | Golduck | Pokémon | Stage 1 | Uncommon | HP70 | Water | from Psyduck
+  ATK Psyshock [P] 10: Flip a coin. If heads, the Defending Pokémon is now Paralyzed.
+  ATK Hyper Beam [WWC] 20: If the Defending Pokémon has any Energy cards attached to it, choose 1 of them and discard it.
+  W:Lightning×2 R: Retreat:1
+### 36 | Golem | Pokémon | Stage 2 | Uncommon | HP80 | Fighting | from Graveler
+  ATK Avalanche [FFFC] 60: 
+  ATK Selfdestruct [FFFF] 100: Does 20 damage to each Pokémon on each player's Bench. (Don't apply Weakness and Resistance for Benched Pokémon.) Golem does 100 damage to itself.
+  W:Grass×2 R: Retreat:4
+### 37 | Graveler | Pokémon | Stage 1 | Uncommon | HP60 | Fighting | from Geodude
+  ATK Harden [FF] : During your opponent's next turn, whenever 30 or less damage is done to Graveler (after applying Weakness and Resistance), prevent that damage. (Any other effects of attacks still happen.)
+  ATK Rock Throw [FFC] 40: 
+  W:Grass×2 R: Retreat:2
+### 38 | Kingler | Pokémon | Stage 1 | Uncommon | HP60 | Water | from Krabby
+  ATK Flail [W] 10×: Does 10 damage times the number of damage counters on Kingler.
+  ATK Crabhammer [WWC] 40: 
+  W:Lightning×2 R: Retreat:3
+### 39 | Magmar | Pokémon | Basic | Uncommon | HP70 | Fire
+  ATK Smokescreen [F] 10: If the Defending Pokémon tries to attack during your opponent's next turn, your opponent flips a coin. If tails, that attack does nothing.
+  ATK Smog [FF] 20: Flip a coin. If heads, the Defending Pokémon is now Poisoned.
+  W:Water×2 R: Retreat:1
+### 40 | Omastar | Pokémon | Stage 2 | Uncommon | HP70 | Water | from Omanyte
+  ATK Water Gun [WC] 20+: Does 20 damage plus 10 more damage for each Water Energy attached to Omastar but not used to pay for this attack's Energy cost. You can't add more than 20 damage in this way.
+  ATK Spike Cannon [WW] 30×: Flip 2 coins. This attack does 30 damage times the number of heads.
+  W:Grass×2 R: Retreat:1
+### 41 | Sandslash | Pokémon | Stage 1 | Uncommon | HP70 | Fighting | from Sandshrew
+  ATK Slash [CC] 20: 
+  ATK Fury Swipes [FF] 20×: Flip 3 coins. This attack does 20 damage times the number of heads.
+  W:Grass×2 R:Lightning-30 Retreat:1
+### 42 | Seadra | Pokémon | Stage 1 | Uncommon | HP60 | Water | from Horsea
+  ATK Water Gun [WC] 20+: Does 20 damage plus 10 more damage for each Water Energy attached to Seadra but not used to pay for this attack's Energy cost. You can't add more than 20 damage in this way.
+  ATK Agility [WCC] 20: Flip a coin. If heads, during your opponent's next turn, prevent all effects of attacks, including damage, done to Seadra.
+  W:Lightning×2 R: Retreat:1
+### 43 | Slowbro | Pokémon | Stage 1 | Uncommon | HP60 | Psychic | from Slowpoke
+  [Pokémon Power] Strange Behavior: As often as you like during your turn (before your attack), you may move 1 damage counter from 1 of your Pokémon to Slowbro as long as you don't Knock Out Slowbro. This power can't be used if Slowbro is Asleep, Confused, or Paralyzed.
+  ATK Psyshock [PP] 20: Flip a coin. If heads, the Defending Pokémon is now Paralyzed.
+  W:Psychic×2 R: Retreat:1
+### 44 | Tentacruel | Pokémon | Stage 1 | Uncommon | HP60 | Water | from Tentacool
+  ATK Supersonic [W] : Flip a coin. If heads, the Defending Pokémon is now Confused.
+  ATK Jellyfish Sting [WW] 10: The Defending Pokémon is now Poisoned.
+  W:Lightning×2 R: Retreat:0
+### 45 | Weezing | Pokémon | Stage 1 | Uncommon | HP60 | Grass | from Koffing
+  ATK Smog [GG] 20: Flip a coin. If heads, the Defending Pokémon is now Poisoned.
+  ATK Selfdestruct [GGC] 60: Does 10 damage to each Pokémon on each player's Bench. (Don't apply Weakness and Resistance for Benched Pokémon.) Weezing does 60 damage to itself.
+  W:Psychic×2 R: Retreat:1
+### 46 | Ekans | Pokémon | Basic | Common | HP40 | Grass
+  ATK Spit Poison [G] : Flip a coin. If heads, the Defending Pokémon is now Poisoned.
+  ATK Wrap [GC] 20: Flip a coin. If heads, the Defending Pokémon is now Paralyzed.
+  W:Psychic×2 R: Retreat:1
+### 47 | Geodude | Pokémon | Basic | Common | HP50 | Fighting
+  ATK Stone Barrage [FC] 10×: Flip a coin until you get tails. This attack does 10 damage times the number of heads.
+  W:Grass×2 R: Retreat:1
+### 48 | Grimer | Pokémon | Basic | Common | HP50 | Grass
+  ATK Nasty Goo [C] 10: Flip a coin. If heads, the Defending Pokémon is now Paralyzed.
+  ATK Minimize [G] : All damage done by attacks to Grimer during your opponent's next turn is reduced by 20 (after applying Weakness and Resistance).
+  W:Psychic×2 R: Retreat:1
+### 49 | Horsea | Pokémon | Basic | Common | HP40 | Water
+  ATK Smokescreen [W] 10: If the Defending Pokémon tries to attack during your opponent's next turn, your opponent flips a coin. If tails, that attack does nothing.
+  W:Lightning×2 R: Retreat:0
+### 50 | Kabuto | Pokémon | Stage 1 | Common | HP30 | Fighting | from Mysterious Fossil
+  [Pokémon Power] Kabuto Armor: Whenever an attack (even your own) does damage to Kabuto (after applying Weakness and Resistance), that attack does half the damage to Kabuto (rounded down to the nearest 10). (Any other effects of attacks still happen.) This power stops working while Kabuto is Asleep, Confused, or Paralyzed.
+  ATK Scratch [C] 10: 
+  W:Grass×2 R: Retreat:1
+### 51 | Krabby | Pokémon | Basic | Common | HP50 | Water
+  ATK Call for Family [W] : Search your deck for a Basic Pokémon named Krabby and put it onto your Bench. Shuffle your deck afterward. (You can't use this attack if your Bench if full.)
+  ATK Irongrip [WC] 20: 
+  W:Lightning×2 R: Retreat:2
+### 52 | Omanyte | Pokémon | Stage 1 | Common | HP40 | Water | from Mysterious Fossil
+  [Pokémon Power] Clairvoyance: Your opponent plays with his or her hand face up. This power stops working while Omanyte is Asleep, Confused, or Paralyzed.
+  ATK Water Gun [W] 10+: Does 10 damage plus 10 more damage for each Water Energy attached to Omanyte but not used to pay for this attack's Energy cost. You can't add more than 20 damage in this way.
+  W:Grass×2 R: Retreat:1
+### 53 | Psyduck | Pokémon | Basic | Common | HP50 | Water
+  ATK Headache [P] : Your opponent can't play Trainer cards during his or her next turn.
+  ATK Fury Swipes [W] 10×: Flip 3 coins. This attack does 10 damage times the number of heads.
+  W:Lightning×2 R: Retreat:1
+### 54 | Shellder | Pokémon | Basic | Common | HP30 | Water
+  ATK Supersonic [W] : Flip a coin. If heads, the Defending Pokémon is now Confused.
+  ATK Hide in Shell [W] : Flip a coin. If heads, prevent all damage done to Shellder during your opponent's next turn. (Any other effects of attacks still happen.)
+  W:Lightning×2 R: Retreat:1
+### 55 | Slowpoke | Pokémon | Basic | Common | HP50 | Psychic
+  ATK Spacing Out [C] : Flip a coin. If heads, remove a damage counter from Slowpoke. This attack can't be used if Slowpoke has no damage counters on it.
+  ATK Scavenge [PP] : Discard 1 Psychic Energy card attached to Slowpoke in order to use this attack. Put a Trainer card from your discard pile into your hand.
+  W:Psychic×2 R: Retreat:1
+### 56 | Tentacool | Pokémon | Basic | Common | HP30 | Water
+  [Pokémon Power] Cowardice: At any time during your turn (before your attack), you may return Tentacool to your hand. (Discard all cards attached to Tentacool.) This power can't be used the turn you put Tentacool into play or if Tentacool is Asleep, Confused, or Paralyzed.
+  ATK Acid [W] 10: 
+  W:Lightning×2 R: Retreat:0
+### 57 | Zubat | Pokémon | Basic | Common | HP40 | Grass
+  ATK Supersonic [CC] : Flip a coin. If heads, the Defending Pokémon is now Confused.
+  ATK Leech Life [GC] 10: Remove a number of damage counters from Zubat equal to the damage done to the Defending Pokémon (after applying Weakness and Resistance). If Zubat has fewer damage counters than that, remove all of them.
+  W:Psychic×2 R:Fighting-30 Retreat:0
+### 58 | Mr. Fuji | Trainer | Uncommon
+  RULE Choose a Pokémon on your Bench. Shuffle it and any cards attached to it into your deck.
+### 59 | Energy Search | Trainer | Common
+  RULE Search your deck for a basic Energy card and put it into your hand. Shuffle your deck afterward.
+### 60 | Gambler | Trainer | Common
+  RULE Shuffle your hand into your deck. Flip a coin. If heads, draw 8 cards. If tails, draw 1 card.
+### 61 | Recycle | Trainer | Common
+  RULE Flip a coin. If heads, put a card in your discard pile on top of your deck.
+### 62 | Mysterious Fossil | Trainer | Common | HP10
+  RULE Play Mysterious Fossil as if it were a Basic Pokémon. While in play, Mysterious Fossil counts as a Pokémon (instead of a Trainer card). Mysterious Fossil has no attacks, can't retreat, and can't be Asleep, Confused, Paralyzed, or Poisoned. If Mysterious Fossil is Knocked Out, it doesn't count as a Knocked Out Pokémon. (Discard it anyway.) At any time during your turn before your attack, you may discard Mysterious Fossil from play.
