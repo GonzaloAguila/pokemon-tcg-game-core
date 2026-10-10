@@ -1,158 +1,67 @@
-# CLAUDE.md
+# CLAUDE.md — @gonzaloaguila/game-core
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Pure TypeScript engine for **Nostalgic TCG** (classic Pokémon TCG: Base Set 102 + Jungle 48 cards). Holds `GameState`, attacks/effects, status conditions, Pokémon Powers, trainers, AI, card catalogs and theme decks. No React, no browser APIs, no Node-only APIs.
 
-## Project Overview
+## Consumers (sibling repos under `D:/Proyectos/`)
 
-Shared game logic package for Pokemon TCG multiplayer. Contains all pure game logic, types, and domain functions used by both the frontend (Next.js) and backend (Express + Socket.io) applications.
+| Repo | How it consumes this package |
+|------|------------------------------|
+| `pokemon-tcg` (Next.js frontend) | From GitHub Packages (`^0.4.x` in package.json). Runs the engine locally for single-player vs AI. |
+| `pokemon-tcg-api` (Express + Socket.io) | `"file:../pokemon-tcg-game-core"` — runs whatever is built here, published or not. Authoritative for multiplayer. |
 
-**This package has NO React dependencies** - it must remain framework-agnostic.
+Because of this, single-player and multiplayer can run different engine versions. After changing the engine: build, publish, bump the frontend, and redeploy the API.
 
 ## Commands
 
 ```bash
-npm run build     # Compile TypeScript to dist/
-npm run dev       # Watch mode for development
-npm run lint      # Run ESLint
-npm run test      # Run tests (when added)
-npm run publish   # Publish to GitHub Packages
+npm run build      # tsc && tsc-alias → dist/ (rewrites @/ aliases)
+npm run dev        # tsc --watch
+npx tsc --noEmit   # type check
+npm version patch && npm publish   # GitHub Packages; prepublishOnly builds; needs auth with write:packages
 ```
 
-## Architecture
+`npm run lint` is declared but eslint isn't installed. There is no test runner yet.
 
-### Directory Structure
+Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ERR_UNSUPPORTED_DIR_IMPORT`). `dist/` is gitignored and is the only thing published.
 
-```
-src/
-├── domain/              # Pure game logic (copied from pokemon-tcg)
-│   ├── ai/              # AI opponent logic
-│   ├── cards/           # Card types and guards
-│   ├── catalog/         # Card database (Base Set)
-│   ├── constants/       # Enums (EnergyType, GamePhase, etc.)
-│   ├── match/           # GameState, validators, actions
-│   ├── powers/          # Pokemon Power implementations
-│   ├── status/          # Status condition logic
-│   └── trainers/        # Trainer card implementations
-├── lib/
-│   └── gameState.ts     # Main game engine (~2000 lines)
-└── index.ts             # Barrel exports
-```
+## Layout
 
-### Key Exports
+- `src/index.ts` — the public API. Anything consumers use must be exported here (also re-exported via `src/domain/match/index.ts` for some engine functions).
+- `src/lib/gameState.ts` — the engine (~3.6k lines): `GameState`/`PokemonInPlay` types, setup/mulligan, `executeAttack`, `endTurn`, retreat, evolution, prizes, pending-state resolvers.
+- `src/domain/cards/` — card types, factories, guards. `catalog/` — `base-set.ts`, `jungle.ts`, `image-urls.ts` (pkmncards.com slugs). `decks/` — theme decks + resolution.
+- `src/domain/trainers/index.ts` — `canPlayX` / `playX` per trainer. `powers/index.ts` — Pokémon Powers. `status/` — status helpers. `ai/` — `strategy.ts` (decide), `actions.ts` (estimates), `executor.ts` (apply).
+- `src/domain/constants/enums.ts` — `as const` enums (`EnergyType`, `AttackEffectType`, `PokemonPowerType`, `GamePhase`, …). `PokemonStage` values are `"basic" | "stage-1" | "stage-2"`.
+- `src/domain/match/types.ts` duplicates the `GameState` types from `gameState.ts` and has drifted; `gameState.ts` is the one the engine uses.
 
-```typescript
-// Types
-export type { GameState, PokemonInPlay, GameCard, GameModifier } from './domain/match';
-export type { Card, PokemonCard, TrainerCard, EnergyCard, Attack } from './domain/cards';
+## Model and conventions
 
-// Enums
-export { EnergyType, GamePhase, StatusCondition, CardKind } from './domain/constants';
+- State is relative: `player*` fields vs `opponent*` fields, plus `isPlayerTurn`. To act as the other side, callers swap perspective (AI executor and API both do this).
+- Every action is `(state, ...args) => newState`. Never mutate the input — copy arrays before `splice`/`push`.
+- Validate with `canX()` before `applyX()`. Note the engine entry points themselves do not re-check turn/phase/legality; callers must.
+- Card behavior is data in the catalog (`attacks[].effects[]` with `AttackEffectType`); the interpreter is the effects loop in `executeAttack`.
+- Multi-step effects set a pending flag (`pendingForceSwitch`, `pendingSelfSwitch`, `pendingDeckSearch`, `pendingBenchDamageSelection`, `pendingTypeShift`, `pendingPeek`); `endTurn()` must refuse to advance while one is set, the UI shows a modal, a resolver clears it, and the AI executor must auto-resolve it.
+- Log meaningful actions to `state.events` via `createGameEvent()`. Event text is Spanish; coin results use `[coin:heads]` / `[coin:tails]` tokens.
+- Card IDs: `{set-slug}-{3-digit-number}-{slug-name}` (`base-set-004-charizard`, `jungle-007-nidoqueen`). Source data: api.pokemontcg.io (`base1`, `base2` = Jungle, `base3` = Fossil, `base5` = Team Rocket).
+- Any lookup by card must search all sets (`[...baseSetCards, ...jungleCards]`), never Base Set only.
 
-// Game Logic
-export { initializeGame, startGame, executeAttack, endTurn } from './lib/gameState';
-export { canUseAttack, canRetreat, findValidEvolutionTargets } from './lib/gameState';
+## TCG rules to respect (classic era)
 
-// Domain Functions
-export { isPokemonCard, isEnergyCard, isTrainerCard } from './domain/cards';
-export * from './domain/trainers';
-export * from './domain/powers';
-```
+- Damage order: base damage (incl. `Nx`/`N+` coin math and effect bonuses, next-turn bonus) → weakness ×2 → resistance −30 → PlusPower +10 each (only if the attack does damage) → Defender −20 → next-turn reductions → barriers/protection → floor at 0. PlusPower is applied AFTER weakness/resistance.
+- Asleep, Confused, Paralyzed replace each other; Poisoned stacks with them. Moving to the bench (retreat, switch) removes ALL special conditions, including Poison.
+- Only Asleep, Confused and Paralyzed stop Pokémon Powers; Poison does not.
+- Confusion: tails on the attack flip → 20 damage to itself. Sleep: flip between turns, heads wakes. Paralysis: wears off after the owner's next turn. Poison: 10 between turns (20 for Toxic).
+- Knockouts must be checked after every damage source, including bench damage and between-turns damage.
+- Double Colorless Energy counts as 2 colorless. Leek Slap–style attacks ("can't use this attack again as long as this Pokémon stays in play", incl. benching) are tracked on the Pokémon in play.
 
-## Code Conventions
+## Known issues (2026-10 review — verify before assuming fixed)
 
-### Pure Functions Only
-
-All game logic must be pure functions with no side effects:
-
-```typescript
-// CORRECT - Pure function
-function executeAttack(state: GameState, attackIndex: number): GameState {
-  return { ...state, /* modifications */ };
-}
-
-// WRONG - Side effect
-function executeAttack(state: GameState, attackIndex: number): void {
-  state.damage += 10; // Mutation!
-}
-```
-
-### Immutable State
-
-Never mutate GameState. Always return new objects:
-
-```typescript
-// CORRECT
-return {
-  ...state,
-  playerHand: state.playerHand.filter(c => c.id !== cardId)
-};
-
-// WRONG
-state.playerHand.splice(index, 1);
-return state;
-```
-
-### No Framework Dependencies
-
-This package must NOT import:
-- React, Next.js, or any UI framework
-- Browser APIs (window, document, localStorage)
-- Node.js specific APIs (fs, path) unless behind dynamic imports
-
-### Validation Pattern
-
-Always `canX()` before `applyX()`:
-
-```typescript
-if (canUseAttack(state, pokemon, attackIndex)) {
-  return executeAttack(state, attackIndex);
-}
-```
-
-## Adding New Content
-
-### Adding a Card
-
-1. Add to `src/domain/catalog/base-set.ts`
-2. Use factory functions: `createPokemonCard()`, `createTrainerCard()`, etc.
-
-### Adding a Trainer Effect
-
-1. Create `canPlayX()` + `playX()` in `src/domain/trainers/index.ts`
-2. Both functions must be pure
-
-### Adding a Pokemon Power
-
-1. Add power type to `PokemonPowerType` in `src/domain/constants/enums.ts`
-2. Implement `canUseX()` + `useX()` in `src/domain/powers/index.ts`
-
-## Publishing
-
-This package is published to GitHub Packages as a private npm package.
-
-```bash
-# Login to GitHub Packages
-npm login --registry=https://npm.pkg.github.com
-
-# Publish
-npm publish
-```
-
-Consumers install with:
-```bash
-npm install @YOUR_USERNAME/pokemon-tcg-game-core
-```
-
-## Testing
-
-When adding tests, follow this pattern:
-
-```typescript
-describe('executeAttack', () => {
-  it('should apply base damage to defender', () => {
-    const state = createTestGameState();
-    const result = executeAttack(state, 0);
-    expect(result.opponentActivePokemon?.currentDamage).toBe(30);
-  });
-});
-```
+- Coin-flip effects are skipped in `executeAttack` (`if (effect.coinFlip) continue;`) and re-implemented in the frontend (`useCoinFlipHandler.ts`), in `ai/executor.ts` and in the API (`socket/rooms.ts`). The copies diverge.
+- Bench KOs are never processed (`TODO` in `executeAttack`, bench-damage path).
+- `endTurn` mutates the caller's `opponentBench` via `splice` when promoting after a between-turns KO.
+- `buildDeckFromEntries` ignores `entry.set` and only searches Base Set (Jungle theme-deck entries resolve to wrong cards); consumers have their own copies.
+- Rule bugs: Flail double-counts damage; Leer/`CannotAttack` is cleared in the same `endTurn`; retreat/switch keeps Poison; Poison blocks powers; Dream Eater's `RequireStatus` and Karate Chop's `SelfDamageReduction` aren't enforced; confusion self-damage is 30 (frontend + AI).
+- `endTurn` blocks on only 4 of the 6 pending flags (`pendingTypeShift`, `pendingPeek` not checked).
+- RNG is `Math.random` everywhere (shuffle, checkups, IDs, AI flips) — not seedable, so no deterministic tests or replays. `state.events` grows unbounded.
+- AI is greedy: never retreats, never uses powers, only plays Bill/Potion/PlusPower (inline copies). `strategy.ts` has `console.log`s.
+- Jungle cards: only 4/48 verified against the real card text.
+- 5 commits after `v0.4.32` are unpublished (API runs them, frontend doesn't).
