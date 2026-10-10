@@ -1014,13 +1014,15 @@ export function executeBenchDamage(
     });
   }
 
-  const newState = processBenchKnockouts({
+  // The attack may already have knocked out an Active: a bench KO can leave a side with
+  // no Pokémon at all (Spark KOs the Active, then the last benched Pokémon)
+  const newState = endGameIfNoPokemonLeft(processBenchKnockouts({
     ...gameState,
     playerBench: newPlayerBench,
     opponentBench: newOpponentBench,
     pendingBenchDamageSelection: undefined,
     events,
-  });
+  }));
 
   // The last prize may have been taken by a bench KO
   if (newState.gameResult !== null) {
@@ -1111,6 +1113,36 @@ export function knockOutPlayerActive(state: GameState, prizeMessage: string = "E
     playerNeedsToPromote: ko.needsToPromote,
     ...(defeated && { gameResult: "defeat" as const, gamePhase: GamePhase.GameOver }),
     events: [...state.events, createGameEvent(`¡${active.pokemon.name} fue noqueado!`, "action"), ...ko.events],
+  };
+}
+
+/**
+ * A side with no Active and an empty bench loses (checked after damage that can remove the
+ * last Pokémon outside the normal attack flow). Promotion flags of a side with nothing left
+ * on the bench are cleared. The "player" side is checked second, like executeAttack.
+ */
+export function endGameIfNoPokemonLeft(state: GameState): GameState {
+  if (state.gameResult !== null) return state;
+  const opponentOut = !state.opponentActivePokemon && state.opponentBench.length === 0;
+  const playerOut = !state.playerActivePokemon && state.playerBench.length === 0;
+  const cleaned: GameState = {
+    ...state,
+    playerNeedsToPromote: state.playerNeedsToPromote && state.playerBench.length > 0,
+    opponentNeedsToPromote: state.opponentNeedsToPromote && state.opponentBench.length > 0,
+  };
+  if (!opponentOut && !playerOut) return cleaned;
+  const result: GameResult = playerOut ? "defeat" : "victory";
+  return {
+    ...cleaned,
+    gameResult: result,
+    gamePhase: GamePhase.GameOver,
+    playerCanTakePrize: false,
+    opponentCanTakePrize: false,
+    events: [
+      ...state.events,
+      createGameEvent(result === "victory" ? "¡Victoria! El rival no tiene más Pokémon" : "¡Derrota! No tienes más Pokémon", "system"),
+      createGameEvent("Ya puedes salir de la mesa", "info"),
+    ],
   };
 }
 

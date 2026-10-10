@@ -105,3 +105,23 @@ describe("bench knockouts (classic rule: check KOs after every damage source)", 
     expect(after.isPlayerTurn).toBe(true);
   });
 });
+
+describe("bench damage that knocks out the last Pokémon of a side ends the game", () => {
+  it("Spark KOs the Active, then the chosen bench target was the opponent's last Pokémon: victory", () => {
+    const growlithe = inPlay("Growlithe", { damage: 50 }); // 60 HP
+    const state = makeState({
+      player: { active: inPlay("Pikachu", { set: "base" }) },
+      opponent: { active: null, bench: [growlithe] },
+      opponentNeedsToPromote: true,
+      playerCanTakePrize: true,
+      pendingBenchDamageSelection: { damageAmount: 10, targetSide: "opponent", maxTargets: 1, minTargets: 1 },
+    });
+
+    const after = executeBenchDamage(state, [growlithe.pokemon.id]);
+
+    expect(after.opponentBench).toHaveLength(0);
+    expect(after.gameResult).toBe("victory");
+    expect(after.gamePhase).toBe(GamePhase.GameOver);
+    expect(after.opponentNeedsToPromote).toBe(false);
+  });
+});
