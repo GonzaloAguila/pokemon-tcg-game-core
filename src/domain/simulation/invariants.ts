@@ -88,6 +88,7 @@ export function checkInvariants(state: GameState, context: InvariantContext): st
       state.pendingSelfSwitch && "pendingSelfSwitch",
       state.pendingDeckSearch && "pendingDeckSearch",
       state.pendingBenchDamageSelection && "pendingBenchDamageSelection",
+      state.pendingAttackChoice && "pendingAttackChoice",
       state.pendingTypeShift && "pendingTypeShift",
       state.playerCanTakePrize && "playerCanTakePrize",
       state.opponentCanTakePrize && "opponentCanTakePrize",

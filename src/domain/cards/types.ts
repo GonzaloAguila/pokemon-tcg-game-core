@@ -83,6 +83,8 @@ export type AttackEffect = {
   minAmount?: number;
   /** DiscardEnergyForMill: type of the attached Energy cards that may be discarded */
   energyType?: EnergyType;
+  /** Set by the engine when it resolves a perCoinBenchTarget effect: indexes (in the target bench) that got heads */
+  benchTargetIndexes?: number[];
   /** For BenchDamage: max number of bench targets (undefined = all) */
   maxBenchTargets?: number;
   /** For Heal: heal amount equals half the actual damage dealt */

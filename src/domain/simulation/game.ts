@@ -19,6 +19,7 @@ import {
   hasBasicPokemon,
   initializeMultiplayerGame,
   promoteActivePokemon,
+  resolveAttackChoice,
   setPlayerReady,
   skipPendingSwitch,
   startGame,
@@ -225,6 +226,17 @@ class GameRunner {
         minSelections: Math.min(pending.minTargets ?? 1, targets.length),
       });
       this.apply(actor, { label: `bench damage ${chosen.length}`, run: (v) => executeBenchDamage(v, chosen) });
+      return true;
+    }
+    if (view.pendingAttackChoice) {
+      // The attack's choice: the step says who answers; it always resolves in the attacker's view
+      const step = view.pendingAttackChoice.step;
+      const chooser = step.chooser === "opponent" ? other : actor;
+      const chosen = this.answer(chooser, step);
+      this.apply(actor, {
+        label: `attack choice ${step.title} (${step.chooser ?? "self"})`,
+        run: (v) => resolveAttackChoice(v, chosen, { skipEndTurn: true }),
+      });
       return true;
     }
     if (view.playerCanTakePrize) {

@@ -18,7 +18,8 @@ import {
   executeAttack,
   executeMetronome,
   executeRetreat,
-  getAttackCoinFlipCount,
+  getAttackCoinPlan,
+  flipAttackCoins,
   getEnergyValue,
   getRetreatCost,
   hasEnoughEnergyToRetreat,
@@ -191,10 +192,10 @@ export function attackAction(attackIndex: number, rng: Rng): ViewAction {
         const copyable = (getEffectivePokemonCard(state, defender)?.attacks ?? []).filter((a) => canExecuteMetronome(state, a) === null);
         if (copyable.length === 0) return endTurn({ ...state, attackedThisTurn: true }, true);
         const copied = pick(rng, copyable);
-        const coins = flipFor(getAttackCoinFlipCount(state, copied), rng);
+        const coins = flipAttackCoins(getAttackCoinPlan(state, copied), () => flipCoin(rng));
         return executeMetronome(state, copied, { coinResults: coins, skipEndTurn: true, skipDefenderPromotion: true });
       }
-      const coins = flipFor(getAttackCoinFlipCount(state, attackIndex), rng);
+      const coins = flipAttackCoins(getAttackCoinPlan(state, attackIndex), () => flipCoin(rng));
       return executeAttack(state, attackIndex, { coinResults: coins, skipEndTurn: true, skipDefenderPromotion: true });
     },
   };

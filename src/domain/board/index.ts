@@ -46,7 +46,10 @@ export function getTurnActionBlocker(state: GameState): string | null {
   if (state.gamePhase === GamePhase.GameOver) return "La partida terminó";
   if (state.gamePhase !== GamePhase.Playing) return "La partida todavía no empezó";
   if (!state.isPlayerTurn) return "No es tu turno";
-  if (state.pendingForceSwitch || state.pendingSelfSwitch || state.pendingDeckSearch || state.pendingBenchDamageSelection) {
+  if (
+    state.pendingForceSwitch || state.pendingSelfSwitch || state.pendingDeckSearch ||
+    state.pendingBenchDamageSelection || state.pendingAttackChoice
+  ) {
     return "Primero resuelve el efecto pendiente del ataque";
   }
   if (state.playerNeedsToPromote || state.opponentNeedsToPromote) {
@@ -59,6 +62,15 @@ export function getTurnActionBlocker(state: GameState): string | null {
 }
 
 /** A card entering play as a Basic (a Mysterious Fossil gets its in-play Pokémon form). */
+/**
+ * Why no Trainer card can be played this turn, or null: Headache (Psyduck) blocks every
+ * Trainer during the opponent's next turn — Mysterious Fossil / Clefairy Doll included (they
+ * are Trainer cards in the hand).
+ */
+export function getTrainerBlocker(state: GameState): string | null {
+  return state.noTrainersOnTurn === state.turnNumber ? "No puedes jugar cartas de Entrenador este turno (Dolor de Cabeza)" : null;
+}
+
 function newPokemonInPlay(card: GameCard, playedOnTurn: number): PokemonInPlay {
   return {
     pokemon: toInPlayCard(card) as GameCard,
@@ -91,6 +103,10 @@ export function canPlayBasicPokemon(state: GameState, cardId: string, position: 
   const card = state.playerHand.find((c) => c.id === cardId);
   if (!card) return "La carta no está en tu mano";
   if (!isPlayableAsBasic(card)) return "Solo puedes poner en juego Pokémon Básicos";
+  if (card.kind === "trainer") {
+    const trainersBlocked = getTrainerBlocker(state);
+    if (trainersBlocked) return trainersBlocked;
+  }
 
   if (position === "active") {
     if (!isSetupPhase(state)) return "Durante la partida solo puedes poner Pokémon Básicos en la banca";

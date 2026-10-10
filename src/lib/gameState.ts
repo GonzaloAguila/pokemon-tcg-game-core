@@ -33,6 +33,10 @@ import {
   isPowerActive,
 } from "@/domain/powers";
 import { getTurnActionBlocker } from "@/domain/board";
+import type { SelectionStep } from "@/domain/effects/types";
+import { isAttackChoiceEffect, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
+export { resolveAttackChoice, isAttackChoiceEffect } from "./attackChoices";
+export type { AttackChoiceContext } from "./attackChoices";
 import { assertLegal } from "@/shared/errors";
 
 // ============================================================================
@@ -117,6 +121,20 @@ export type GameModifier = {
 };
 
 export type GameResult = "victory" | "defeat" | null;
+
+/** A pending attack choice (see GameState.pendingAttackChoice and lib/attackChoices.ts). */
+export type PendingAttackChoice = {
+  /** The attack effect waiting for the answer (its type says what the answer does) */
+  effect: AttackEffect;
+  /** The question; `chooser` = "self" (the attacker) or "opponent" (the defending side) */
+  step: SelectionStep;
+  /** What the attack left behind (attacker / defender ids, Knock Out, prevention...) */
+  context: AttackChoiceContext;
+  /** Prophecy: the deck chosen in its first step */
+  deck?: "player" | "opponent";
+  /** Choice effects of the same attack still to ask, in order */
+  queue: AttackEffect[];
+};
 
 /** A timed "Pokémon Powers stop working" effect (see GameState.powersSuppressed). */
 export type PowerSuppression = {
@@ -215,6 +233,18 @@ export type GameState = {
    * `expiresAfterTurn` has passed. Kept in sync with domain/match/types.ts.
    */
   powersSuppressed?: PowerSuppression[];
+  /**
+   * A choice an attack left to a player (Hyper Beam's Energy, Terror Strike's switch, Prophecy,
+   * Wildfire, Energy Conversion, Scavenge...): see lib/attackChoices.ts. Answer with
+   * resolveAttackChoice on the attacking side's view; `step.chooser` says who picks. Blocks
+   * endTurn and every other action. Kept in sync with domain/match/types.ts (re-export).
+   */
+  pendingAttackChoice?: PendingAttackChoice;
+  /**
+   * Headache (Psyduck): no Trainer cards can be played during this turn number (the opponent's
+   * next turn). Dropped by endTurn once that turn is over.
+   */
+  noTrainersOnTurn?: number;
   /** BenchDamage: player needs to select bench Pokemon to receive damage */
   pendingBenchDamageSelection?: {
     /** Amount of damage to deal to each selected Pokemon */
@@ -1691,7 +1721,10 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   // pendingTypeShift / pendingPeek are optional Pokémon Power prompts opened during the turn:
   // they never block (blocking would deadlock a closed modal or a client that never sends
   // clearPeek) and are discarded below so they can't leak into the next turn.
-  if (gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch || gameState.pendingBenchDamageSelection) {
+  if (
+    gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch ||
+    gameState.pendingBenchDamageSelection || gameState.pendingAttackChoice
+  ) {
     return gameState;
   }
 
@@ -1950,6 +1983,11 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
 
   updatedState.playerActivePokemon = expireRetreatPrevention(updatedState.playerActivePokemon);
   updatedState.opponentActivePokemon = expireRetreatPrevention(updatedState.opponentActivePokemon);
+
+  // Headache: the blocked turn is over once the turn after it starts
+  if (updatedState.noTrainersOnTurn !== undefined && updatedState.noTrainersOnTurn < newTurnNumber) {
+    updatedState.noTrainersOnTurn = undefined;
+  }
 
   // =====================================================================
   // EXPIRE POWER SUPPRESSION (Goop Gas Attack, Stare)
@@ -2273,12 +2311,20 @@ export function findValidEvolutionTargets(
  * "You can't use this attack unless the Defending Pokémon is Asleep").
  * @returns true when every requirement is met (or the attack has none)
  */
-export function meetsAttackRequirements(attack: Attack, defender: PokemonInPlay | null | undefined): boolean {
+export function meetsAttackRequirements(
+  attack: Attack,
+  defender: PokemonInPlay | null | undefined,
+  attacker?: PokemonInPlay | null
+): boolean {
   for (const effect of attack.effects ?? []) {
     if (effect.type === AttackEffectType.RequireStatus && effect.requiredStatus) {
       if (effect.target === AttackTarget.Defender && (!defender || !hasStatusCondition(defender, effect.requiredStatus))) {
         return false;
       }
+    }
+    // Spacing Out: "can't be used if Slowpoke has no damage counters on it" (checked when the attacker is known)
+    if (effect.type === AttackEffectType.RequireDamageCounters && attacker && (attacker.currentDamage ?? 0) <= 0) {
+      return false;
     }
   }
   return true;
@@ -2305,7 +2351,7 @@ export function canUseAttack(
   const attack = pokemon.attacks[attackIndex];
   if (!attack) return false;
 
-  if (defender !== undefined && !meetsAttackRequirements(attack, defender)) {
+  if (defender !== undefined && !meetsAttackRequirements(attack, defender, pokemonInPlay)) {
     return false;
   }
 
@@ -2570,17 +2616,134 @@ export type ExecuteAttackOptions = {
 };
 
 /** Coins needed by an attack used by `attacker` (shared by all its coin effects). */
-function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack): number {
+function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?: GameState): number | "untilTails" {
   let count = 0;
   for (const effect of attack.effects ?? []) {
     if (!effect.coinFlip) continue;
+    // Stone Barrage: flip until tails
+    if (effect.coinFlip.untilTails) return "untilTails";
     // Big Eggsplosion: one coin per Energy attached (Double Colorless provides 2)
+    // Thunderstorm: one coin per opponent's Benched Pokémon
     const n = effect.coinCountFromEnergy
       ? getTotalEnergyValue(attacker.attachedEnergy)
-      : effect.coinFlip.count;
+      : effect.coinCountSource === "opponentBench"
+        ? (state?.opponentBench.length ?? 0)
+        : effect.coinFlip.count;
     count = Math.max(count, n);
   }
   return count;
+}
+
+/**
+ * The coins of one attack, in the order they go in `coinResults`:
+ *
+ * 1. `smokescreen` (0 or 1): the attacker is under Sand-attack / Smokescreen. FIRST coin; tails =
+ *    the attack does nothing (no other coin matters).
+ * 2. `attack`: the attack's own coins (all its coin effects share them): a fixed number, or
+ *    `"untilTails"` (Stone Barrage): a run of heads ending with the first tails (at least 1 coin).
+ * 3. `defender` (0 or 1): Haunter's Transparency on the Defending Pokémon, LAST coin (flipped
+ *    for the defending player; heads = everything the attack does to Haunter is prevented). Only
+ *    counted when the attack can do something to the Defending Pokémon (damage or an effect on
+ *    it); it is ignored when the attack ended up doing nothing to it.
+ *
+ * In multiplayer the server flips all of them. Use flipAttackCoins to build the list.
+ */
+export type AttackCoinPlan = {
+  smokescreen: number;
+  attack: number | "untilTails";
+  defender: number;
+};
+
+/** Effect types that do something to the Defending Pokémon (Transparency flips for them). */
+const DEFENDER_EFFECT_TYPES: ReadonlySet<string> = new Set([
+  AttackEffectType.ApplyStatus,
+  AttackEffectType.ForceSwitch,
+  AttackEffectType.PreventRetreat,
+  AttackEffectType.SandAttack,
+  AttackEffectType.ReturnToHand,
+  AttackEffectType.Discard,
+  AttackEffectType.ChangeWeakness,
+]);
+
+/** Can the attack do anything to the Defending Pokémon (damage, or an effect on it)? */
+function attackCanAffectDefender(attack: Attack): boolean {
+  if (typeof attack.damage === "string" ? attack.damage.length > 0 : (attack.damage ?? 0) > 0) return true;
+  return (attack.effects ?? []).some(
+    (e) =>
+      e.target === AttackTarget.Defender &&
+      (DEFENDER_EFFECT_TYPES.has(e.type) ||
+        e.type === AttackEffectType.CoinFlipDamage ||
+        e.type === AttackEffectType.MirrorMove ||
+        e.type === AttackEffectType.HalfHPDamage ||
+        e.type === AttackEffectType.DamagePerCounter)
+  );
+}
+
+/** Haunter's Transparency on this Defending Pokémon (a working PreventAttackOnFlip power). */
+function defenderFlipsToPrevent(state: GameState, defender: PokemonInPlay | null): boolean {
+  if (!defender || !isPokemonCard(defender.pokemon)) return false;
+  const power = defender.pokemon.power;
+  return power?.type === PokemonPowerType.PreventAttackOnFlip && isPowerActive(state, defender);
+}
+
+/**
+ * Coin plan of an attack used now by the side whose turn it is ("player"): see AttackCoinPlan.
+ * @param attack - index of the Active Pokémon's attack (a transformed Ditto's copied attacks),
+ *   or an Attack object (the attack copied by Metronome).
+ */
+export function getAttackCoinPlan(state: GameState, attack: number | Attack): AttackCoinPlan {
+  const none: AttackCoinPlan = { smokescreen: 0, attack: 0, defender: 0 };
+  const attacker = state.playerActivePokemon;
+  const card = attacker ? getEffectivePokemonCard(state, attacker) : undefined;
+  if (!attacker || !card) return none;
+  const resolved = typeof attack === "number" ? card.attacks[attack] : attack;
+  if (!resolved) return none;
+  return {
+    smokescreen: smokescreenCoins(attacker),
+    attack: coinFlipCountFor(attacker, resolved, state),
+    defender: defenderFlipsToPrevent(state, state.opponentActivePokemon) && attackCanAffectDefender(resolved) ? 1 : 0,
+  };
+}
+
+/** Flip the coins of a plan in order (smokescreen, the attack's own — until tails if so —, defender). */
+export function flipAttackCoins(plan: AttackCoinPlan, flip: () => CoinFlipResult): CoinFlipResult[] {
+  const coins: CoinFlipResult[] = [];
+  for (let i = 0; i < plan.smokescreen; i++) coins.push(flip());
+  if (plan.attack === "untilTails") {
+    for (let guard = 0; guard < 1000; guard++) {
+      const coin = flip();
+      coins.push(coin);
+      if (coin === "tails") break;
+    }
+  } else {
+    for (let i = 0; i < plan.attack; i++) coins.push(flip());
+  }
+  for (let i = 0; i < plan.defender; i++) coins.push(flip());
+  return coins;
+}
+
+/** Split `coinResults` along the plan; throws when they don't fit it (a caller bug). */
+function splitAttackCoins(
+  plan: AttackCoinPlan,
+  coins: CoinFlipResult[],
+  attackName: string
+): { smokescreen: CoinFlipResult[]; attack: CoinFlipResult[]; defender: CoinFlipResult[] } {
+  const fail = (expected: string): never => {
+    throw new Error(`executeAttack: "${attackName}" needs ${expected} coin result(s) (getAttackCoinPlan), got ${coins.length}`);
+  };
+  const smokescreen = coins.slice(0, plan.smokescreen);
+  const rest = coins.slice(plan.smokescreen);
+  let attackCount: number;
+  if (plan.attack === "untilTails") {
+    const tailsAt = rest.indexOf("tails");
+    if (tailsAt === -1) fail(`${plan.smokescreen} + a run ending in tails + ${plan.defender}`);
+    attackCount = tailsAt + 1;
+    if (rest.length !== attackCount + plan.defender) fail(`${plan.smokescreen} + ${attackCount} (until tails) + ${plan.defender}`);
+  } else {
+    attackCount = plan.attack;
+    if (coins.length !== plan.smokescreen + attackCount + plan.defender) fail(String(plan.smokescreen + attackCount + plan.defender));
+  }
+  return { smokescreen, attack: rest.slice(0, attackCount), defender: rest.slice(attackCount) };
 }
 
 /**
@@ -2592,12 +2755,10 @@ function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack): number {
  * @returns 0 when the attack has no coin effects (or there is no active Pokémon/attack).
  */
 export function getAttackCoinFlipCount(state: GameState, attack: number | Attack): number {
-  const attacker = state.playerActivePokemon;
-  const card = attacker ? getEffectivePokemonCard(state, attacker) : undefined;
-  if (!attacker || !card) return 0;
-  const resolved = typeof attack === "number" ? card.attacks[attack] : attack;
-  if (!resolved) return 0;
-  return smokescreenCoins(attacker) + coinFlipCountFor(attacker, resolved);
+  const plan = getAttackCoinPlan(state, attack);
+  // "untilTails" (Stone Barrage) has no fixed count: the minimum (tails at once) is returned;
+  // callers must use getAttackCoinPlan + flipAttackCoins for those
+  return plan.smokescreen + (plan.attack === "untilTails" ? 1 : plan.attack) + plan.defender;
 }
 
 /**
@@ -2640,8 +2801,11 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   if (hasStatusCondition(attacker, StatusCondition.Asleep)) return `${name} está dormido y no puede atacar`;
   if (hasStatusCondition(attacker, StatusCondition.Paralyzed)) return `${name} está paralizado y no puede atacar`;
   if (hasStatusCondition(attacker, StatusCondition.CannotAttack)) return `${name} no puede atacar este turno`;
-  if (!meetsAttackRequirements(attack, defender)) {
-    return `No puedes usar ${attack.name}: el Pokémon defensor no cumple el requisito del ataque`;
+  if (!meetsAttackRequirements(attack, defender, attacker)) {
+    if (!meetsAttackRequirements(attack, defender)) {
+      return `No puedes usar ${attack.name}: el Pokémon defensor no cumple el requisito del ataque`;
+    }
+    return `No puedes usar ${attack.name}: ${name} no tiene contadores de daño`;
   }
   const isUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (isUseOnce && attacker.usedOnceAttacks?.includes(attack.name)) return `${attack.name} ya fue usado`;
@@ -2706,6 +2870,7 @@ type CoinResolution = {
  * - Protection, PreventRetreat, Draw (Pay Day) and anything else → kept once if any coin matches.
  */
 function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipResult[]): CoinResolution {
+  // (Thunderstorm) perCoinBenchTarget: coin i decides the i-th Benched Pokémon of the target side
   const heads = coins.filter((c) => c === "heads").length;
   const tails = coins.length - heads;
   const resolved: AttackEffect[] = [];
@@ -2737,6 +2902,13 @@ function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipResult[]
       continue;
     }
 
+    if (effect.type === AttackEffectType.BenchDamage && effect.perCoinBenchTarget) {
+      const wanted = coinFlip.onHeads ? "heads" : "tails";
+      const indexes = coins.map((c, i) => (c === wanted ? i : -1)).filter((i) => i !== -1);
+      if (indexes.length === 0) missed.push(effect);
+      else resolved.push({ ...plain, benchTargetIndexes: indexes });
+      continue;
+    }
     if (hits === 0) {
       missed.push(effect);
       continue;
@@ -2831,19 +3003,13 @@ function executeAttackUnchecked(
   const printedAttack = attackerCard.attacks[attackIndex];
   if (!printedAttack) return gameState;
 
-  // Coin flips: in the options form the engine resolves coin effects from the caller's coins.
-  // Sand-attack/Smokescreen adds one coin, first in the list.
-  const smokescreen = smokescreenCoins(attacker);
-  const coinsNeeded = smokescreen + coinFlipCountFor(attacker, printedAttack);
+  // Coin flips: in the options form the engine resolves coin effects from the caller's coins,
+  // laid out as getAttackCoinPlan says (Sand-attack/Smokescreen first, Transparency last).
+  const coinPlan = getAttackCoinPlan(gameState, printedAttack);
   const allCoins = options ? (options.coinResults ?? []) : undefined;
-  if (allCoins && allCoins.length !== coinsNeeded) {
-    throw new Error(
-      `executeAttack: "${printedAttack.name}" needs ${coinsNeeded} coin result(s) ` +
-      `(getAttackCoinFlipCount), got ${allCoins.length}`
-    );
-  }
-  if (allCoins && smokescreen > 0) {
-    const coin = allCoins[0];
+  const splitCoins = allCoins ? splitAttackCoins(coinPlan, allCoins, printedAttack.name) : undefined;
+  if (splitCoins && splitCoins.smokescreen.length > 0) {
+    const coin = splitCoins.smokescreen[0];
     const events = [
       ...gameState.events,
       createGameEvent(`${attacker.pokemon.name} debe lanzar una moneda para atacar - Moneda: [coin:${coin}]`, "info"),
@@ -2859,14 +3025,31 @@ function executeAttackUnchecked(
     }
     gameState = { ...gameState, events: [...events, createGameEvent("[coin:heads] El ataque procede normalmente", "info")] };
   }
-  const coinResults = allCoins ? allCoins.slice(smokescreen) : undefined;
+  const coinResults = splitCoins?.attack;
   const coinResolution = coinResults && coinResults.length > 0
     ? resolveCoinFlipEffects(printedAttack.effects ?? [], coinResults)
     : null;
   const attack: Attack = coinResolution ? { ...printedAttack, effects: coinResolution.effects } : printedAttack;
+  // Transparency (Haunter): the defending side's coin, last in the list
+  const transparencyCoin = splitCoins?.defender[0];
+
+  // Dive Bomb / Clamp tails: "this attack does nothing (not even damage)"
+  if (attack.effects?.some((e) => e.type === AttackEffectType.AttackFails && !e.coinFlip)) {
+    const tokens = (coinResults ?? []).map((r) => `[coin:${r}]`).join(" ");
+    const failed: GameState = {
+      ...gameState,
+      attackedThisTurn: true,
+      events: [
+        ...gameState.events,
+        ...(tokens ? [createGameEvent(`Moneda: ${tokens}`, "info")] : []),
+        createGameEvent(`${attacker.pokemon.name} usó ${attack.name} pero el ataque no hizo nada`, "action"),
+      ],
+    };
+    return skipEndTurn ? failed : endTurn(failed);
+  }
 
   // RequireStatus (Dream Eater): the attack can't be used unless the defender has the status
-  if (!meetsAttackRequirements(attack, defender)) {
+  if (!meetsAttackRequirements(attack, defender, attacker)) {
     return {
       ...gameState,
       events: [
@@ -2933,8 +3116,10 @@ function executeAttackUnchecked(
 
   // Use shiftedType (Venomoth Shift) if available, otherwise use original type
   const attackerType = attacker.shiftedType || attackerCard.types[0];
-  const hasWeakness = !isMirrorMove && defenderWeaknesses.includes(attackerType);
-  const hasResistance = !isMirrorMove && defenderResistances.includes(attackerType);
+  // Sonicboom: "Don't apply Weakness and Resistance for this attack"
+  const ignoresWeaknessResistance = attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance) ?? false;
+  const hasWeakness = !isMirrorMove && !ignoresWeaknessResistance && defenderWeaknesses.includes(attackerType);
+  const hasResistance = !isMirrorMove && !ignoresWeaknessResistance && defenderResistances.includes(attackerType);
 
   // Aplicar debilidad (x2)
   if (hasWeakness) {
@@ -2983,11 +3168,15 @@ function executeAttackUnchecked(
 
   // Verificar si el defensor está protegido o tiene barrera de daño
   const defenderIsProtected = protectionBlocksDamage(defender, damage);
+  // Transparency (Haunter) heads: every effect of this attack done to it, damage included, is prevented
+  const transparencyPrevents = transparencyCoin === "heads";
   // DamageAndEffects protection (Agility, Barrier, Tail Wag) also blocks status, ForceSwitch, PreventRetreat
-  const defenderBlocksEffects = defender.protection?.type === "damageAndEffects" && defenderIsProtected;
+  const defenderBlocksEffects = (defender.protection?.type === "damageAndEffects" && defenderIsProtected) || transparencyPrevents;
   let effectiveDamage = damage;
   let damageBarrierBlocked = false;
-  if (defenderIsProtected && damage > 0) {
+  if (transparencyPrevents) {
+    effectiveDamage = 0;
+  } else if (defenderIsProtected && damage > 0) {
     effectiveDamage = 0;
   } else if (isDamageBlocked(defender, damage, gameState)) {
     effectiveDamage = 0;
@@ -3030,9 +3219,17 @@ function executeAttackUnchecked(
     }
   }
 
+  // Transparency's coin, flipped for the Defending Pokémon
+  if (transparencyCoin) {
+    const powerName = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.name ?? "Transparencia" : "Transparencia";
+    events.push(createGameEvent(`${powerName} de ${defender.pokemon.name} - Moneda: [coin:${transparencyCoin}]`, "info"));
+  }
+
   // Mensaje del ataque con detalles de debilidad/resistencia y protección
   let damageMessage = "";
-  if (defenderIsProtected && damage > 0) {
+  if (transparencyPrevents) {
+    damageMessage = ` pero ${defender.pokemon.name} evitó todos sus efectos (Transparencia)`;
+  } else if (defenderIsProtected && damage > 0) {
     if (defender.protection?.threshold !== undefined) {
       damageMessage = ` pero Endurecimiento previno ${damage} de daño (${damage} ≤ ${defender.protection.threshold})`;
     } else {
@@ -3252,6 +3449,8 @@ function executeAttackUnchecked(
           // Determine if we need manual selection
           const maxTargets = effect.maxBenchTargets ?? Infinity;
           const needsManualSelection = maxTargets < Infinity;
+          // Thunderstorm: only the Benched Pokémon whose coin was heads (by bench position)
+          const coinIndexes = effect.benchTargetIndexes;
 
           // Count available targets
           const getAvailableTargets = (bench: PokemonInPlay[]): PokemonInPlay[] => {
@@ -3268,13 +3467,17 @@ function executeAttackUnchecked(
           if (target === BenchDamageTarget.Opponent || target === BenchDamageTarget.Both) {
             const availableOpponentTargets = getAvailableTargets(newOpponentBench);
 
-            if (needsManualSelection && availableOpponentTargets.length > 0) {
+            // Gigashock: "choose 3 ... if fewer than 3, do the damage to each of them" — no choice then
+            const exactAndAll = effect.exactBenchTargets && availableOpponentTargets.length <= maxTargets;
+            if (needsManualSelection && availableOpponentTargets.length > 0 && !exactAndAll) {
               // Set pending state - frontend will show selection modal
               pendingBenchDamageSelection = {
                 damageAmount: benchDamageAmount,
                 targetSide: "opponent",
                 maxTargets: maxTargets,
-                minTargets: Math.min(1, availableOpponentTargets.length),
+                minTargets: effect.exactBenchTargets
+                  ? Math.min(maxTargets, availableOpponentTargets.length)
+                  : Math.min(1, availableOpponentTargets.length),
                 matchDefenderType: effect.matchDefenderType,
                 defenderTypes: effect.matchDefenderType ? defenderTypes : undefined,
               };
@@ -3289,8 +3492,9 @@ function executeAttackUnchecked(
             } else {
               // Automatic damage (maxTargets >= available targets OR no targets available)
               let opponentHitsRemaining = maxTargets;
-              newOpponentBench = newOpponentBench.map((benchPokemon) => {
+              newOpponentBench = newOpponentBench.map((benchPokemon, benchIndex) => {
                 if (!benchPokemon || opponentHitsRemaining <= 0) return benchPokemon;
+                if (coinIndexes && !coinIndexes.includes(benchIndex)) return benchPokemon;
 
                 // Filter by defender type if matchDefenderType is set
                 if (effect.matchDefenderType && isPokemonCard(benchPokemon.pokemon)) {
@@ -3412,7 +3616,13 @@ function executeAttackUnchecked(
       // Heal: cure damage from self (e.g., Butterfree Mega Drain, Exeggcute Leech Seed, Venonat Leech Life)
       if (effect.type === AttackEffectType.Heal && effect.target === AttackTarget.Self && newPlayerActive) {
         let healAmount = effect.amount || 0;
-        if (effect.healFromDamageDealt) {
+        if (effect.healFromDamage === "all") {
+          // Leech Life: as many counters as the damage done (after W/R)
+          healAmount = effectiveDamage;
+        } else if (effect.healFromDamage === "halfRoundedUp") {
+          // Absorb: half the damage done, rounded up to the nearest 10
+          healAmount = Math.ceil(effectiveDamage / 2 / 10) * 10;
+        } else if (effect.healFromDamageDealt) {
           // Heal = half the actual damage dealt to the defender
           healAmount = Math.floor(effectiveDamage / 2);
           // Round down to nearest 10 (damage counters are multiples of 10)
@@ -3741,11 +3951,20 @@ function executeAttackUnchecked(
   let pendingForceSwitch = false;
   let pendingSelfSwitch = false;
   let pendingDeckSearch: GameState["pendingDeckSearch"] = undefined;
+  let noTrainersOnTurn = gameState.noTrainersOnTurn;
 
   if (attack.effects) {
     for (const effect of attack.effects) {
-      // ForceSwitch: opponent must switch active with a bench Pokemon (Lure, Whirlwind, Ram)
-      if (effect.type === AttackEffectType.ForceSwitch && effect.target === AttackTarget.Defender) {
+      // Headache: the opponent can't play Trainer cards during their next turn (not an effect on
+      // the Defending Pokémon: protection doesn't stop it)
+      if (effect.type === AttackEffectType.BlockTrainers && !effect.coinFlip) {
+        noTrainersOnTurn = gameState.turnNumber + 1;
+        events.push(createGameEvent("¡El rival no podrá jugar cartas de Entrenador durante su próximo turno!", "action"));
+      }
+
+      // ForceSwitch: opponent must switch active with a bench Pokemon (Lure, Whirlwind, Ram).
+      // Terror Strike (the opponent chooses) is a pending attack choice instead.
+      if (effect.type === AttackEffectType.ForceSwitch && effect.target === AttackTarget.Defender && effect.switchChosenBy !== "opponent") {
         // DamageAndEffects protection blocks ForceSwitch
         if (defenderBlocksEffects) {
           events.push(
@@ -3815,7 +4034,9 @@ function executeAttackUnchecked(
       // ReturnToHand: return defender to opponent's hand (Pidgeot's Hurricane)
       // Only if defender was NOT knocked out
       if (effect.type === AttackEffectType.ReturnToHand && effect.target === AttackTarget.Defender) {
-        if (newOpponentActive && !isKnockedOut) {
+        if (newOpponentActive && !isKnockedOut && defenderBlocksEffects) {
+          events.push(createGameEvent(`¡${newOpponentActive.pokemon.name} está protegido y no vuelve a la mano!`, "action"));
+        } else if (newOpponentActive && !isKnockedOut) {
           // Return the defender and all attached cards to opponent's hand
           const cardsToReturn: GameCard[] = cardsLeavingPlay(newOpponentActive);
 
@@ -4040,6 +4261,7 @@ function executeAttackUnchecked(
     pendingSelfSwitch: pendingSelfSwitch || undefined,
     pendingDeckSearch: pendingDeckSearch,
     pendingBenchDamageSelection: pendingBenchDamageSelection,
+    noTrainersOnTurn,
     attackedThisTurn: true,
     events,
   };
@@ -4132,13 +4354,27 @@ function executeAttackUnchecked(
     return stateAfterAttack;
   }
 
+  // Choices left to a player (Hyper Beam, Terror Strike, Prophecy, Wildfire, Energy Conversion,
+  // Scavenge): a pending attack choice blocks the end of the turn until it is answered
+  const choiceEffects = (attack.effects ?? []).filter((e) => !e.coinFlip && isAttackChoiceEffect(e));
+  if (choiceEffects.length > 0) {
+    stateAfterAttack = startAttackChoices(stateAfterAttack, choiceEffects, {
+      attackName: attack.name,
+      attackerId: attacker.pokemon.id,
+      defenderId: defender.pokemon.id,
+      defenderKnockedOut: isKnockedOut,
+      defenderBlocksEffects,
+      discardIdsBefore: gameState.playerDiscard.map((c) => c.id),
+    });
+  }
+
   // Si skipEndTurn es true, no terminar el turno (el caller lo hará después de aplicar efectos)
   if (skipEndTurn) {
     return stateAfterAttack;
   }
 
-  // Don't end turn if there's a pending force/self switch, deck search, or bench damage selection — player needs to choose first
-  if (pendingForceSwitch || pendingSelfSwitch || pendingDeckSearch || pendingBenchDamageSelection) {
+  // Don't end turn if there's a pending force/self switch, deck search, bench damage selection or attack choice — a player needs to choose first
+  if (pendingForceSwitch || pendingSelfSwitch || pendingDeckSearch || pendingBenchDamageSelection || stateAfterAttack.pendingAttackChoice) {
     return stateAfterAttack;
   }
 

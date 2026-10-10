@@ -8,12 +8,27 @@ import type { GameState, PokemonInPlay } from "@/lib/gameState";
 import {
   applyForceSwitch,
   applySelfSwitch,
+  resolveAttackChoice,
   executeBenchDamage,
   executeDeckSearch,
   skipPendingSwitch,
 } from "@/lib/gameState";
 import { isPokemonCard } from "@/domain/cards";
 import { PokemonStage } from "@/domain/constants";
+import type { SelectionStep } from "@/domain/effects/types";
+import { minSelectionsOf } from "@/domain/effects/validate";
+
+/**
+ * The AI's answer to any selection step (attack choices, and what a consumer needs when the
+ * AI is the "opponent" chooser of the human's attack, e.g. Terror Strike): as many options as
+ * the step requires (at least one when allowed), in order; an ordering keeps the current order.
+ */
+export function answerStepForAI(step: SelectionStep): string[] {
+  const enabled = step.options.filter((o) => !o.disabled).map((o) => o.id);
+  if (step.orderingCards) return enabled.slice(0, step.maxSelections);
+  const count = Math.max(minSelectionsOf(step), Math.min(1, step.maxSelections));
+  return enabled.slice(0, Math.min(count, enabled.length));
+}
 
 const NO_END = { skipEndTurn: true } as const;
 
@@ -58,6 +73,13 @@ export function resolveOwnAttackPendings(view: GameState): GameState {
           (!filter.type || c.types.includes(filter.type))
       );
       state = executeDeckSearch(state, card?.id ?? null, NO_END);
+      continue;
+    }
+    if (state.pendingAttackChoice) {
+      const step = state.pendingAttackChoice.step;
+      // The other player's choice (Terror Strike) stays pending: the consumer asks them
+      if (step.chooser === "opponent") return state;
+      state = resolveAttackChoice(state, answerStepForAI(step), NO_END);
       continue;
     }
     if (state.pendingBenchDamageSelection) {

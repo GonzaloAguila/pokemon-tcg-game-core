@@ -6,10 +6,9 @@
  */
 
 import type { GameState } from "@/domain/match";
-import { canExecuteAttack } from "@/lib/gameState";
-import { executeAttack, getAttackCoinFlipCount, endTurn, executeRetreat, createGameEvent, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
+import { canExecuteAttack, flipAttackCoins, getAttackCoinPlan } from "@/lib/gameState";
+import { executeAttack, endTurn, executeRetreat, createGameEvent, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
-import type { CoinFlipResult } from "@/domain/constants";
 import type { AIAction } from "./types";
 import {
   playBasicToActive,
@@ -22,10 +21,6 @@ import { canPlayTrainerCard, playTrainerCard } from "@/domain/effects";
 import { resolveOwnAttackPendings } from "./pending";
 import { IllegalActionError } from "@/shared/errors";
 
-/** The AI's coin flips (the engine logs and resolves them). */
-function flipCoins(count: number): CoinFlipResult[] {
-  return Array.from({ length: count }, () => (Math.random() < 0.5 ? "heads" : "tails"));
-}
 
 /**
  * Swap the "player"/"opponent" sides of a state (zones, prize/promotion flags, turn,
@@ -202,7 +197,7 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
   // The AI flips the attack's coins; the engine resolves every coin effect.
   // skipEndTurn: endTurn runs after the swap back, so its messages have the right perspective.
   // skipDefenderPromotion: the human chooses which Pokémon to promote.
-  const coinResults = flipCoins(getAttackCoinFlipCount(swappedState, attackIndex));
+  const coinResults = flipAttackCoins(getAttackCoinPlan(swappedState, attackIndex), () => (Math.random() < 0.5 ? "heads" : "tails"));
   // The AI answers its own attack's choices (switch, deck search, bench damage) in its view.
   const resultState = resolveOwnAttackPendings(executeAttack(swappedState, attackIndex, {
     coinResults,

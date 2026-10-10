@@ -17,7 +17,14 @@ export type {
   GameEvent,
 } from "./domain/match";
 
-export type { ExecuteAttackOptions, PowerSuppression, PendingResolutionOptions } from "./lib/gameState";
+export type {
+  ExecuteAttackOptions,
+  PowerSuppression,
+  PendingResolutionOptions,
+  PendingAttackChoice,
+  AttackChoiceContext,
+  AttackCoinPlan,
+} from "./lib/gameState";
 
 export type {
   Card,
@@ -94,6 +101,7 @@ export {
   canDiscardFromPlay,
   discardFromPlay,
   getEvolutionBlocker,
+  getTrainerBlocker,
   evolvePokemonInPlay,
   ENERGY_ATTACH_EFFECTS,
   getTurnActionBlocker,
@@ -122,6 +130,10 @@ export {
   executeAttack,
   executeMetronome,
   getAttackCoinFlipCount,
+  getAttackCoinPlan,
+  flipAttackCoins,
+  resolveAttackChoice,
+  isAttackChoiceEffect,
   resolveConfusionFlip,
   endTurn,
   executeRetreat,
@@ -248,6 +260,7 @@ export {
   decideOpponentSetup,
   executeAIAction,
 } from "./domain/ai";
+export { answerStepForAI, resolveOwnAttackPendings } from "./domain/ai/pending";
 
 // =============================================================================
 // Simulation (headless bot games; used by scripts/simulate.ts and tests)

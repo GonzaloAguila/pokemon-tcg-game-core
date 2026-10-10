@@ -1837,7 +1837,7 @@ export const jungleCards: Card[] = [
           {
             type: AttackEffectType.Heal,
             target: AttackTarget.Self,
-            amount: 10,
+            healFromDamage: "all",
           },
         ],
       },

@@ -22,7 +22,7 @@ import { checkKnockouts } from "@/lib/gameState";
 import type { CoinFlipResult } from "@/domain/constants";
 import { isPokemonCard } from "@/domain/cards";
 import { canUsePower } from "@/domain/powers";
-import { findInPlay, getTurnActionBlocker } from "@/domain/board";
+import { findInPlay, getTrainerBlocker, getTurnActionBlocker } from "@/domain/board";
 import { IllegalActionError, assertLegal } from "@/shared/errors";
 import type { CardEffectContext, CardEffectDef, CoinFlipRequirement, SelectionStep } from "./types";
 import { checkCoins, checkSelections, coinRequirement } from "./validate";
@@ -79,6 +79,8 @@ function trainerDef(state: GameState, cardId: string): { def?: CardEffectDef; re
 export function canPlayTrainerCard(state: GameState, cardId: string): string | null {
   const blocker = getTurnActionBlocker(state);
   if (blocker) return blocker;
+  const trainersBlocked = getTrainerBlocker(state);
+  if (trainersBlocked) return trainersBlocked;
   const { def, reason } = trainerDef(state, cardId);
   if (!def) return reason;
   return def.canUse(state, cardId);
