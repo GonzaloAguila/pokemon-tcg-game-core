@@ -272,7 +272,7 @@ export {
   decideOpponentSetup,
   executeAIAction,
 } from "./domain/ai";
-export { answerStepForAI, resolveOwnAttackPendings } from "./domain/ai/pending";
+export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice } from "./domain/ai/pending";
 
 // =============================================================================
 // Simulation (headless bot games; used by scripts/simulate.ts and tests)

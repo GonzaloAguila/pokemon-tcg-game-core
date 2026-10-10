@@ -41,6 +41,7 @@ export { decideOpponentTurn, decideOpponentSetup } from "./strategy";
 
 // Executor (apply actions to state)
 export { executeAIAction } from "./executor";
+export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice } from "./pending";
 
 // Actions (low-level state transformations)
 export {

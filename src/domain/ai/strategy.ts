@@ -114,11 +114,19 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
   // 3. Adjuntar energía (si no lo hizo aún)
   if (!simulatedState.energyAttachedThisTurn) {
     const energies = getEnergiesInHand(simulatedState, side);
-    if (energies.length > 0) {
-      const target = getBestEnergyTarget(simulatedState, side);
+    const target = energies.length > 0 ? getBestEnergyTarget(simulatedState, side) : null;
+    // Basic Energy first; never a Rainbow Energy that would Knock Out the target (10 damage)
+    const targetPokemon = target
+      ? [simulatedState.opponentActivePokemon, ...simulatedState.opponentBench].find((p) => p?.pokemon.id === target.pokemonId)
+      : undefined;
+    const remaining = targetPokemon && isPokemonCard(targetPokemon.pokemon) ? targetPokemon.pokemon.hp - (targetPokemon.currentDamage ?? 0) : 0;
+    const usable = energies
+      .filter((e) => !(isEnergyCard(e) && e.providesAllTypes && remaining <= 10))
+      .sort((a, b) => Number(isEnergyCard(b) && b.isBasic) - Number(isEnergyCard(a) && a.isBasic));
+    if (usable.length > 0) {
       if (target) {
         // Elegir la mejor energía para el target
-        const energy = energies[0]; // Simple: usar la primera
+        const energy = usable[0];
 
         actions.push({
           type: "attachEnergy",
