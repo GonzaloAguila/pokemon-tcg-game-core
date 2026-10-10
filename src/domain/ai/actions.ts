@@ -30,6 +30,7 @@ import {
   swapSides,
 } from "@/domain/board";
 import type { Side } from "./types";
+import { resolveOwnPowerChoice } from "./pending";
 import { getEffectivePokemonCard } from "@/domain/powers";
 
 /** Getters para acceder al estado según el lado */
@@ -152,7 +153,8 @@ export function evolve(
     state,
     side,
     (s) => canEvolve(s, evolutionCardId, targetPokemonId),
-    (s) => evolvePokemonCard(s, evolutionCardId, targetPokemonId)
+    // The AI answers its own "when you play it from your hand" power right away
+    (s) => resolveOwnPowerChoice(evolvePokemonCard(s, evolutionCardId, targetPokemonId))
   );
 }
 

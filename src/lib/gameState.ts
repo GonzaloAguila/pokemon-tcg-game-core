@@ -38,6 +38,9 @@ import type { SelectionStep } from "@/domain/effects/types";
 import { isAttackChoiceEffect, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
 export { resolveAttackChoice, isAttackChoiceEffect } from "./attackChoices";
 export type { AttackChoiceContext } from "./attackChoices";
+import type { PendingPowerChoice } from "./powerChoices";
+export { resolvePowerChoice, triggerOnPlayPower, ON_PLAY_POWERS } from "./powerChoices";
+export type { PendingPowerChoice, OnPlayPowerDef } from "./powerChoices";
 import { assertLegal } from "@/shared/errors";
 
 // ============================================================================
@@ -241,6 +244,12 @@ export type GameState = {
    * endTurn and every other action. Kept in sync with domain/match/types.ts (re-export).
    */
   pendingAttackChoice?: PendingAttackChoice;
+  /**
+   * A choice left by a Pokémon Power played from the hand (Summon Minions, Sneak Attack,
+   * Reel In): see lib/powerChoices.ts. Belongs to the side whose turn it is; answer with
+   * resolvePowerChoice on that side's view. Blocks endTurn and every other action.
+   */
+  pendingPowerChoice?: PendingPowerChoice;
   /**
    * Headache (Psyduck): no Trainer cards can be played during this turn number (the opponent's
    * next turn). Dropped by endTurn once that turn is over.
@@ -1743,7 +1752,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   // clearPeek) and are discarded below so they can't leak into the next turn.
   if (
     gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch ||
-    gameState.pendingBenchDamageSelection || gameState.pendingAttackChoice
+    gameState.pendingBenchDamageSelection || gameState.pendingAttackChoice || gameState.pendingPowerChoice
   ) {
     return gameState;
   }

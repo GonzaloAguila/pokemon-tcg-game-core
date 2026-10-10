@@ -30,7 +30,7 @@
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
-import { createGameEvent, drawCard, energyCardLabel, getEnergyTypeInSpanish, shuffle } from "@/lib/gameState";
+import { createGameEvent, drawCard, energyCardLabel, getEnergyTypeInSpanish, shuffle, triggerOnPlayPower } from "@/lib/gameState";
 import { ALL_CARDS } from "@/domain/catalog";
 import { cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { CardKind, PokemonStage } from "@/domain/constants";
@@ -631,8 +631,9 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
       }
       return null;
     },
+    // The Stage 2 is played from the hand: its "when you play it from your hand" power triggers
     resolve: (state, cardId, selections) =>
-      playPokemonBreeder(state, cardId, selections[0][0], ownTargetIndex(state, selections[1][0])),
+      triggerOnPlayPower(playPokemonBreeder(state, cardId, selections[0][0], ownTargetIndex(state, selections[1][0])), selections[0][0]),
   },
 
   // ------------------------------------------------------------------ coin

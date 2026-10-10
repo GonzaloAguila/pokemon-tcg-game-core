@@ -24,6 +24,8 @@ export type {
   PendingAttackChoice,
   AttackChoiceContext,
   AttackCoinPlan,
+  PendingPowerChoice,
+  OnPlayPowerDef,
 } from "./lib/gameState";
 
 export type {
@@ -136,6 +138,9 @@ export {
   flipAttackCoins,
   resolveAttackChoice,
   isAttackChoiceEffect,
+  resolvePowerChoice,
+  triggerOnPlayPower,
+  ON_PLAY_POWERS,
   resolveConfusionFlip,
   endTurn,
   executeRetreat,

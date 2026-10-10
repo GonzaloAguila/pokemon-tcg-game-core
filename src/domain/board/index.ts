@@ -11,6 +11,7 @@ import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import {
   createGameEvent,
   checkKnockouts,
+  triggerOnPlayPower,
   canEvolveInto,
   findValidEvolutionTargets,
   getEnergyTypeInSpanish,
@@ -53,6 +54,7 @@ export function getTurnActionBlocker(state: GameState): string | null {
   ) {
     return "Primero resuelve el efecto pendiente del ataque";
   }
+  if (state.pendingPowerChoice) return "Primero resuelve el Poder Pokémon pendiente";
   if (state.playerNeedsToPromote || state.opponentNeedsToPromote) {
     return "Primero hay que elegir un nuevo Pokémon activo";
   }
@@ -138,12 +140,14 @@ export function playBasicPokemon(state: GameState, cardId: string, position: Boa
       events: [...state.events, createGameEvent(`Colocaste ${card.name} como Pokémon activo`, "action")],
     };
   }
-  return {
+  const benched: GameState = {
     ...state,
     playerHand,
     playerBench: [...state.playerBench.filter((p) => p != null), pokemon],
     events: [...state.events, createGameEvent(`Colocaste ${card.name} en la banca`, "action")],
   };
+  // "When you play <it> from your hand" powers (none on Basic Pokémon yet; not during setup)
+  return isSetupPhase(state) ? benched : triggerOnPlayPower(benched, pokemon.pokemon.id);
 }
 
 // ============================================================================
@@ -352,8 +356,9 @@ export function evolvePokemonCard(state: GameState, evolutionCardId: string, tar
   const target = findInPlay(state, "player", targetPokemonId)!;
   const evolved = evolvePokemonInPlay(target.pokemon, card, state.turnNumber);
 
-  // The evolved Active may change what a transformed Ditto copies (checkKnockouts)
-  return checkKnockouts({
+  // The evolved Active may change what a transformed Ditto copies (checkKnockouts); then its
+  // "when you play it from your hand" power (Summon Minions, Sneak Attack, Reel In)
+  return triggerOnPlayPower(checkKnockouts({
     ...state,
     playerHand: state.playerHand.filter((c) => c.id !== evolutionCardId),
     ...(target.location === "active"
@@ -363,5 +368,5 @@ export function evolvePokemonCard(state: GameState, evolutionCardId: string, tar
       ...state.events,
       createGameEvent(`${target.pokemon.pokemon.name} evolucionó a ${card.name}`, "action"),
     ],
-  });
+  }), evolutionCardId);
 }

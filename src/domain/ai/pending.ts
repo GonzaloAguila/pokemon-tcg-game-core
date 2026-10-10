@@ -6,6 +6,7 @@
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
 import {
+  resolvePowerChoice,
   applyForceSwitch,
   applySelfSwitch,
   resolveAttackChoice,
@@ -31,6 +32,18 @@ export function answerStepForAI(step: SelectionStep): string[] {
 }
 
 const NO_END = { skipEndTurn: true } as const;
+
+/**
+ * The AI's own "when you play it from your hand" power (Summon Minions, Sneak Attack, Reel In):
+ * it takes as much as it may (as many Basics / cards as allowed; Sneak Attack hits the first
+ * option, the Defending Pokémon). View: AI = "player".
+ */
+export function resolveOwnPowerChoice(view: GameState): GameState {
+  const pending = view.pendingPowerChoice;
+  if (!pending) return view;
+  const enabled = pending.step.options.filter((o) => !o.disabled).map((o) => o.id);
+  return resolvePowerChoice(view, enabled.slice(0, pending.step.maxSelections));
+}
 
 function remainingHp(pokemon: PokemonInPlay): number {
   return isPokemonCard(pokemon.pokemon) ? pokemon.pokemon.hp - (pokemon.currentDamage ?? 0) : 0;

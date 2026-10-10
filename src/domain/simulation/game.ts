@@ -20,6 +20,7 @@ import {
   initializeMultiplayerGame,
   promoteActivePokemon,
   resolveAttackChoice,
+  resolvePowerChoice,
   setPlayerReady,
   skipPendingSwitch,
   startGame,
@@ -83,6 +84,7 @@ function actionKind(label: string): string {
   if (label.startsWith("benchTrainer ") || label.startsWith("discardFromPlay ")) return label;
   if (label.startsWith("playTrainer ") || label.startsWith("greedy playTrainer ")) return label.replace(/^greedy /, "");
   if (label.startsWith("usePower ")) return label.replace(/ \(.*\)$/, "");
+  if (label.startsWith("powerChoice ")) return label;
   if (label.startsWith("greedy ")) return label.split(" ").slice(0, 2).join(" ");
   return label.split(/ #| [A-Z]|\d/)[0].trim();
 }
@@ -242,6 +244,13 @@ class GameRunner {
         label: `attack choice ${step.title} (${step.chooser ?? "self"})`,
         run: (v) => resolveAttackChoice(v, chosen, { skipEndTurn: true }),
       });
+      return true;
+    }
+    if (view.pendingPowerChoice) {
+      // A power played from the hand (Summon Minions...): its owner is the side whose turn it is
+      const { step, powerName } = view.pendingPowerChoice;
+      const chosen = this.answer(actor, step);
+      this.apply(actor, { label: `powerChoice ${powerName}`, run: (v) => resolvePowerChoice(v, chosen) });
       return true;
     }
     if (view.playerCanTakePrize) {
