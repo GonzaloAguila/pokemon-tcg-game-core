@@ -79,6 +79,7 @@ export {
 export {
   executeAttack,
   executeMetronome,
+  resolveConfusionFlip,
   endTurn,
   executeRetreat,
   applyForceSwitch,

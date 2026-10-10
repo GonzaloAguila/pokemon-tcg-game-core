@@ -1001,6 +1001,62 @@ export function executeBenchDamage(
 }
 
 /**
+ * The acting side's ("player") active Pokémon is knocked out during its own turn
+ * (self damage, Strikes Back, Destiny Bond, confusion). Shared by executeAttack and
+ * resolveConfusionFlip. Pure: returns new piles, never mutates the inputs.
+ * - The Pokémon and all attached energy/trainers/lower stages go to its discard pile.
+ * - The opponent automatically takes exactly one prize (no manual pick is flagged).
+ * - `needsToPromote` when something is left on the bench; otherwise a defeat event is
+ *   logged. `prizedOut` when that prize was the opponent's last one. The caller sets
+ *   gameResult/gamePhase.
+ */
+function knockOutActingActive(
+  knockedOut: PokemonInPlay,
+  piles: { bench: PokemonInPlay[]; discard: GameCard[]; opponentPrizes: GameCard[]; opponentHand: GameCard[] },
+  prizeMessage: string
+): {
+  discard: GameCard[];
+  opponentPrizes: GameCard[];
+  opponentHand: GameCard[];
+  needsToPromote: boolean;
+  prizedOut: boolean;
+  events: GameEvent[];
+} {
+  const events: GameEvent[] = [];
+  const discard = [
+    ...piles.discard,
+    knockedOut.pokemon,
+    ...knockedOut.attachedEnergy,
+    ...(knockedOut.attachedTrainers ?? []),
+    ...(knockedOut.previousEvolutions ?? []),
+  ];
+
+  let opponentPrizes = piles.opponentPrizes;
+  let opponentHand = piles.opponentHand;
+  let prizedOut = false;
+  if (opponentPrizes.length > 0) {
+    const prize = opponentPrizes[opponentPrizes.length - 1];
+    opponentPrizes = opponentPrizes.slice(0, -1);
+    opponentHand = [...opponentHand, prize];
+    events.push(createGameEvent(prizeMessage, "action"));
+    prizedOut = opponentPrizes.length === 0;
+  }
+
+  const needsToPromote = piles.bench.some((p) => p != null);
+  if (prizedOut) {
+    events.push(createGameEvent("¡Se tomó el último premio! Fin de la partida", "system"));
+    events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
+  } else if (needsToPromote) {
+    events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
+  } else {
+    events.push(createGameEvent("¡Derrota! No tienes más Pokémon", "system"));
+    events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
+  }
+
+  return { discard, opponentPrizes, opponentHand, needsToPromote: needsToPromote && !prizedOut, prizedOut, events };
+}
+
+/**
  * KO sweep for BOTH benches (classic rule: knockouts are checked after every
  * damage source, including bench damage and self-damage attacks).
  *
@@ -2562,6 +2618,22 @@ export function executeAttack(
   let attackerNeedsToPromote = false;
   let pendingBenchDamageSelection: GameState["pendingBenchDamageSelection"] = undefined;
 
+  // Shared attacker-KO step (self damage, Strikes Back, Destiny Bond): see knockOutActingActive
+  const applyAttackerKnockout = (knockedOut: PokemonInPlay, prizeMessage: string) => {
+    const ko = knockOutActingActive(
+      knockedOut,
+      { bench: newPlayerBench, discard: newPlayerDiscard, opponentPrizes: newOpponentPrizes, opponentHand: newOpponentHand },
+      prizeMessage
+    );
+    events.push(...ko.events);
+    return {
+      newPlayerDiscard: ko.discard,
+      newOpponentPrizes: ko.opponentPrizes,
+      newOpponentHand: ko.opponentHand,
+      attackerNeedsToPromote: ko.needsToPromote,
+    };
+  };
+
   if (attack.effects) {
     for (const effect of attack.effects) {
       // Ignorar efectos con coinFlip (se procesan en handleCoinFlipComplete)
@@ -2625,38 +2697,9 @@ export function executeAttack(
             createGameEvent(`¡${newPlayerActive.pokemon.name} se noqueó a sí mismo!`, "action")
           );
 
-          // Mover al descarte
-          newPlayerDiscard.push(newPlayerActive.pokemon);
-          newPlayerDiscard.push(...newPlayerActive.attachedEnergy);
-          if (newPlayerActive.attachedTrainers) {
-            newPlayerDiscard.push(...newPlayerActive.attachedTrainers);
-          }
-          if (newPlayerActive.previousEvolutions) {
-            newPlayerDiscard.push(...newPlayerActive.previousEvolutions);
-          }
-
-          // Oponente toma un premio (si hay)
-          if (newOpponentPrizes.length > 0) {
-            const prize = newOpponentPrizes.pop()!;
-            newOpponentHand.push(prize);
-            events.push(createGameEvent("El rival tomó un premio", "action"));
-          }
-
-          // Promover Pokémon de la banca del jugador (si hay)
-          const benchPokemonCount = newPlayerBench.filter(p => p != null).length;
-          if (benchPokemonCount >= 1) {
-            // El jugador debe elegir qué Pokémon promover
-            newPlayerActive = null;
-            attackerNeedsToPromote = true;
-            events.push(
-              createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")
-            );
-          } else {
-            // No hay Pokémon en la banca: derrota
-            newPlayerActive = null;
-            events.push(createGameEvent("¡Derrota! No tienes más Pokémon", "system"));
-            events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
-          }
+          ({ newPlayerDiscard, newOpponentPrizes, newOpponentHand, attackerNeedsToPromote } =
+            applyAttackerKnockout(newPlayerActive, "El rival tomó un premio"));
+          newPlayerActive = null;
         } else {
           newPlayerActive = {
             ...newPlayerActive,
@@ -2820,25 +2863,9 @@ export function executeAttack(
                   events.push(
                     createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por el contraataque de ${benchPokemon.pokemon.name}!`, "action")
                   );
-                  newPlayerDiscard.push(newPlayerActive.pokemon);
-                  newPlayerDiscard.push(...newPlayerActive.attachedEnergy);
-                  if (newPlayerActive.attachedTrainers) newPlayerDiscard.push(...newPlayerActive.attachedTrainers);
-                  if (newPlayerActive.previousEvolutions) newPlayerDiscard.push(...newPlayerActive.previousEvolutions);
-                  if (newOpponentPrizes.length > 0) {
-                    const prize = newOpponentPrizes.pop()!;
-                    newOpponentHand.push(prize);
-                    events.push(createGameEvent("El rival tomó un premio por el contraataque", "action"));
-                  }
-                  const benchPokemonCount = newPlayerBench.filter(p => p != null).length;
-                  if (benchPokemonCount >= 1) {
-                    newPlayerActive = null;
-                    attackerNeedsToPromote = true;
-                    events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
-                  } else {
-                    newPlayerActive = null;
-                    events.push(createGameEvent("¡Derrota! No tienes más Pokémon", "system"));
-                    events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
-                  }
+                  ({ newPlayerDiscard, newOpponentPrizes, newOpponentHand, attackerNeedsToPromote } =
+                    applyAttackerKnockout(newPlayerActive, "El rival tomó un premio por el contraataque"));
+                  newPlayerActive = null;
                   break; // Attacker KO'd, stop checking further reactions
                 } else {
                   newPlayerActive = { ...newPlayerActive, currentDamage: newAttackerDamage };
@@ -3395,30 +3422,9 @@ export function executeAttack(
       createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por Unión de Destino!`, "action")
     );
 
-    // Move attacker to discard
-    newPlayerDiscard.push(newPlayerActive.pokemon);
-    newPlayerDiscard.push(...newPlayerActive.attachedEnergy);
-    if (newPlayerActive.attachedTrainers) newPlayerDiscard.push(...newPlayerActive.attachedTrainers);
-    if (newPlayerActive.previousEvolutions) newPlayerDiscard.push(...newPlayerActive.previousEvolutions);
-
-    // Opponent takes a prize for the Destiny Bond KO
-    if (newOpponentPrizes.length > 0) {
-      const prize = newOpponentPrizes.pop()!;
-      newOpponentHand.push(prize);
-      events.push(createGameEvent("El rival tomó un premio por Unión de Destino", "action"));
-    }
-
-    // Player needs to promote from bench
-    const benchPokemonCount = newPlayerBench.filter(p => p != null).length;
-    if (benchPokemonCount >= 1) {
-      newPlayerActive = null;
-      attackerNeedsToPromote = true;
-      events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
-    } else {
-      newPlayerActive = null;
-      events.push(createGameEvent("¡Derrota! No tienes más Pokémon", "system"));
-      events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
-    }
+    ({ newPlayerDiscard, newOpponentPrizes, newOpponentHand, attackerNeedsToPromote } =
+      applyAttackerKnockout(newPlayerActive, "El rival tomó un premio por Unión de Destino"));
+    newPlayerActive = null;
   }
 
   // STRIKES BACK: Aplicar contraataque si el defensor tiene damageReaction
@@ -3443,36 +3449,10 @@ export function executeAttack(
           createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por el contraataque!`, "action")
         );
 
-        // Mover al descarte
-        newPlayerDiscard.push(newPlayerActive.pokemon);
-        newPlayerDiscard.push(...newPlayerActive.attachedEnergy);
-        if (newPlayerActive.attachedTrainers) {
-          newPlayerDiscard.push(...newPlayerActive.attachedTrainers);
-        }
-        if (newPlayerActive.previousEvolutions) {
-          newPlayerDiscard.push(...newPlayerActive.previousEvolutions);
-        }
-
-        // Oponente toma un premio por el KO del atacante (el KO del defensor da premio al jugador, no al rival)
-        if (newOpponentPrizes.length > 0) {
-          const prize = newOpponentPrizes.pop()!;
-          newOpponentHand.push(prize);
-          events.push(createGameEvent("El rival tomó un premio por el contraataque", "action"));
-        }
-
-        // Promover Pokémon de la banca del jugador
-        const benchPokemonCount = newPlayerBench.filter(p => p != null).length;
-        if (benchPokemonCount >= 1) {
-          newPlayerActive = null;
-          attackerNeedsToPromote = true;
-          events.push(
-            createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")
-          );
-        } else {
-          newPlayerActive = null;
-          events.push(createGameEvent("¡Derrota! No tienes más Pokémon", "system"));
-          events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
-        }
+        // El KO del defensor da premio al jugador; el del atacante, al rival (siempre)
+        ({ newPlayerDiscard, newOpponentPrizes, newOpponentHand, attackerNeedsToPromote } =
+          applyAttackerKnockout(newPlayerActive, "El rival tomó un premio por el contraataque"));
+        newPlayerActive = null;
       } else {
         // Solo actualizar daño del atacante
         newPlayerActive = {
@@ -3603,6 +3583,12 @@ export function executeAttack(
       gameResult = "defeat";
       gamePhase = GamePhase.GameOver;
     }
+    // Derrota: el KO del atacante le dio al rival su último premio
+    if (gameResult === null && gameState.opponentPrizes.length > 0 && stateAfterAttack.opponentPrizes.length === 0) {
+      gameResult = "defeat";
+      gamePhase = GamePhase.GameOver;
+      attackerNeedsToPromote = false;
+    }
   }
 
   stateAfterAttack = {
@@ -3639,6 +3625,93 @@ export function executeAttack(
   }
 
   return stateAfterAttack;
+}
+
+/**
+ * Confusion check before an attack (Base Set rule), for the side whose turn it is ("player").
+ * The caller flips the coin (so the server can be authoritative) and passes the result.
+ *
+ * - Active not Confused → `{ state (same object), canAttack: true }`.
+ * - Heads → `canAttack: true`; only a coin event is added. The caller then runs the attack.
+ * - Tails → `canAttack: false`; the attack is used but fails: the active takes
+ *   CONFUSION_SELF_DAMAGE (20, no weakness/resistance). If that knocks it out it is handled
+ *   like an attacker self-KO in executeAttack (discard, opponent auto-takes one prize,
+ *   promotion or defeat, game over on the last prize). Then the turn ends like a resolved
+ *   attack: endTurn is called internally unless `skipEndTurn`, the game is over, or the
+ *   active was knocked out (the turn then waits for the promotion, exactly as after an
+ *   executeAttack self-KO: promote, then call endTurn).
+ *
+ * @param skipEndTurn - like executeAttack: return before endTurn (e.g. callers that swap
+ *   perspective and want to call endTurn themselves)
+ */
+export function resolveConfusionFlip(
+  state: GameState,
+  heads: boolean,
+  skipEndTurn: boolean = false
+): { state: GameState; canAttack: boolean } {
+  const active = state.playerActivePokemon;
+  if (!active || !hasStatusCondition(active, StatusCondition.Confused)) {
+    return { state, canAttack: true };
+  }
+
+  const name = active.pokemon.name;
+  const coin = heads ? "[coin:heads]" : "[coin:tails]";
+  const events: GameEvent[] = [
+    ...state.events,
+    createGameEvent(`${name} está confundido - Moneda: ${coin}`, "info"),
+  ];
+
+  if (heads) {
+    events.push(createGameEvent("[coin:heads] El ataque procede normalmente", "info"));
+    return { state: { ...state, events }, canAttack: true };
+  }
+
+  events.push(createGameEvent(`[coin:tails] ${name} se lastima a sí mismo`, "info"));
+  events.push(createGameEvent(`${name} se hizo ${CONFUSION_SELF_DAMAGE} de daño a sí mismo`, "action"));
+
+  const newDamage = (active.currentDamage ?? 0) + CONFUSION_SELF_DAMAGE;
+  const knockedOut = active.pokemon.kind === CardKind.Pokemon && newDamage >= active.pokemon.hp;
+
+  if (!knockedOut) {
+    const damaged: GameState = {
+      ...state,
+      playerActivePokemon: { ...active, currentDamage: newDamage },
+      events,
+    };
+    const endsTurn = !skipEndTurn && state.opponentActivePokemon !== null &&
+      !damaged.pendingForceSwitch && !damaged.pendingSelfSwitch &&
+      !damaged.pendingDeckSearch && !damaged.pendingBenchDamageSelection;
+    return { state: endsTurn ? endTurn(damaged) : damaged, canAttack: false };
+  }
+
+  events.push(createGameEvent(`¡${name} se noqueó a sí mismo!`, "action"));
+  const ko = knockOutActingActive(
+    active,
+    {
+      bench: state.playerBench,
+      discard: state.playerDiscard,
+      opponentPrizes: state.opponentPrizes,
+      opponentHand: state.opponentHand,
+    },
+    "El rival tomó un premio"
+  );
+  events.push(...ko.events);
+
+  const defeated = ko.prizedOut || !ko.needsToPromote;
+  return {
+    state: {
+      ...state,
+      playerActivePokemon: null,
+      playerDiscard: ko.discard,
+      opponentPrizes: ko.opponentPrizes,
+      opponentHand: ko.opponentHand,
+      opponentCanTakePrize: false,
+      playerNeedsToPromote: ko.needsToPromote,
+      ...(defeated && { gameResult: "defeat" as const, gamePhase: GamePhase.GameOver }),
+      events,
+    },
+    canAttack: false,
+  };
 }
 
 /**

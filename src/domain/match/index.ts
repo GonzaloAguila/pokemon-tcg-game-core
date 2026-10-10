@@ -72,6 +72,7 @@ export {
   drawCard,
   endTurn,
   executeAttack,
+  resolveConfusionFlip,
   executeRetreat,
   takePrize,
   promoteActivePokemon,

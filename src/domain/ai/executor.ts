@@ -6,8 +6,7 @@
  */
 
 import type { GameState } from "@/domain/match";
-import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition, executeDeckSearch, applyProtection, clearStatusConditionsOnRetreat } from "@/domain/match";
-import { CONFUSION_SELF_DAMAGE } from "@/lib/gameState";
+import { executeAttack, endTurn, executeRetreat, createGameEvent, applyStatusCondition, executeDeckSearch, applyProtection, clearStatusConditionsOnRetreat, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
 import { PokemonStage, ProtectionType } from "@/domain/constants";
 import type { AIAction } from "./types";
@@ -39,6 +38,39 @@ function getCoinFlipLogMessage(results: ("heads" | "tails")[]): string {
     return `Moneda: ${coinTokens}`;
   }
   return `Monedas: ${coinTokens}`;
+}
+
+/**
+ * Swap the "player"/"opponent" sides of a state (zones, prize/promotion flags, turn,
+ * PlusPower/Defender ownership and the game result), so engine functions that act for
+ * "player" can run for the AI.
+ */
+function swapSides(state: GameState): GameState {
+  return {
+    ...state,
+    playerActivePokemon: state.opponentActivePokemon,
+    playerBench: state.opponentBench,
+    playerHand: state.opponentHand,
+    playerDeck: state.opponentDeck,
+    playerDiscard: state.opponentDiscard,
+    playerPrizes: state.opponentPrizes,
+    opponentActivePokemon: state.playerActivePokemon,
+    opponentBench: state.playerBench,
+    opponentHand: state.playerHand,
+    opponentDeck: state.playerDeck,
+    opponentDiscard: state.playerDiscard,
+    opponentPrizes: state.playerPrizes,
+    isPlayerTurn: !state.isPlayerTurn,
+    playerCanTakePrize: state.opponentCanTakePrize,
+    opponentCanTakePrize: state.playerCanTakePrize,
+    playerNeedsToPromote: state.opponentNeedsToPromote,
+    opponentNeedsToPromote: state.playerNeedsToPromote,
+    activeModifiers: state.activeModifiers.map(m => ({
+      ...m,
+      playerId: m.playerId === "player" ? "opponent" as const : "player" as const,
+    })),
+    gameResult: state.gameResult === "victory" ? "defeat" : state.gameResult === "defeat" ? "victory" : state.gameResult,
+  };
 }
 
 /**
@@ -136,111 +168,44 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
     }
   }
 
-  // Check if attacker is confused - must flip coin before attacking
+  // Confusion: the engine resolves the flip for the side whose turn it is ("player"),
+  // so run it from the AI's perspective and swap back.
   const isConfused = attacker.statusConditions?.includes("confused") ?? false;
   if (isConfused) {
-    const confusionFlip = Math.random() < 0.5 ? "heads" : "tails";
-    const coinToken = `[coin:${confusionFlip}]`;
+    const heads = Math.random() < 0.5;
+    const eventsBefore = state.events.length;
+    const resolved = resolveConfusionFlip(swapSides(state), heads, true);
+    let afterFlip = swapSides(resolved.state);
 
-    if (confusionFlip === "tails") {
-      // Tails: attack fails, the confused Pokémon does 20 damage to itself (Base Set rule)
-      const newSelfDamage = (attacker.currentDamage || 0) + CONFUSION_SELF_DAMAGE;
-      const attackerHP = attacker.pokemon.hp;
-      const isKO = newSelfDamage >= attackerHP;
-
-      const events = [
-        ...state.events,
-        createGameEvent(`${attacker.pokemon.name} está confundido - Moneda: ${coinToken}`, "info"),
-        createGameEvent(`[coin:tails] ${attacker.pokemon.name} se lastima a sí mismo`, "info"),
-        createGameEvent(`${attacker.pokemon.name} se hizo ${CONFUSION_SELF_DAMAGE} de daño a sí mismo`, "action"),
-      ];
-
-      if (isKO) {
-        events.push(createGameEvent(`¡${attacker.pokemon.name} se noqueó a sí mismo!`, "action"));
-
-        // Move to discard
-        const newDiscard = [
-          ...state.opponentDiscard,
-          attacker.pokemon,
-          ...attacker.attachedEnergy,
-          ...(attacker.attachedTrainers || []),
-          ...(attacker.previousEvolutions || []),
-        ];
-
-        // Player takes prize
-        let newPlayerPrizes = [...state.playerPrizes];
-        let newPlayerHand = [...state.playerHand];
-        if (newPlayerPrizes.length > 0) {
-          const prize = newPlayerPrizes.shift()!;
-          newPlayerHand = [prize, ...newPlayerHand];
-          events.push(createGameEvent(`Tomaste un premio`, "action"));
-        }
-
-        // Check for player win
-        if (newPlayerPrizes.length === 0) {
-          events.push(createGameEvent(`¡Ganaste la partida!`, "system"));
-          return {
-            ...state,
-            opponentActivePokemon: null,
-            opponentDiscard: newDiscard,
-            playerPrizes: newPlayerPrizes,
-            playerHand: newPlayerHand,
-            gamePhase: "GAME_OVER",
-            events,
-          };
-        }
-
-        // Auto-promote from opponent bench
-        const benchPokemonIndex = state.opponentBench.findIndex(p => p != null);
-        if (benchPokemonIndex === -1) {
-          // No bench Pokemon - player wins
-          events.push(createGameEvent(`¡Ganaste la partida!`, "system"));
-          return {
-            ...state,
-            opponentActivePokemon: null,
-            opponentDiscard: newDiscard,
-            playerPrizes: newPlayerPrizes,
-            playerHand: newPlayerHand,
-            gamePhase: "GAME_OVER",
-            events,
-          };
-        }
-
-        const promoted = state.opponentBench[benchPokemonIndex]!;
-        const newBench = [...state.opponentBench];
-        newBench.splice(benchPokemonIndex, 1);
-        events.push(createGameEvent(`${promoted.pokemon.name} pasa a ser el Pokémon activo del rival`, "info"));
-
-        return {
-          ...state,
-          opponentActivePokemon: promoted,
-          opponentBench: newBench,
-          opponentDiscard: newDiscard,
-          playerPrizes: newPlayerPrizes,
-          playerHand: newPlayerHand,
-          events,
-        };
-      } else {
-        // Not KO'd, just apply damage
-        return {
-          ...state,
-          opponentActivePokemon: {
-            ...attacker,
-            currentDamage: newSelfDamage,
-          },
-          events,
-        };
-      }
+    if (resolved.canAttack) {
+      state = afterFlip;
     } else {
-      // Heads: attack proceeds, add event and continue
-      state = {
-        ...state,
+      // Messages were written from the AI's side; rewrite the ones that name a side
+      afterFlip = {
+        ...afterFlip,
         events: [
-          ...state.events,
-          createGameEvent(`${attacker.pokemon.name} está confundido - Moneda: ${coinToken}`, "info"),
-          createGameEvent(`[coin:heads] El ataque procede normalmente`, "info"),
+          ...afterFlip.events.slice(0, eventsBefore),
+          ...afterFlip.events.slice(eventsBefore).flatMap((event) => {
+            if (event.message === "El rival tomó un premio") return [{ ...event, message: "Tomaste un premio" }];
+            if (event.message === "¡Derrota! No tienes más Pokémon") {
+              return [{ ...event, message: "¡Victoria! El rival no tiene más Pokémon" }];
+            }
+            if (event.message === "Debes elegir un Pokémon de tu banca para continuar") return [];
+            return [event];
+          }),
         ],
       };
+
+      // The AI knocked itself out: it always promotes its first benched Pokémon
+      if (!afterFlip.opponentActivePokemon && afterFlip.gamePhase !== "GAME_OVER") {
+        const benchIndex = afterFlip.opponentBench.findIndex((p) => p != null);
+        if (benchIndex !== -1) {
+          afterFlip = promoteActivePokemon(afterFlip, benchIndex, false);
+        }
+      }
+
+      // The attack was used (and failed): the AI's turn ends
+      return afterFlip.gamePhase !== "GAME_OVER" ? endTurn(afterFlip) : afterFlip;
     }
   }
 
