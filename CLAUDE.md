@@ -1,6 +1,6 @@
 # CLAUDE.md — @gonzaloaguila/game-core
 
-Pure TypeScript engine for **Nostalgic TCG** (classic Pokémon TCG: Base Set 102 + Jungle 48 cards). Holds `GameState`, attacks/effects, status conditions, Pokémon Powers, trainers, AI, card catalogs and theme decks. No React, no browser APIs, no Node-only APIs.
+Pure TypeScript engine for **Nostalgic TCG** (classic Pokémon TCG: Base Set 102 + Jungle 48 cards; Fossil and Team Rocket in progress, see `docs/fossil-team-rocket-design.md`). Holds `GameState`, attacks/effects, status conditions, Pokémon Powers, trainers, AI, card catalogs and theme decks. No React, no browser APIs, no Node-only APIs.
 
 ## Consumers (sibling repos under `D:/Proyectos/`)
 
@@ -19,10 +19,11 @@ npm run dev        # tsc --watch
 npx tsc --noEmit   # type check
 npm test           # vitest (test/**, card-scenario helpers in test/helpers/state.ts)
 npm run typecheck:test
+npm run simulate -- --games 500 --seed 1 --sets base-set,jungle --policy all   # bot fuzzer (tsx)
 npm version patch && npm publish   # GitHub Packages; prepublishOnly builds; needs auth with write:packages
 ```
 
-`npm run lint` is declared but eslint isn't installed. Write a failing card-scenario test first for any rule change (`makeState`, `inPlay`, `deepFreeze` helpers). npm 10 can crash adding devDependencies — use `npx npm@11 install -D …`.
+`npm run lint` is declared but eslint isn't installed. Write a failing card-scenario test first for any rule change (`makeState`, `inPlay`, `deepFreeze`, `armedFor` helpers — attacks are only legal when paid, so give attackers Energy or wrap them in `armedFor`). npm 10 can crash adding devDependencies — use `npx npm@11 install -D …`. After any rule change also run `npm run simulate` (0 failures expected; a failure prints the seed to replay with `--games 1 --seed N`).
 
 Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ERR_UNSUPPORTED_DIR_IMPORT`). `dist/` is gitignored and is the only thing published.
 
@@ -30,8 +31,12 @@ Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ER
 
 - `src/index.ts` — the public API. Anything consumers use must be exported here (also re-exported via `src/domain/match/index.ts` for some engine functions).
 - `src/lib/gameState.ts` — the engine (~3.6k lines): `GameState`/`PokemonInPlay` types, setup/mulligan, `executeAttack`, `endTurn`, retreat, evolution, prizes, pending-state resolvers.
-- `src/domain/cards/` — card types, factories, guards. `catalog/` — `base-set.ts`, `jungle.ts`, `image-urls.ts` (pkmncards.com slugs). `decks/` — theme decks + resolution.
-- `src/domain/trainers/index.ts` — `canPlayX` / `playX` per trainer. `powers/index.ts` — Pokémon Powers. `status/` — status helpers. `ai/` — `strategy.ts` (decide), `actions.ts` (estimates), `executor.ts` (apply).
+- `src/domain/cards/` — card types, factories, guards (`isPlayableAsBasic`). `catalog/` — `sets.ts` (**set registry**: `CARD_SETS`, `ALL_CARDS`, `findCardById`, `findCardDefinition(set, number)`, `findCardByName`, `getCardImageUrl`), `base-set.ts`, `jungle.ts`, `image-urls.ts` (pkmncards.com slugs). `decks/` — theme decks + resolution.
+- `src/domain/board/` — engine-owned board actions: `playBasicPokemon`, `attachEnergyCard` (Rain Dance, `ENERGY_ATTACH_EFFECTS` hook), `evolvePokemonCard`, their `canX`, `getTurnActionBlocker`, `swapSides`, `findInPlay`.
+- `src/domain/effects/` — **card effect registry**: `TRAINER_EFFECTS` (by card name) and `POWER_EFFECTS` (by power name) as `CardEffectDef { canUse, getSteps, coinFlips?, resolve }`, generic entry points `canPlayTrainerCard/getTrainerSteps/getTrainerCoinFlips/playTrainerCard` and `canUsePokemonPower/getPowerSteps/getPowerCoinFlips/usePokemonPower`. Selection meanings are tabled at the top of `effects/trainers.ts` and `effects/powers.ts`.
+- `src/domain/trainers/index.ts` — the per-trainer `canPlayX` / `playX` the registry wraps. `powers/index.ts` — Pokémon Powers (`isPowerActive`, per-power functions). `status/` — status helpers. `ai/` — `strategy.ts` (decide), `actions.ts` (estimates + board actions through the engine), `executor.ts` (apply; trainers via the registry).
+- `src/domain/simulation/` — headless bot games (`playAIGame`, greedy/randomLegal policies, seeded RNG, random decks, invariants); `scripts/simulate.ts` is the CLI.
+- `src/shared/errors.ts` — `IllegalActionError` / `assertLegal`.
 - `src/domain/constants/enums.ts` — `as const` enums (`EnergyType`, `AttackEffectType`, `PokemonPowerType`, `GamePhase`, …). `PokemonStage` values are `"basic" | "stage-1" | "stage-2"`.
 - `src/domain/match/types.ts` duplicates the `GameState` types from `gameState.ts` and has drifted; `gameState.ts` is the one the engine uses.
 
@@ -39,13 +44,23 @@ Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ER
 
 - State is relative: `player*` fields vs `opponent*` fields, plus `isPlayerTurn`. To act as the other side, callers swap perspective (AI executor and API both do this).
 - Every action is `(state, ...args) => newState`. Never mutate the input — copy arrays before `splice`/`push`.
-- Validate with `canX()` before `applyX()`. Note the engine entry points themselves do not re-check turn/phase/legality; callers must.
+- Validate with `canX()` (returns a Spanish reason or `null`) before calling the action. The newer entry points enforce it themselves and **throw `IllegalActionError`** (with the same reason) when called anyway: board actions, `playTrainerCard`, `usePokemonPower`, `executeAttack` (`canExecuteAttack`: turn, statuses, Leer, Energy cost, requirements, one attack per turn — no first-turn ban, classic 1999 rules) and `executeMetronome` (`canExecuteMetronome`). Older functions (`executeRetreat`, the legacy `playX`) still return the state with an info event.
+- Turn bookkeeping: `attackedThisTurn` (set by an attack or a failed confused attack) and `checkupDoneOnTurn` (endTurn paused for a prize/promotion after the between-turns checkup; the next endTurn won't repeat the checkup) both block normal actions and are cleared when the turn passes.
 - Card behavior is data in the catalog (`attacks[].effects[]` with `AttackEffectType`); the interpreter is the effects loop in `executeAttack`.
-- Coins are flipped by the caller (the server is authoritative in multiplayer) and passed in: `resolveConfusionFlip(state, heads)`, `executeAttack(state, i, { coinResults })` with `getAttackCoinFlipCount(state, i)` coins (Metronome: pass the copied `Attack`). All coin effects of one attack share the same coins; coin damage is part of the base damage (before weakness/resistance).
+- Coins are flipped by the caller (the server is authoritative in multiplayer) and passed in: `resolveConfusionFlip(state, heads)` before ANY attack (Metronome and Conversion included), `executeAttack(state, i, { coinResults })` with `getAttackCoinFlipCount(state, i)` coins (Metronome: pass the copied `Attack`). Sand-attack/Smokescreen adds one coin, FIRST in the list (tails: the attack does nothing). All coin effects of one attack share the same coins; coin damage is part of the base damage (before weakness/resistance). Trainers/powers: `getTrainerCoinFlips`/`getPowerCoinFlips` coins are flipped before the first step and passed to `getXSteps` and `playTrainerCard`/`usePokemonPower` as `{ coinResults }`.
+- Pokémon Powers: every "does this power work now?" check goes through `isPowerActive(state, pokemon)` (has power, not Asleep/Confused/Paralyzed, not suppressed by `state.powersSuppressed`; Thick Skinned ignores statuses).
 - Multi-step effects set a pending flag (`pendingForceSwitch`, `pendingSelfSwitch`, `pendingDeckSearch`, `pendingBenchDamageSelection`, `pendingTypeShift`, `pendingPeek`); `endTurn()` must refuse to advance while one is set, the UI shows a modal, a resolver clears it, and the AI executor must auto-resolve it.
 - Log meaningful actions to `state.events` via `createGameEvent()`. Event text is Spanish; coin results use `[coin:heads]` / `[coin:tails]` tokens.
 - Card IDs: `{set-slug}-{3-digit-number}-{slug-name}` (`base-set-004-charizard`, `jungle-007-nidoqueen`). Source data: api.pokemontcg.io (`base1`, `base2` = Jungle, `base3` = Fossil, `base5` = Team Rocket).
-- Any lookup by card must search all sets (`[...baseSetCards, ...jungleCards]`), never Base Set only.
+- Any lookup by card must search all sets: use the registry (`ALL_CARDS`, `findCardDefinition`, `findCardByName`), never a hand-written `[...baseSetCards, ...jungleCards]`.
+
+## How to add…
+
+- **A set**: catalog file `src/domain/catalog/<set>.ts` (ids via `makeCardId`), its value in the `CardSet` enum, one entry in `CARD_SETS` (id, code, release date, printed total, image URL builder), image URL check. Everything else (lookups, decks, simulator `--sets`) follows the registry.
+- **A Trainer**: a `CardEffectDef` in `TRAINER_EFFECTS` (key = card name): `canUse` (Spanish reason), `getSteps` (one `SelectionStep` per question; `minSelections` for "up to"), `coinFlips` if it flips, `resolve` (trust the selections: the entry point validated them against your steps). Add a scenario test through `playTrainerCard`; the coverage test fails until every catalog Trainer has an entry (or is in `UNSUPPORTED_TRAINERS`).
+- **An activated power**: same, in `POWER_EFFECTS` keyed by power name, sourceId = the Pokémon in play (use THAT Pokémon's power); its `PokemonPowerType` goes in `ACTIVATED_POWER_TYPES`. A passive power is a check inside the engine that calls `isPowerActive`.
+- **A special Energy**: `ENERGY_ATTACH_EFFECTS[name]` for on-attach-from-hand effects.
+- **A "play as a Basic" Trainer**: `playsAsBasic: true` on the card data, only once its in-play rules exist.
 
 ## TCG rules to respect (classic era)
 
@@ -58,13 +73,16 @@ Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ER
 
 ## Known issues (2026-10 review — verify before assuming fixed)
 
+Fixed on feature/fossil-team-rocket (unreleased): `findCardByName` searches every set; Breeder on turn 2 / evolution and Devolution Spray resets; Toxic poison surviving Full Heal; attack legality exploit (`canExecuteAttack`); engine-owned Sand-attack; double between-turns checkup; game not ending when bench damage removes a side's last Pokémon; Buzzap losing the card id; no draw on turn 1.
+
 Fixed in 0.5.0: bench KOs (`processBenchKnockouts`), endTurn mutation, Flail double count, Leer duration, Poison cleared on bench, Poison no longer blocks powers, Dream Eater / Karate Chop, confusion = 20 (`CONFUSION_SELF_DAMAGE`, `resolveConfusionFlip`), `buildDeckFromEntries` by set, double prize on attacker self-KO, AI re-attacking after a failed confused attack.
 
 Still open:
 - Coin-flip attack effects are engine-owned (`executeAttack`/`executeMetronome` with `{ coinResults }`, `getAttackCoinFlipCount`; the AI executor uses it), but the frontend (`useCoinFlipHandler.ts`) and the API (`socket/rooms.ts` `applyCoinFlipEffects`) still call the legacy positional form (which skips coin effects) and re-implement them with rule bugs — see `docs/coin-flip-effects.md`. They must migrate; then the positional form can be removed.
-- Sand-attack/Smokescreen (`mustFlipToAttack`) is only enforced by the AI executor; Conversion 1/2 is resolved by consumers. Both are candidates for engine resolvers.
-- `findCardByName` (lib/gameState.ts, domain/match/helpers.ts) searches Base Set only.
-- RNG is `Math.random` (shuffle, checkups, IDs, AI flips) — not seedable. `state.events` grows unbounded.
-- AI is greedy: never retreats, never uses powers, only plays Bill/Potion/PlusPower. `strategy.ts` has `console.log`s.
+- Conversion 1/2 (Porygon) is still resolved by consumers (no engine resolver). The legacy positional `executeAttack` form doesn't enforce Sand-attack (it has no coins).
+- RNG is `Math.random` (shuffle, checkups, IDs, AI flips); the simulator seeds it by replacing `Math.random` during a run. `state.events` grows unbounded.
+- AI is greedy: never retreats, never uses powers, only plays Bill/Potion/PlusPower (now through the effect registry).
+- Consumers (FE `trainer-registry.ts`, power modals, `useBoardActions`; API `rooms.ts` switches) still have their own copies; they should switch to the board actions and the effect registry (Stage C).
+- Clefairy Doll is not playable (`UNSUPPORTED_TRAINERS`). Trainer/power doubts: `docs/card-doubts.md`.
 - Simultaneous prize-outs (sudden death) aren't modelled.
 - Jungle cards: only 4/48 verified against the real card text.

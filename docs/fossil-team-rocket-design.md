@@ -51,6 +51,16 @@ Today every mechanic is wired 4 times by card name / power type: game-core funct
    - Invariants after every action: no exception; card conservation (each side always owns exactly its 60 cards across deck/hand/discard/prizes/in play/attached); damage ≥ 0 and multiple of 10; no Pokémon in play with damage ≥ HP after KO processing; no pending flag left when the turn passes; game ends.
    - Vitest runs a small fixed batch (e.g. 30 seeded games per set) in CI; the script runs large batches and prints failures with seeds.
 
+### Stage A status (2026-10-10, branch `feature/fossil-team-rocket`) — done
+
+1. Set registry — `src/domain/catalog/sets.ts`; every lookup goes through it.
+2. Board actions — `src/domain/board` (`playBasicPokemon`, `attachEnergyCard`, `evolvePokemonCard`, `canX`, `swapSides`); AI switched. Prehistoric Power hook: `getEvolutionBlocker`. Clefairy Doll left unplayable (`playsAsBasic` not set).
+3. Effect registry — `src/domain/effects`; all Base Set + Jungle trainers (except Clefairy Doll) and the 8 activated powers. Illegal calls throw `IllegalActionError`.
+4. `isPowerActive` + `GameState.powersSuppressed`; passive powers routed through it.
+5. Simulator — `src/domain/simulation`, `npm run simulate`. 6,000+ games per policy pair (Base+Jungle, plus single-set runs) with 0 failures after fixing what it found (bench-damage game end, Buzzap card identity).
+- Coordinator addendum: `canExecuteAttack`/`canExecuteMetronome` enforced in `executeAttack`/`executeMetronome`, `attackedThisTurn`, engine-owned Sand-attack coin; confusion before Metronome/Conversion is the consumers' job via `resolveConfusionFlip`.
+- Extra rule fixes found on the way: Breeder on turn 2, evolution/devolution resets, Devolution Spray KO, Full Heal + Toxic, double between-turns checkup, first-turn draw.
+
 ## Stage B — Fossil (game-core)
 
 Catalog `src/domain/catalog/fossil.ts` (47 cards, `CardSet.Fossil = "Fossil"`, id slug `fossil-NNN-name`). New mechanics, each with a failing card-scenario test first:
