@@ -26,7 +26,7 @@ export const isBasicEnergy = (c: Card): c is EnergyCard =>
  */
 export const isPlayableAsBasic = (c: Card): boolean =>
   (c.kind === CardKind.Pokemon && c.stage === PokemonStage.Basic) ||
-  (c.kind === CardKind.Trainer && c.playsAsBasic === true);
+  (c.kind === CardKind.Trainer && !!c.playsAsBasic);
 
 /** Checks if card is a special energy (Double Colorless, etc.) */
 export const isSpecialEnergy = (c: Card): c is EnergyCard =>

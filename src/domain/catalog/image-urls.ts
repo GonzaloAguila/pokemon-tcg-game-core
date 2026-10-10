@@ -58,3 +58,17 @@ export const getJungleImageUrl = (card: CardImageInput): string => {
 
   return `https://pkmncards.com/wp-content/uploads/${slug}-jungle-ju-${card.number}.jpg`;
 };
+
+/**
+ * Generates the image URL for a Fossil card
+ */
+export const getFossilImageUrl = (card: CardImageInput): string => {
+  let slug = toSlug(card.name);
+
+  // Special cases for slug mismatches (pkmncards keeps the dot, like Jungle's Mr. Mime)
+  if (card.name === "Mr. Fuji") {
+    slug = "mr.-fuji";
+  }
+
+  return `https://pkmncards.com/wp-content/uploads/${slug}-fossil-fo-${card.number}.jpg`;
+};

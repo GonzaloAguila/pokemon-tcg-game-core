@@ -655,7 +655,15 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  * Trainer cards in the catalog that are intentionally NOT playable yet. Every other Trainer
  * in ALL_CARDS must have a TRAINER_EFFECTS entry (enforced by a test).
  */
-export const UNSUPPORTED_TRAINERS: readonly string[] = ["Clefairy Doll"];
+export const UNSUPPORTED_TRAINERS: readonly string[] = [
+  "Clefairy Doll",
+  // Fossil: implemented in the next commits
+  "Mr. Fuji",
+  "Energy Search",
+  "Gambler",
+  "Recycle",
+  "Mysterious Fossil",
+];
 
 /** Catalog Trainer names (for coverage checks) */
 export function catalogTrainerNames(): string[] {

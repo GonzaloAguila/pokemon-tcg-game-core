@@ -11,10 +11,11 @@ import type { Card } from "@/domain/cards";
 import { CardSet } from "@/domain/constants";
 import { baseSetCards } from "./base-set";
 import { jungleCards } from "./jungle";
-import { getBaseSetImageUrl, getJungleImageUrl, type CardImageInput } from "./image-urls";
+import { fossilCards } from "./fossil";
+import { getBaseSetImageUrl, getJungleImageUrl, getFossilImageUrl, type CardImageInput } from "./image-urls";
 
 /** Stable slug of a set (also the prefix of its card ids). */
-export type CardSetId = "base-set" | "jungle";
+export type CardSetId = "base-set" | "jungle" | "fossil";
 
 export type CardSetInfo = {
   id: CardSetId;
@@ -50,6 +51,15 @@ export const CARD_SETS: readonly CardSetInfo[] = [
     totalCards: 64,
     cards: jungleCards,
     imageUrl: getJungleImageUrl,
+  },
+  {
+    id: "fossil",
+    name: CardSet.Fossil,
+    code: "FO",
+    releaseDate: "1999-10-10",
+    totalCards: 62,
+    cards: fossilCards,
+    imageUrl: getFossilImageUrl,
   },
 ];
 

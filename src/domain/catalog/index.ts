@@ -4,7 +4,8 @@
 
 export { baseSetCards } from "./base-set";
 export { jungleCards } from "./jungle";
-export { getBaseSetImageUrl, getJungleImageUrl } from "./image-urls";
+export { fossilCards } from "./fossil";
+export { getBaseSetImageUrl, getJungleImageUrl, getFossilImageUrl } from "./image-urls";
 export type { CardImageInput } from "./image-urls";
 export {
   CARD_SETS,

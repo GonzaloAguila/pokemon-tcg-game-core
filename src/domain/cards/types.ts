@@ -44,6 +44,8 @@ export type AttackEffect = {
     count: number;
     onHeads?: StatusCondition | "damage" | "protection" | "preventRetreat";
     onTails?: StatusCondition | "damage" | "protection" | "preventRetreat";
+    /** Flip until tails (Stone Barrage): `count` is ignored; the attack's coins are a run ending in the first tails */
+    untilTails?: boolean;
   };
   status?: StatusCondition;
   poisonDamage?: number;
@@ -66,6 +68,21 @@ export type AttackEffect = {
   bonusDamageNameMatch?: string;
   /** For CoinFlipDamage: derive coin count from attached energy count instead of fixed */
   coinCountFromEnergy?: boolean;
+  /** Coin count from the board instead of `coinFlip.count` ("opponentBench": one coin per opponent's Benched Pokémon, Thunderstorm) */
+  coinCountSource?: "opponentBench";
+  /** BenchDamage with a coin per Benched Pokémon: coin i decides the i-th Benched Pokémon of the target side (Thunderstorm) */
+  perCoinBenchTarget?: boolean;
+  /** BenchDamage with maxBenchTargets: exactly that many must be chosen (all of them when there are fewer, Gigashock) */
+  exactBenchTargets?: boolean;
+  /** Heal from the damage this attack did to the Defending Pokémon (after W/R): all of it (Leech Life) or half rounded up (Absorb) */
+  healFromDamage?: "all" | "halfRoundedUp";
+  /** ForceSwitch: who picks the new Defending Pokémon ("opponent": Terror Strike; default the attacker) */
+  switchChosenBy?: "opponent";
+  /** RecoverFromDiscard: kind of card (`amount` = most cards, `minAmount` = fewest, default 0) */
+  recoverCardKind?: "energy" | "trainer";
+  minAmount?: number;
+  /** DiscardEnergyForMill: type of the attached Energy cards that may be discarded */
+  energyType?: EnergyType;
   /** For BenchDamage: max number of bench targets (undefined = all) */
   maxBenchTargets?: number;
   /** For Heal: heal amount equals half the actual damage dealt */
@@ -115,6 +132,8 @@ export type PokemonPower = {
   reactionDamage?: number;
   /** For selfSacrifice: energy value when Pokemon becomes energy (e.g., 2 for Buzzap) */
   becomesEnergyValue?: number;
+  /** Once per turn (Step In, Curse): marks usedPowersThisTurn when used */
+  oncePerTurn?: boolean;
 };
 
 export type CardBase = {
@@ -138,6 +157,12 @@ export type PokemonCard = CardBase & {
   weaknesses?: EnergyType[];
   resistances?: EnergyType[];
   power?: PokemonPower;
+  /**
+   * Set on the in-play form of a Trainer played as a Basic Pokémon (Mysterious Fossil,
+   * Clefairy Doll; see toInPlayCard): the original Trainer card, which is what the card is
+   * again as soon as it leaves play (discard, hand, deck).
+   */
+  trainerCard?: TrainerCard;
 };
 
 export type EnergyCard = CardBase & {
@@ -151,11 +176,13 @@ export type TrainerCard = CardBase & {
   trainerType: TrainerType;
   effect: string;
   /**
-   * "Play this card as if it were a Basic Pokémon" (Mysterious Fossil, Clefairy Doll):
-   * it can be placed as Active/Benched like a Basic (see isPlayableAsBasic). Only set it
-   * on a card whose in-play rules (HP, no retreat, prizes...) are implemented.
+   * "Play this card as if it were a Basic Pokémon" (Mysterious Fossil, Clefairy Doll): it is
+   * placed as Active/Benched like a Basic (isPlayableAsBasic, counts for the mulligan) and,
+   * while in play, is a Pokémon with these HP (toInPlayCard): no type, no attacks, can't
+   * retreat, can't be affected by Special Conditions, gives no Prize when Knocked Out, and
+   * may be discarded from play during its owner's turn (canDiscardFromPlay).
    */
-  playsAsBasic?: boolean;
+  playsAsBasic?: { hp: number };
 };
 
 export type Card = PokemonCard | EnergyCard | TrainerCard;

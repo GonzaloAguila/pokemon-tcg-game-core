@@ -25,7 +25,7 @@ describe("registry coverage", () => {
   it("every Trainer in the catalog has a TRAINER_EFFECTS entry (except the allow-list)", () => {
     const missing = catalogTrainerNames().filter((name) => !TRAINER_EFFECTS[name] && !UNSUPPORTED_TRAINERS.includes(name));
     expect(missing).toEqual([]);
-    expect(UNSUPPORTED_TRAINERS).toEqual(["Clefairy Doll"]);
+    expect(UNSUPPORTED_TRAINERS).toEqual(["Clefairy Doll", "Mr. Fuji", "Energy Search", "Gambler", "Recycle", "Mysterious Fossil"]);
   });
 
   it("every activated power in the catalog has a POWER_EFFECTS entry", () => {
