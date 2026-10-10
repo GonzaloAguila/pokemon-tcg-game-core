@@ -176,6 +176,22 @@ describe("Goop Gas Attack", () => {
   });
 });
 
+describe("Goop Gas Attack ending (simulator seed 74)", () => {
+  it("a Ditto whose Transform works again is Knocked Out at the turn change when the copy's HP is too low", () => {
+    const ditto = inPlay("Ditto", { set: "fossil", damage: 40 });
+    const state = makeState({
+      player: { active: inPlay("Magnemite") },
+      opponent: { active: ditto, bench: [inPlay("Abra")] },
+      powersSuppressed: [{ source: "Goop Gas Attack", expiresAfterTurn: 3 }],
+    });
+    const next = endTurn(state, true);
+    expect(next.opponentActivePokemon).toBeNull();
+    expect(next.opponentNeedsToPromote).toBe(true);
+    expect(next.playerPrizes).toHaveLength(5);
+    expect(next.turnNumber).toBe(3);
+  });
+});
+
 describe("Sleep!", () => {
   it("heads: the Defending Pokémon is now Asleep; tails: nothing", () => {
     const trainer = card("Sleep!");

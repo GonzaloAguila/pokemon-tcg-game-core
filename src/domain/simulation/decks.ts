@@ -94,6 +94,10 @@ export function buildRandomDeck(rng: Rng, setIds: readonly CardSetId[], name = "
     add(pick(rng, trainers), 1 + randomInt(rng, 2));
   }
   if (doubleColorless && rng() < 0.5) add(doubleColorless, 1 + randomInt(rng, 3));
+  // Special Energy of the chosen expansions (Rainbow, Full Heal, Potion Energy): limited to 4 like any card
+  for (const special of pool.filter((c) => c.kind === CardKind.Energy && !c.isBasic && c.set !== CardSet.BaseSet)) {
+    if (rng() < 0.5) add(special, 1 + randomInt(rng, 3));
+  }
 
   // Fill with basic Energy of the deck types
   let typeIndex = 0;

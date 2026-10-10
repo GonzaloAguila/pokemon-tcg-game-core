@@ -13,18 +13,23 @@
 import { runBatch, allSetIds, type PolicyPair } from "../src/domain/simulation";
 import { getSet, type CardSetId } from "../src/domain/catalog";
 import { ACTIVATED_POWER_TYPES } from "../src/domain/effects";
+import { PokemonPowerType } from "../src/domain/constants";
 
 /**
  * What the chosen sets offer that the bots should exercise: every Trainer (played, or put
  * into play as a Basic), every activated Pokémon Power and every attack ("Pokémon: Attack").
  */
-function coverageTargets(setIds: CardSetId[]): { trainers: string[]; powers: string[]; attacks: string[] } {
+function coverageTargets(setIds: CardSetId[]): { trainers: string[]; powers: string[]; onPlayPowers: string[]; attacks: string[] } {
   const cards = setIds.flatMap((id) => getSet(id)?.cards ?? []);
   const unique = (items: string[]) => [...new Set(items)].sort();
   return {
     trainers: unique(cards.flatMap((c) => (c.kind === "trainer" ? [c.playsAsBasic ? `benchTrainer ${c.name}` : `playTrainer ${c.name}`] : []))),
     powers: unique(
       cards.flatMap((c) => (c.kind === "pokemon" && c.power && ACTIVATED_POWER_TYPES.includes(c.power.type) ? [`usePower ${c.power.name}`] : []))
+    ),
+    // "When you play it from your hand" powers (answered as a pending power choice)
+    onPlayPowers: unique(
+      cards.flatMap((c) => (c.kind === "pokemon" && c.power?.type === PokemonPowerType.OnPlayFromHand ? [`powerChoice ${c.power.name}`] : []))
     ),
     attacks: unique(cards.flatMap((c) => (c.kind === "pokemon" ? c.attacks.map((a) => `attack ${c.name}: ${a.name}`) : []))),
   };

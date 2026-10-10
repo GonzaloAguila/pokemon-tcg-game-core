@@ -1968,6 +1968,18 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     };
   }
 
+  // =====================================================================
+  // EXPIRE POWER SUPPRESSION (Goop Gas Attack, Stare) — before the state-based Knock Outs:
+  // a Ditto whose Transform works again may now be Knocked Out by its copy's HP
+  // =====================================================================
+  if (updatedState.powersSuppressed?.length) {
+    const stillActive = updatedState.powersSuppressed.filter((s) => s.expiresAfterTurn >= newTurnNumber);
+    if (stillActive.length !== updatedState.powersSuppressed.length) {
+      events.push(createGameEvent("Los Poderes Pokémon vuelven a funcionar", "info"));
+    }
+    updatedState.powersSuppressed = stillActive.length > 0 ? stillActive : undefined;
+  }
+
   // State-based Knock Outs after the checkup: an auto-promoted Pokémon changed what a transformed
   // Ditto copies (it can't wait for the next turn: the turn change must leave nothing pending)
   const swept = checkKnockouts({ ...updatedState, playerCanTakePrize, opponentCanTakePrize, events: [...events] });
@@ -2079,16 +2091,6 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     updatedState.noTrainersOnTurn = undefined;
   }
 
-  // =====================================================================
-  // EXPIRE POWER SUPPRESSION (Goop Gas Attack, Stare)
-  // =====================================================================
-  if (updatedState.powersSuppressed?.length) {
-    const stillActive = updatedState.powersSuppressed.filter((s) => s.expiresAfterTurn >= newTurnNumber);
-    if (stillActive.length !== updatedState.powersSuppressed.length) {
-      events.push(createGameEvent("Los Poderes Pokémon vuelven a funcionar", "info"));
-    }
-    updatedState.powersSuppressed = stillActive.length > 0 ? stillActive : undefined;
-  }
 
   // =====================================================================
   // EXPIRAR MODIFIERS (PlusPower, Defender, etc.)

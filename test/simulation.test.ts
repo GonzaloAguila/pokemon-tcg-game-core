@@ -85,3 +85,33 @@ describe("headless games with Fossil", () => {
     expect(result.outcomes).toHaveLength(30);
   }, 120_000);
 });
+
+describe("headless games with Team Rocket", () => {
+  it.each([
+    ["team-rocket", "greedy"],
+    ["team-rocket", "random"],
+    ["team-rocket", "mixed"],
+    ["base-set,jungle,fossil,team-rocket", "greedy"],
+    ["base-set,jungle,fossil,team-rocket", "random"],
+    ["base-set,jungle,fossil,team-rocket", "mixed"],
+  ] as const)("30 seeded games (%s, %s) finish without invariant violations", (sets, policy) => {
+    const result = runBatch({ games: 30, seed: 3000, sets: sets.split(",") as ("base-set" | "jungle" | "fossil" | "team-rocket")[], policy });
+    const report = result.failures.map((f) => `seed ${f.seed}: ${f.problem} after "${f.action}"\n  ${f.lastEvents.slice(-8).join("\n  ")}`);
+    expect(report).toEqual([]);
+    expect(result.outcomes).toHaveLength(30);
+  }, 120_000);
+
+  it("random Team Rocket decks may hold special Energy (at most 4 copies each)", () => {
+    let specials = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const deck = buildRandomDeck(mulberry32(seed), ["team-rocket"]);
+      const cards = withRandom(mulberry32(seed), () => buildDeckFromEntries(deck.cards));
+      const special = cards.filter((c) => c.kind === "energy" && !c.isBasic);
+      specials += special.length;
+      const counts = new Map<string, number>();
+      for (const c of special) counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
+      expect(Math.max(0, ...counts.values())).toBeLessThanOrEqual(4);
+    }
+    expect(specials).toBeGreaterThan(0);
+  });
+});
