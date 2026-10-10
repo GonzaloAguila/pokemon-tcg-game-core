@@ -38,6 +38,35 @@ export function hasBlockingStatus(pokemon: PokemonInPlay): boolean {
 }
 
 /**
+ * Is this Pokémon's power suppressed by a timed effect in the state (Goop Gas Attack, Dark
+ * Arbok's Stare...)? Board-derived suppression (Muk's Toxic Gas) is added here in Stage B.
+ */
+export function isPowerSuppressed(state: GameState | null | undefined, pokemon: PokemonInPlay): boolean {
+  if (!state) return false;
+  return (state.powersSuppressed ?? []).some((s) => s.pokemonId === undefined || s.pokemonId === pokemon.pokemon.id);
+}
+
+/**
+ * Single query for "does this Pokémon's power work right now?" — used by every passive power
+ * check (Invisible Wall, Strikes Back, Retreat Aid, Thick Skinned) and by activated powers:
+ * the Pokémon has a power, is not Asleep/Confused/Paralyzed (Poison doesn't stop powers) and
+ * its power is not suppressed. Position (Active vs Bench) is checked by each caller.
+ *
+ * @param state - optional for legacy callers without a state (no suppression check then)
+ * @param options.ignoreBlockingStatus - Snorlax's Thick Skinned keeps working while statused
+ *   (current engine behavior: it prevents the conditions in the first place)
+ */
+export function isPowerActive(
+  state: GameState | null | undefined,
+  pokemon: PokemonInPlay,
+  options: { ignoreBlockingStatus?: boolean } = {}
+): boolean {
+  if (!isPokemonCard(pokemon.pokemon) || !pokemon.pokemon.power) return false;
+  if (!options.ignoreBlockingStatus && hasBlockingStatus(pokemon)) return false;
+  return !isPowerSuppressed(state, pokemon);
+}
+
+/**
  * Check if a Pokemon can use its power
  * @param pokemon - The Pokemon trying to use the power
  * @param isActive - Whether the Pokemon is the active Pokemon
@@ -47,7 +76,8 @@ export function hasBlockingStatus(pokemon: PokemonInPlay): boolean {
 export function canUsePower(
   pokemon: PokemonInPlay,
   isActive: boolean,
-  usedPowersThisTurn?: string[]
+  usedPowersThisTurn?: string[],
+  state?: GameState
 ): string | null {
   // Must have a power
   if (!isPokemonCard(pokemon.pokemon) || !pokemon.pokemon.power) {
@@ -59,6 +89,10 @@ export function canUsePower(
   // Check status conditions
   if (hasBlockingStatus(pokemon)) {
     return `${pokemon.pokemon.name} tiene un estado alterado y no puede usar su poder`;
+  }
+
+  if (isPowerSuppressed(state, pokemon)) {
+    return `${power.name} no funciona en este momento`;
   }
 
   // Check if power requires being active
@@ -129,7 +163,7 @@ export function canUseRainDance(
   // Check active
   if (activePokemon && isPokemonCard(activePokemon.pokemon) &&
       activePokemon.pokemon.power?.type === PokemonPowerType.UnlimitedEnergyAttach) {
-    const error = canUsePower(activePokemon, true);
+    const error = canUsePower(activePokemon, true, undefined, state);
     if (!error) {
       pokemonWithPower.push(activePokemon);
     }
@@ -140,7 +174,7 @@ export function canUseRainDance(
     if (benchPokemon && isPokemonCard(benchPokemon.pokemon) &&
         benchPokemon.pokemon.power?.type === PokemonPowerType.UnlimitedEnergyAttach &&
         benchPokemon.pokemon.power.worksFromBench) {
-      const error = canUsePower(benchPokemon, false);
+      const error = canUsePower(benchPokemon, false, undefined, state);
       if (!error) {
         pokemonWithPower.push(benchPokemon);
       }
@@ -695,10 +729,11 @@ export function moveDamageWithDamageSwap(
  * Unlike other powers, StatusImmunity is NOT blocked by status conditions
  * (since it prevents status from being applied in the first place).
  */
-export function hasStatusImmunity(pokemon: PokemonInPlay): boolean {
+export function hasStatusImmunity(pokemon: PokemonInPlay, state?: GameState): boolean {
   if (!isPokemonCard(pokemon.pokemon)) return false;
   const power = pokemon.pokemon.power;
-  return !!power && power.type === PokemonPowerType.StatusImmunity;
+  return !!power && power.type === PokemonPowerType.StatusImmunity &&
+    isPowerActive(state, pokemon, { ignoreBlockingStatus: true });
 }
 
 // ============================================================================
@@ -710,11 +745,11 @@ export function hasStatusImmunity(pokemon: PokemonInPlay): boolean {
  * Blocks attack damage of 30 or more. Only works while active.
  * Blocked by status conditions.
  */
-export function isDamageBlocked(pokemon: PokemonInPlay, damage: number): boolean {
+export function isDamageBlocked(pokemon: PokemonInPlay, damage: number, state?: GameState): boolean {
   if (!isPokemonCard(pokemon.pokemon)) return false;
   const power = pokemon.pokemon.power;
   if (!power || power.type !== PokemonPowerType.DamageBarrier) return false;
-  if (hasBlockingStatus(pokemon)) return false;
+  if (!isPowerActive(state, pokemon)) return false;
   return damage >= 30;
 }
 
@@ -735,7 +770,7 @@ export function getPokemonWithUsablePowers(
   const result: PokemonInPlay[] = [];
 
   if (activePokemon && isPokemonCard(activePokemon.pokemon) && activePokemon.pokemon.power) {
-    const error = canUsePower(activePokemon, true, state.usedPowersThisTurn);
+    const error = canUsePower(activePokemon, true, state.usedPowersThisTurn, state);
     if (!error) {
       result.push(activePokemon);
     }
@@ -744,7 +779,7 @@ export function getPokemonWithUsablePowers(
   for (const benchPokemon of bench) {
     if (benchPokemon && isPokemonCard(benchPokemon.pokemon) && benchPokemon.pokemon.power) {
       if (benchPokemon.pokemon.power.worksFromBench) {
-        const error = canUsePower(benchPokemon, false, state.usedPowersThisTurn);
+        const error = canUsePower(benchPokemon, false, state.usedPowersThisTurn, state);
         if (!error) {
           result.push(benchPokemon);
         }
@@ -850,7 +885,8 @@ export function hasDamageReactionPower(pokemon: PokemonInPlay): boolean {
  */
 export function getDamageReaction(
   damagedPokemon: PokemonInPlay,
-  isActive: boolean
+  isActive: boolean,
+  state?: GameState
 ): { reactionDamage: number; powerName: string } | null {
   if (!isPokemonCard(damagedPokemon.pokemon)) return null;
 
@@ -860,8 +896,8 @@ export function getDamageReaction(
   // Check if power works from current position
   if (!isActive && !power.worksFromBench) return null;
 
-  // Check if blocked by status
-  if (hasBlockingStatus(damagedPokemon)) return null;
+  // Asleep/Confused/Paralyzed or suppressed
+  if (!isPowerActive(state, damagedPokemon)) return null;
 
   const reactionDamage = power.reactionDamage ?? 0;
   if (reactionDamage <= 0) return null;
@@ -1068,14 +1104,14 @@ export function canUseBuzzap(
  * Calculate total retreat cost reduction from benched Pokemon with RetreatReduction power.
  * Each benched Pokemon with this power (and no status conditions) reduces retreat cost by 1.
  */
-export function getRetreatCostReduction(bench: PokemonInPlay[]): number {
+export function getRetreatCostReduction(bench: PokemonInPlay[], state?: GameState): number {
   let reduction = 0;
   for (const pokemon of bench) {
     if (!pokemon) continue;
     if (!isPokemonCard(pokemon.pokemon)) continue;
     const power = pokemon.pokemon.power;
     if (!power || power.type !== PokemonPowerType.RetreatReduction) continue;
-    if (hasBlockingStatus(pokemon)) continue;
+    if (!isPowerActive(state, pokemon)) continue;
     reduction += 1;
   }
   return reduction;

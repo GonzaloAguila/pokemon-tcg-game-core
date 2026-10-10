@@ -17,7 +17,7 @@ export type {
   GameEvent,
 } from "./domain/match";
 
-export type { ExecuteAttackOptions } from "./lib/gameState";
+export type { ExecuteAttackOptions, PowerSuppression } from "./lib/gameState";
 
 export type {
   Card,

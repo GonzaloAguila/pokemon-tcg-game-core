@@ -99,6 +99,16 @@ export type GameModifier = {
 
 export type GameResult = "victory" | "defeat" | null;
 
+/** A timed "Pokémon Powers stop working" effect (see GameState.powersSuppressed). */
+export type PowerSuppression = {
+  /** Card or attack that caused it, for log messages ("Goop Gas Attack") */
+  source: string;
+  /** Only this Pokémon's power (undefined = every Pokémon in play, both sides) */
+  pokemonId?: string;
+  /** Last turn number during which it applies */
+  expiresAfterTurn: number;
+};
+
 export type GameState = {
   playerDeck: GameCard[];
   playerHand: GameCard[];
@@ -166,6 +176,13 @@ export type GameState = {
     /** The card(s) that were peeked */
     revealedCards: GameCard[];
   };
+  /**
+   * Pokémon Powers stopped by a timed effect (Goop Gas Attack: every power; Dark Arbok's
+   * Stare: one Pokémon). Read through isPowerActive / isPowerSuppressed. Muk's Toxic Gas is
+   * derived from the board, not stored here. Entries are dropped by endTurn once
+   * `expiresAfterTurn` has passed. Kept in sync with domain/match/types.ts.
+   */
+  powersSuppressed?: PowerSuppression[];
   /** BenchDamage: player needs to select bench Pokemon to receive damage */
   pendingBenchDamageSelection?: {
     /** Amount of damage to deal to each selected Pokemon */
@@ -514,12 +531,12 @@ export function getTotalEnergyValue(cards: GameCard[]): number {
  * @param pokemon - El Pokémon activo
  * @returns true si tiene suficiente energía
  */
-export function hasEnoughEnergyToRetreat(pokemon: PokemonInPlay, bench?: PokemonInPlay[]): boolean {
+export function hasEnoughEnergyToRetreat(pokemon: PokemonInPlay, bench?: PokemonInPlay[], state?: GameState): boolean {
   if (pokemon.pokemon.kind !== CardKind.Pokemon) return false;
 
   let retreatCost = pokemon.pokemon.retreatCost;
   if (bench) {
-    retreatCost = Math.max(0, retreatCost - getRetreatCostReduction(bench));
+    retreatCost = Math.max(0, retreatCost - getRetreatCostReduction(bench, state));
   }
 
   // Si el coste es 0, siempre puede retirarse
@@ -534,11 +551,11 @@ export function hasEnoughEnergyToRetreat(pokemon: PokemonInPlay, bench?: Pokemon
  * @param pokemon - El Pokémon
  * @returns El coste de retirada (0-5)
  */
-export function getRetreatCost(pokemon: PokemonInPlay, bench?: PokemonInPlay[]): number {
+export function getRetreatCost(pokemon: PokemonInPlay, bench?: PokemonInPlay[], state?: GameState): number {
   if (pokemon.pokemon.kind !== CardKind.Pokemon) return 0;
   let cost = pokemon.pokemon.retreatCost;
   if (bench) {
-    cost = Math.max(0, cost - getRetreatCostReduction(bench));
+    cost = Math.max(0, cost - getRetreatCostReduction(bench, state));
   }
   return cost;
 }
@@ -580,7 +597,7 @@ export function executeRetreat(
     };
   }
 
-  const retreatCost = getRetreatCost(activePokemon, gameState.playerBench);
+  const retreatCost = getRetreatCost(activePokemon, gameState.playerBench, gameState);
 
   // Verificar que se están descartando la cantidad correcta de energías (DCE cuenta como 2)
   const discardCards = activePokemon.attachedEnergy.filter(e => energyIdsToDiscard.includes(e.id));
@@ -1773,6 +1790,17 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   updatedState.opponentActivePokemon = expireRetreatPrevention(updatedState.opponentActivePokemon);
 
   // =====================================================================
+  // EXPIRE POWER SUPPRESSION (Goop Gas Attack, Stare)
+  // =====================================================================
+  if (updatedState.powersSuppressed?.length) {
+    const stillActive = updatedState.powersSuppressed.filter((s) => s.expiresAfterTurn >= newTurnNumber);
+    if (stillActive.length !== updatedState.powersSuppressed.length) {
+      events.push(createGameEvent("Los Poderes Pokémon vuelven a funcionar", "info"));
+    }
+    updatedState.powersSuppressed = stillActive.length > 0 ? stillActive : undefined;
+  }
+
+  // =====================================================================
   // EXPIRAR MODIFIERS (PlusPower, Defender, etc.)
   // =====================================================================
   const expiredModifiers = updatedState.activeModifiers.filter(
@@ -2662,7 +2690,7 @@ export function executeAttack(
   let damageBarrierBlocked = false;
   if (defenderIsProtected && damage > 0) {
     effectiveDamage = 0;
-  } else if (isDamageBlocked(defender, damage)) {
+  } else if (isDamageBlocked(defender, damage, gameState)) {
     effectiveDamage = 0;
     damageBarrierBlocked = true;
   }
@@ -3050,7 +3078,7 @@ export function executeAttack(
           if (newPlayerActive && !attackerKnockedOut) {
             for (const benchPokemon of newOpponentBench) {
               if (!benchPokemon) continue;
-              const reaction = getDamageReaction(benchPokemon, false); // false = from bench
+              const reaction = getDamageReaction(benchPokemon, false, gameState); // false = from bench
               if (reaction) {
                 const counterDamage = reaction.reactionDamage;
                 const currentAttackerDamage: number = newPlayerActive.currentDamage || 0;
@@ -3376,7 +3404,7 @@ export function executeAttack(
               // StatusImmunity (Snorlax's Thick Skinned) stops special conditions only;
               // Leer's "can't attack" is not a special condition
               let statusesToApply = allStatuses;
-              if (hasStatusImmunity(newOpponentActive)) {
+              if (hasStatusImmunity(newOpponentActive, gameState)) {
                 statusesToApply = allStatuses.filter((s) => s === StatusCondition.CannotAttack);
                 const immunityPowerName = isPokemonCard(newOpponentActive.pokemon) ? newOpponentActive.pokemon.power?.name || "Piel Gruesa" : "Piel Gruesa";
                 if (statusesToApply.length < allStatuses.length) {
@@ -3634,7 +3662,7 @@ export function executeAttack(
   // STRIKES BACK: Aplicar contraataque si el defensor tiene damageReaction
   // Se aplica incluso si el defensor fue noqueado (usa defender, no newOpponentActive)
   if (effectiveDamage > 0 && newPlayerActive && !attackerKnockedOut) {
-    const reaction = getDamageReaction(defender, true); // true = defender was active
+    const reaction = getDamageReaction(defender, true, gameState); // true = defender was active
     if (reaction) {
       const counterDamage = reaction.reactionDamage;
       const newAttackerDamage = (newPlayerActive.currentDamage || 0) + counterDamage;

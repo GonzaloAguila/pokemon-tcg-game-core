@@ -81,6 +81,15 @@ export type GameModifier = {
 
 export type GameResult = "victory" | "defeat" | null;
 
+/** A timed "Pokémon Powers stop working" effect (see GameState.powersSuppressed). */
+export type PowerSuppression = {
+  source: string;
+  /** Only this Pokémon's power (undefined = every Pokémon in play) */
+  pokemonId?: string;
+  /** Last turn number during which it applies */
+  expiresAfterTurn: number;
+};
+
 export type GameState = {
   playerDeck: GameCard[];
   playerHand: GameCard[];
@@ -142,6 +151,8 @@ export type GameState = {
     /** The card(s) that were peeked */
     revealedCards: GameCard[];
   };
+  /** Pokémon Powers stopped by a timed effect (see lib/gameState.ts) */
+  powersSuppressed?: PowerSuppression[];
   /** BenchDamage selection: player needs to pick which bench Pokemon receive damage */
   pendingBenchDamageSelection?: {
     damageAmount: number;

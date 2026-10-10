@@ -129,7 +129,7 @@ export function canUsePokemonPower(state: GameState, pokemonId: string): string 
   if (blocker) return blocker;
   const { def, pokemon, reason } = powerDef(state, pokemonId);
   if (!def || !pokemon) return reason;
-  const statusReason = canUsePower(pokemon, state.playerActivePokemon?.pokemon.id === pokemonId, state.usedPowersThisTurn);
+  const statusReason = canUsePower(pokemon, state.playerActivePokemon?.pokemon.id === pokemonId, state.usedPowersThisTurn, state);
   if (statusReason) return statusReason;
   return def.canUse(state, pokemonId);
 }
