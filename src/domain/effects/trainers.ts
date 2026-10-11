@@ -723,7 +723,7 @@ Object.assign(TRAINER_EFFECTS, {
         ...played,
         playerBench: state.playerBench.filter((_, i) => i !== index),
         playerDeck: shuffle([...state.playerDeck, ...cardsLeavingPlay(target)]),
-        events: [...played.events, createGameEvent(`${target.pokemon.name} y sus cartas se barajaron en tu mazo`, "info")],
+        events: [...played.events, createGameEvent(`Mr. Fuji: ${target.pokemon.name} y sus cartas se barajaron en el mazo`, "info")],
       };
     }
   ),
@@ -752,7 +752,7 @@ Object.assign(TRAINER_EFFECTS, {
         playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== chosenId)),
         events: [
           ...played.events,
-          createGameEvent(found ? `Tomaste ${energyOption(found).label} de tu mazo` : "No había Energía básica en tu mazo", "info"),
+          createGameEvent(found ? `Energy Search: ${energyOption(found).label} del mazo a la mano` : "Energy Search: no había Energía básica en el mazo", "info"),
           createGameEvent("Se mezcló el mazo", "info"),
         ],
       };
@@ -772,7 +772,7 @@ Object.assign(TRAINER_EFFECTS, {
         ...drew,
         events: [
           ...drew.events,
-          createGameEvent(`Barajaste tu mano en tu mazo - Moneda: [coin:${heads ? "heads" : "tails"}]`, "info"),
+          createGameEvent(`Gambler: la mano se barajó en el mazo - Moneda: [coin:${heads ? "heads" : "tails"}]`, "info"),
           createGameEvent(`Robaste ${drawn} carta${drawn === 1 ? "" : "s"}`, "info"),
         ],
       };
@@ -800,7 +800,7 @@ Object.assign(TRAINER_EFFECTS, {
         : state;
       const played = discardPlayed(withoutChosen, cardId, `Jugaste Recycle - Moneda: [coin:${heads ? "heads" : "tails"}]`);
       return chosen
-        ? { ...played, events: [...played.events, createGameEvent(`Pusiste ${chosen.name} encima de tu mazo`, "info")] }
+        ? { ...played, events: [...played.events, createGameEvent(`Recycle: ${chosen.name} se puso encima del mazo`, "info")] }
         : played;
     },
   },
@@ -876,13 +876,14 @@ Object.assign(TRAINER_EFFECTS, {
     },
     resolve: (state, cardId, selections) => {
       const chosen = state.opponentHand.find((c) => c.id === selections[0]?.[0]);
-      const played = discardPlayed(state, cardId, "Jugaste Rocket's Sneak Attack: miraste la mano de tu rival");
-      if (!chosen) return played;
+      const played = discardPlayed(state, cardId, "Jugaste Rocket's Sneak Attack");
+      const looked = { ...played, events: [...played.events, createGameEvent("Rocket's Sneak Attack: se miró la mano del otro jugador", "info")] };
+      if (!chosen) return looked;
       return {
-        ...played,
+        ...looked,
         opponentHand: state.opponentHand.filter((c) => c.id !== chosen.id),
         opponentDeck: shuffle([...state.opponentDeck, chosen]),
-        events: [...played.events, createGameEvent(`Tu rival barajó ${chosen.name} en su mazo`, "action")],
+        events: [...looked.events, createGameEvent(`Rocket's Sneak Attack: ${chosen.name} se barajó en el mazo del otro jugador`, "action")],
       };
     },
   },
@@ -910,7 +911,7 @@ Object.assign(TRAINER_EFFECTS, {
         playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== chosen?.id)),
         events: [
           ...played.events,
-          createGameEvent(chosen ? `Mostraste ${chosen.name} y lo pusiste en tu mano` : "No había cartas de Evolución «Dark» en tu mazo", "info"),
+          createGameEvent(chosen ? `The Boss's Way: se mostró ${chosen.name} y se puso en la mano` : "The Boss's Way: no había cartas de Evolución «Dark» en el mazo", "info"),
           createGameEvent("Se mezcló el mazo", "info"),
         ],
       };
@@ -945,13 +946,14 @@ Object.assign(TRAINER_EFFECTS, {
     resolve: (state, cardId, selections) => {
       const accepted = selections[0]?.[0] === "accept";
       if (!accepted) {
-        const played = discardPlayed(state, cardId, selections.length === 0 ? "Jugaste Challenge! (ambas Bancas están llenas)" : "Jugaste Challenge!: tu rival lo rechazó");
-        const { state: drew, drawn } = drawCards(played, 2);
+        const played = discardPlayed(state, cardId, "Jugaste Challenge!");
+        const why = selections.length === 0 ? "Challenge!: ambas Bancas están llenas" : "Challenge!: el otro jugador rechazó el desafío";
+        const { state: drew, drawn } = drawCards({ ...played, events: [...played.events, createGameEvent(why, "info")] }, 2);
         return { ...drew, events: [...drew.events, createGameEvent(`Robaste ${drawn} carta${drawn === 1 ? "" : "s"}`, "info")] };
       }
       const mine = state.playerDeck.filter((c) => selections[1].includes(c.id));
       const theirs = state.opponentDeck.filter((c) => selections[2].includes(c.id));
-      const played = discardPlayed(state, cardId, "Jugaste Challenge!: tu rival lo aceptó");
+      const played = discardPlayed(state, cardId, "Jugaste Challenge!");
       return {
         ...played,
         playerDeck: shuffle(state.playerDeck.filter((c) => !selections[1].includes(c.id))),
@@ -960,8 +962,9 @@ Object.assign(TRAINER_EFFECTS, {
         opponentBench: [...state.opponentBench, ...benchFrom(theirs, state.turnNumber)],
         events: [
           ...played.events,
-          createGameEvent(mine.length > 0 ? `Pusiste ${mine.map((c) => c.name).join(", ")} en tu Banca` : "No pusiste Pokémon en tu Banca", "action"),
-          createGameEvent(theirs.length > 0 ? `Tu rival puso ${theirs.map((c) => c.name).join(", ")} en su Banca` : "Tu rival no puso Pokémon en su Banca", "action"),
+          createGameEvent("Challenge!: el otro jugador aceptó el desafío", "info"),
+          createGameEvent(mine.length > 0 ? `Challenge!: ${mine.map((c) => c.name).join(", ")} a la Banca de quien lo jugó` : "Challenge!: quien lo jugó no puso Pokémon en su Banca", "action"),
+          createGameEvent(theirs.length > 0 ? `Challenge!: ${theirs.map((c) => c.name).join(", ")} a la Banca del otro jugador` : "Challenge!: el otro jugador no puso Pokémon en su Banca", "action"),
           createGameEvent("Se mezclaron ambos mazos", "info"),
         ],
       };
@@ -978,21 +981,22 @@ Object.assign(TRAINER_EFFECTS, {
       const coins = coinResults ?? [];
       const tailsAt = coins.indexOf("tails");
       const mineHit = tailsAt % 2 === 0;
-      const tokens = coins.map((c, i) => `${i % 2 === 0 ? "tú" : "rival"} [coin:${c}]`).join(", ");
+      // Who flipped each coin: getTrainerCoinFlippers (coinFlipper above)
+      const tokens = coins.map((c) => `[coin:${c}]`).join(", ");
       const played = discardPlayed(state, cardId, `Jugaste Digger - Monedas: ${tokens}`);
       if (mineHit) {
         const active = played.playerActivePokemon!;
         return {
           ...played,
           playerActivePokemon: { ...active, currentDamage: (active.currentDamage ?? 0) + 10 },
-          events: [...played.events, createGameEvent(`Digger: tu ${active.pokemon.name} recibió 10 de daño`, "action")],
+          events: [...played.events, createGameEvent(`Digger: ${active.pokemon.name} (Activo de quien lo jugó) recibió 10 de daño`, "action")],
         };
       }
       const active = played.opponentActivePokemon!;
       return {
         ...played,
         opponentActivePokemon: { ...active, currentDamage: (active.currentDamage ?? 0) + 10 },
-        events: [...played.events, createGameEvent(`Digger: ${active.pokemon.name} del rival recibió 10 de daño`, "action")],
+        events: [...played.events, createGameEvent(`Digger: ${active.pokemon.name} (Activo del otro jugador) recibió 10 de daño`, "action")],
       };
     },
   },
@@ -1011,7 +1015,7 @@ Object.assign(TRAINER_EFFECTS, {
       const played = discardPlayed(
         { ...state, playerHand: state.playerHand.filter((c) => c.id !== discardId), playerDiscard: [...state.playerDiscard, discarded] },
         cardId,
-        `Jugaste Imposter Oak's Revenge (descartaste ${discarded.name})`
+        "Jugaste Imposter Oak's Revenge"
       );
       const deck = shuffle([...played.opponentDeck, ...played.opponentHand]);
       const drawn = deck.slice(0, 4);
@@ -1019,7 +1023,11 @@ Object.assign(TRAINER_EFFECTS, {
         ...played,
         opponentDeck: deck.slice(drawn.length),
         opponentHand: drawn,
-        events: [...played.events, createGameEvent(`Tu rival barajó su mano en su mazo y robó ${drawn.length} cartas`, "action")],
+        events: [
+          ...played.events,
+          createGameEvent(`Imposter Oak's Revenge: se descartó ${discarded.name}`, "info"),
+          createGameEvent(`Imposter Oak's Revenge: el otro jugador barajó su mano en su mazo y robó ${drawn.length} cartas`, "action"),
+        ],
       };
     }
   ),
@@ -1044,14 +1052,17 @@ Object.assign(TRAINER_EFFECTS, {
       const played = discardPlayed(
         { ...state, playerDiscard: state.playerDiscard.filter((c) => !chosen.includes(c)) },
         cardId,
-        chosen.length > 0 ? `Jugaste Nightly Garbage Run: barajaste ${chosen.map((c) => c.name).join(", ")} en tu mazo` : "Jugaste Nightly Garbage Run"
+        "Jugaste Nightly Garbage Run"
       );
-      return { ...played, playerDeck: shuffle([...played.playerDeck, ...chosen]) };
+      const events = chosen.length > 0
+        ? [...played.events, createGameEvent(`Nightly Garbage Run: ${chosen.map((c) => c.name).join(", ")} se barajaron en el mazo`, "info")]
+        : played.events;
+      return { ...played, playerDeck: shuffle([...played.playerDeck, ...chosen]), events };
     },
   },
 
   "Goop Gas Attack": immediate((state, cardId) => {
-    const played = discardPlayed(state, cardId, "Jugaste Goop Gas Attack: todos los Poderes Pokémon dejan de funcionar hasta el final del próximo turno del rival");
+    const played = discardPlayed(state, cardId, "Jugaste Goop Gas Attack: todos los Poderes Pokémon dejan de funcionar hasta el final del siguiente turno");
     return {
       ...played,
       powersSuppressed: [...(state.powersSuppressed ?? []), { source: "Goop Gas Attack", expiresAfterTurn: state.turnNumber + 1 }],

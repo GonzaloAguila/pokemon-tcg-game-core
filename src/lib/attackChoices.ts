@@ -386,11 +386,12 @@ function nextChoice(state: GameState, effects: AttackEffect[], context: AttackCh
 export function startAttackChoices(state: GameState, effects: AttackEffect[], context: AttackChoiceContext): GameState {
   const pending = nextChoice(state, effects.filter(isAttackChoiceEffect), context);
   if (!pending) return state;
-  const who = pending.step.chooser === "opponent" ? "Tu rival debe elegir" : "Debes elegir";
+  // Perspective-free: the step itself (not its description) goes to whoever answers
+  const who = pending.step.chooser === "opponent" ? "el defensor debe elegir" : "el atacante debe elegir";
   return {
     ...state,
     pendingAttackChoice: pending,
-    events: [...state.events, createGameEvent(`${context.attackName}: ${who}. ${pending.step.description}`, "info")],
+    events: [...state.events, createGameEvent(`${context.attackName}: ${who}`, "info")],
   };
 }
 
@@ -536,13 +537,13 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
         opponentActivePokemon: incoming,
         opponentBench: [...state.opponentBench.filter((_, i) => i !== index), toBench],
       };
-      return { state: log(next, `${name}: ${incoming.pokemon.name} pasa a ser el Pokémon activo del rival`) };
+      return { state: log(next, `${name}: ${incoming.pokemon.name} pasa a ser el Pokémon activo`) };
     }
     case AttackEffectType.ReorderDeckTop: {
       if (!pending.deck) {
         const deck = selection[0] as "player" | "opponent";
         const step = stepFor(state, effect, context, deck);
-        const chosen = log(state, `${name}: mira las cartas superiores del ${deck === "player" ? "propio mazo" : "mazo rival"}`);
+        const chosen = log(state, `${name}: mira las cartas superiores del mazo del ${deck === "player" ? "atacante" : "defensor"}`);
         return { state: chosen, next: step ? { ...pending, deck, step } : undefined };
       }
       const deckKey = pending.deck === "player" ? "playerDeck" : "opponentDeck";
@@ -567,7 +568,7 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
           next,
           discarded.length === 0
             ? `${name}: no se descartó ninguna Energía`
-            : `${name}: descartó ${discarded.length} Energía(s) y ${milled.length} carta(s) del mazo rival`
+            : `${name}: descartó ${discarded.length} Energía(s) y ${milled.length} carta(s) del mazo del defensor`
         ),
       };
     }
@@ -650,7 +651,7 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
   let powersSuppressed = state.powersSuppressed;
   if (effect.suppressTargetPower && !blockedEffects && !knockedOut && isPokemonCard(target.pokemon) && target.pokemon.power) {
     powersSuppressed = [...(powersSuppressed ?? []), { source: name, pokemonId: targetId, expiresAfterTurn: state.turnNumber + 1 }];
-    events.push(createGameEvent(`${name}: ${target.pokemon.power.name} de ${target.pokemon.name} deja de funcionar hasta el final del próximo turno del rival`, "action"));
+    events.push(createGameEvent(`${name}: ${target.pokemon.power.name} de ${target.pokemon.name} deja de funcionar hasta el final del siguiente turno`, "action"));
   }
   if (!knockedOut) hit = { ...hit };
 

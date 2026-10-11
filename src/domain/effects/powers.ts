@@ -586,7 +586,7 @@ const FOSSIL_POWER_EFFECTS: Record<string, CardEffectDef> = {
           : { playerBench: state.playerBench.filter((_, i) => i !== found.benchIndex) }),
         events: [
           ...state.events,
-          createGameEvent(`${power.name}: ${tentacool.pokemon.name} volvió a tu mano`, "action"),
+          createGameEvent(`${power.name}: ${tentacool.pokemon.name} volvió a la mano`, "action"),
           ...(isActive ? [createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")] : []),
         ],
       };

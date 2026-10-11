@@ -1283,7 +1283,7 @@ export function knockOutPlayerActive(state: GameState, prizeMessage: string = "E
 export function knockOutOpponentActive(state: GameState): GameState {
   const active = state.opponentActivePokemon;
   if (!active) return state;
-  const events: GameEvent[] = [...state.events, createGameEvent(`¡${active.pokemon.name} del rival fue noqueado!`, "action")];
+  const events: GameEvent[] = [...state.events, createGameEvent(`¡${active.pokemon.name} fue noqueado!`, "action")];
   let playerPrizes = state.playerPrizes;
   let playerHand = state.playerHand;
   let tookPrize = false;
@@ -1316,7 +1316,7 @@ export function knockOutOpponentActive(state: GameState): GameState {
     };
   }
   if (next.opponentNeedsToPromote) {
-    return { ...next, events: [...events, createGameEvent("El rival debe elegir un nuevo Pokémon activo", "info")] };
+    return { ...next, events: [...events, createGameEvent(`El dueño de ${active.pokemon.name} debe elegir un nuevo Pokémon activo`, "info")] };
   }
   return endGameIfNoPokemonLeft(next);
 }
@@ -4014,7 +4014,7 @@ function executeAttackUnchecked(
       // Mirror Shell: remember the turn (checked during the opponent's next attack)
       if (effect.type === AttackEffectType.MirrorShell && newPlayerActive && !attackerKnockedOut) {
         newPlayerActive = { ...newPlayerActive, mirrorShellOnTurn: gameState.turnNumber };
-        events.push(createGameEvent(`${newPlayerActive.pokemon.name} devolverá el daño que reciba durante el próximo turno del rival`, "action"));
+        events.push(createGameEvent(`${newPlayerActive.pokemon.name} devolverá el daño que reciba durante el siguiente turno`, "action"));
       }
 
       // Conversion 1 / 2 (Porygon), when the caller passed the chosen type
@@ -4287,7 +4287,7 @@ function executeAttackUnchecked(
       // the Defending Pokémon: protection doesn't stop it)
       if (effect.type === AttackEffectType.BlockTrainers && !effect.coinFlip) {
         noTrainersOnTurn = gameState.turnNumber + 1;
-        events.push(createGameEvent("¡El rival no podrá jugar cartas de Entrenador durante su próximo turno!", "action"));
+        events.push(createGameEvent("¡El defensor no podrá jugar cartas de Entrenador durante su próximo turno!", "action"));
       }
 
       // ForceSwitch: opponent must switch active with a bench Pokemon (Lure, Whirlwind, Ram).
@@ -4323,7 +4323,7 @@ function executeAttackUnchecked(
           events.push(createGameEvent(`¡${newOpponentActive.pokemon.name} está protegido y no es afectado por ${attack.name}!`, "action"));
         } else {
           newOpponentDeck = shuffle([...newOpponentDeck, ...cardsLeavingPlay(newOpponentActive)]);
-          events.push(createGameEvent(`¡${newOpponentActive.pokemon.name} y todas sus cartas se barajaron en el mazo del rival!`, "action"));
+          events.push(createGameEvent(`¡${newOpponentActive.pokemon.name} y todas sus cartas se barajaron en el mazo de su dueño!`, "action"));
           newOpponentActive = null;
           opponentNeedsToPromote = newOpponentBench.length > 0;
         }
@@ -4334,7 +4334,7 @@ function executeAttackUnchecked(
         const leaving = newPlayerActive;
         newPlayerDeck = shuffle([...newPlayerDeck, ...[leaving.pokemon, ...(leaving.previousEvolutions ?? [])].map(cardOutOfPlay)]);
         newPlayerDiscard.push(...[...leaving.attachedEnergy, ...(leaving.attachedTrainers ?? [])].map(cardOutOfPlay));
-        events.push(createGameEvent(`¡${leaving.pokemon.name} se barajó en tu mazo!`, "action"));
+        events.push(createGameEvent(`¡${leaving.pokemon.name} se barajó en el mazo de su dueño!`, "action"));
         newPlayerActive = null;
         attackerLeftPlay = true;
         attackerNeedsToPromote = newPlayerBench.length > 0;
@@ -4344,7 +4344,7 @@ function executeAttackUnchecked(
       // Mischief: shuffle the opponent's deck
       if (effect.type === AttackEffectType.ShuffleOpponentDeck) {
         newOpponentDeck = shuffle(newOpponentDeck);
-        events.push(createGameEvent("Se mezcló el mazo del rival", "action"));
+        events.push(createGameEvent("Se mezcló el mazo del defensor", "action"));
       }
 
       // Rapid Evolution / Afternoon Nap with nothing to find: the deck is searched and shuffled

@@ -202,7 +202,7 @@ export function triggerOnPlayPower(state: GameState, pokemonId: string): GameSta
   return {
     ...state,
     pendingPowerChoice: { pokemonId, powerName: power.name, step },
-    events: [...state.events, createGameEvent(`${power.name} de ${pokemon.pokemon.name}: ${step.description}`, "info")],
+    events: [...state.events, createGameEvent(`${power.name} de ${pokemon.pokemon.name} se activó`, "info")],
   };
 }
 
