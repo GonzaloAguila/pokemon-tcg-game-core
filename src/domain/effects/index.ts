@@ -24,7 +24,7 @@ import { isPokemonCard } from "@/domain/cards";
 import { canUsePower } from "@/domain/powers";
 import { findInPlay, getTrainerBlocker, getTurnActionBlocker } from "@/domain/board";
 import { IllegalActionError, assertLegal } from "@/shared/errors";
-import type { CardEffectContext, CardEffectDef, CoinFlipRequirement, SelectionStep } from "./types";
+import type { CardEffectContext, CardEffectDef, CoinFlipper, CoinFlipRequirement, SelectionStep } from "./types";
 import { checkCoins, checkSelections, coinRequirement } from "./validate";
 import { TRAINER_EFFECTS } from "./trainers";
 import { POWER_EFFECTS } from "./powers";
@@ -35,6 +35,7 @@ export type {
   CardEffectDef,
   CardEffectContext,
   CoinFlipRequirement,
+  CoinFlipper,
 } from "./types";
 export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames, isPlayedAsBasic } from "./trainers";
 export { POWER_EFFECTS, ACTIVATED_POWER_TYPES } from "./powers";
@@ -103,6 +104,20 @@ export function getTrainerCoinFlips(state: GameState, cardId: string, selections
   return def?.coinFlips?.(state, cardId, selections) ?? 0;
 }
 
+/** Who flipped each of `count` coins of an effect (default: its player). */
+function flippersOf(def: CardEffectDef | undefined, count: number): CoinFlipper[] {
+  return Array.from({ length: Math.max(0, count) }, (_, i) => def?.coinFlipper?.(i) ?? "self");
+}
+
+/**
+ * Who flips each of the `count` coins of the Trainer `cardId` (its `getTrainerCoinFlips`
+ * coins, in order), relative to the Trainer's player: Digger alternates "self", "opponent",
+ * "self"…; every other Trainer is "self". For captions only (the caller still flips them all).
+ */
+export function getTrainerCoinFlippers(state: GameState, cardId: string, count: number): CoinFlipper[] {
+  return flippersOf(trainerDef(state, cardId).def, count);
+}
+
 /** Play a Trainer from the hand with the answers to its steps and the coins it requested. */
 export function playTrainerCard(
   state: GameState,
@@ -152,6 +167,11 @@ export function getPowerSteps(
 export function getPowerCoinFlips(state: GameState, pokemonId: string, selections: string[][] = []): CoinFlipRequirement {
   const { def } = powerDef(state, pokemonId);
   return def?.coinFlips?.(state, pokemonId, selections) ?? 0;
+}
+
+/** Who flips each of the `count` coins of the power of `pokemonId`, relative to its owner (see getTrainerCoinFlippers). */
+export function getPowerCoinFlippers(state: GameState, pokemonId: string, count: number): CoinFlipper[] {
+  return flippersOf(powerDef(state, pokemonId).def, count);
 }
 
 /** Use the power of the player's Pokémon `pokemonId` with its answers and coins. */

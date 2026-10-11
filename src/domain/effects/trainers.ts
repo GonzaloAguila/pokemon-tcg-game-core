@@ -967,6 +967,8 @@ Object.assign(TRAINER_EFFECTS, {
   "Digger": {
     canUse: (state) => (state.playerActivePokemon && state.opponentActivePokemon ? null : "No hay Pokémon activos"),
     coinFlips: () => "untilTails",
+    // "you, the opponent, you..." until someone gets tails
+    coinFlipper: (index) => (index % 2 === 0 ? "self" : "opponent"),
     getSteps: () => null,
     resolve: (state, cardId, _selections, { coinResults }) => {
       const coins = coinResults ?? [];

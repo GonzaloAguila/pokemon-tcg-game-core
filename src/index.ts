@@ -224,6 +224,7 @@ export type {
   CardEffectDef,
   CardEffectContext,
   CoinFlipRequirement,
+  CoinFlipper,
 } from "./domain/effects";
 export {
   TRAINER_EFFECTS,
@@ -234,10 +235,12 @@ export {
   canPlayTrainerCard,
   getTrainerSteps,
   getTrainerCoinFlips,
+  getTrainerCoinFlippers,
   playTrainerCard,
   canUsePokemonPower,
   getPowerSteps,
   getPowerCoinFlips,
+  getPowerCoinFlippers,
   usePokemonPower,
   getUsablePowerPokemonIds,
   checkSelection,

@@ -50,6 +50,12 @@ export type SelectionStep = {
 /** Coins the caller must flip: a fixed number, or flip until tails (sequence ending in tails). */
 export type CoinFlipRequirement = number | "untilTails";
 
+/**
+ * Who flips a coin of a Trainer / power, relative to the card's player: "self" = the player
+ * who plays it (the side whose view the effect runs on), "opponent" = the other player.
+ */
+export type CoinFlipper = "self" | "opponent";
+
 export type CardEffectContext = {
   /** Coins flipped by the caller (server in multiplayer), as requested by `coinFlips` */
   coinResults?: CoinFlipResult[];
@@ -70,6 +76,8 @@ export interface CardEffectDef {
   getSteps(state: GameState, sourceId: string, selections: string[][], coinResults?: CoinFlipResult[]): SelectionStep | null;
   /** Coins to flip before the first step (0 / omitted = none) */
   coinFlips?(state: GameState, sourceId: string, selections: string[][]): CoinFlipRequirement;
+  /** Who flips coin `index` (0-based) of `coinFlips` (omitted = always the card's player). Display only. */
+  coinFlipper?(index: number): CoinFlipper;
   /**
    * Apply the effect. Called by the generic entry points (playTrainerCard / usePokemonPower)
    * only after canUse passed and every selection was checked against its step's options.
