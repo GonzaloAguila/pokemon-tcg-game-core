@@ -6,11 +6,13 @@
  *
  *   const reason = canPlayTrainerCard(state, cardId);           // null = playable
  *   const coins = getTrainerCoinFlips(state, cardId);           // flip them (server in MP)
+ *   getTrainerCoinFlippers(state, cardId, coins.length);        // who flipped each (captions)
  *   let step = getTrainerSteps(state, cardId, [], coins);       // ask, append answer, repeat
  *   const next = playTrainerCard(state, cardId, selections, { coinResults: coins });
  *
  * Same for powers with the id of the Pokémon in play using it (canUsePokemonPower,
- * getPowerCoinFlips, getPowerSteps, usePokemonPower).
+ * getPowerCoinFlips, getPowerCoinFlippers, getPowerSteps, usePokemonPower). A step with
+ * `chooser: "opponent"` is asked to the other player: show it with `stepForAnswerer(step)`.
  *
  * Errors: canX returns the Spanish reason; playTrainerCard / usePokemonPower throw
  * IllegalActionError when the card/power can't be used, the coins don't match what was
