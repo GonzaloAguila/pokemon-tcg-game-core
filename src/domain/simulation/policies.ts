@@ -312,14 +312,22 @@ export const randomLegalPolicy: Policy = {
 /**
  * The single-player AI. It plans a whole turn on its own (it plays as "opponent"), so the
  * plan is kept per turn and executed one action at a time; every action runs on the AI's
- * view (actor = "opponent") through executeAIAction.
+ * view (actor = "opponent") through executeAIAction. A plan that doesn't end the turn (a
+ * Trainer / power that changed the hand) is followed by a new plan, like the frontend's loop.
  */
 export function createGreedyPolicy(): Policy & { aiViewAction(action: AIAction, view?: GameState): ViewAction } {
   let planKey = "";
   let plan: AIAction[] = [];
+  let planEndsTurn = true;
+  let replans = 0;
+  const newPlan = (view: GameState): AIAction[] => {
+    const next = decideOpponentTurn(toAiView(view));
+    planEndsTurn = next.some((a) => a.type === "attack" || a.type === "endTurn");
+    return next;
+  };
   const toAiView = (view: GameState) => swapSides(view);
   const aiViewAction = (action: AIAction, view?: GameState): ViewAction => ({
-    label: `greedy ${action.type}${"trainerName" in action ? ` ${action.trainerName}` : ""}${
+    label: `greedy ${action.type}${"trainerName" in action ? ` ${action.trainerName}` : ""}${"powerName" in action ? ` ${action.powerName}` : ""}${
       action.type === "attack" && view ? ` ${attackName(view, action.attackIndex)}` : ""
     }`,
     run: (view) => swapSides(executeAIAction(toAiView(view), action)),
@@ -334,7 +342,11 @@ export function createGreedyPolicy(): Policy & { aiViewAction(action: AIAction, 
       const key = `${view.turnNumber}`;
       if (key !== planKey || actionsThisTurn === 0) {
         planKey = key;
-        plan = decideOpponentTurn(toAiView(view));
+        replans = 0;
+        plan = newPlan(view);
+      } else if (plan.length === 0 && !planEndsTurn && replans < 20) {
+        replans++;
+        plan = newPlan(view);
       }
       const next = plan.shift();
       return next ? aiViewAction(next, view) : null;

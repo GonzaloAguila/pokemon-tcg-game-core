@@ -19,6 +19,7 @@ export type AIActionType =
   | "playTrainer"
   | "retreat"
   | "discardFromPlay"
+  | "usePower"
   | "endTurn";
 
 /** Acción base de la IA */
@@ -68,6 +69,19 @@ export interface PlayTrainerAction extends AIActionBase {
   cardId: string;
   trainerName: string;
   selections: string[][];
+  /**
+   * The executor answers the Trainer's steps itself when it plays it (answers that depend on
+   * the deck, the coins or the hand at that moment: Energy Search, Recycle...); `selections`
+   * is then ignored. Coins are always flipped by the executor.
+   */
+  answerAtPlay?: boolean;
+}
+
+/** Usar el Poder Pokémon activado de uno de sus Pokémon (respuestas y monedas al ejecutarlo) */
+export interface UsePowerAction extends AIActionBase {
+  type: "usePower";
+  pokemonId: string;
+  powerName: string;
 }
 
 /** Retirarse (cambiar Pokemon activo) */
@@ -98,6 +112,7 @@ export type AIAction =
   | PlayTrainerAction
   | RetreatAction
   | DiscardFromPlayAction
+  | UsePowerAction
   | EndTurnAction;
 
 /** Resultado de la evaluación de un ataque */

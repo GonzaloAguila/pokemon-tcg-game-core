@@ -83,7 +83,7 @@ function actionKind(label: string): string {
   if (label.startsWith("attack ") || label.startsWith("greedy attack ")) return label.replace(/^greedy /, "");
   if (label.startsWith("benchTrainer ") || label.startsWith("discardFromPlay ")) return label;
   if (label.startsWith("playTrainer ") || label.startsWith("greedy playTrainer ")) return label.replace(/^greedy /, "");
-  if (label.startsWith("usePower ")) return label.replace(/ \(.*\)$/, "");
+  if (label.startsWith("usePower ") || label.startsWith("greedy usePower ")) return label.replace(/^greedy /, "").replace(/ \(.*\)$/, "");
   if (label.startsWith("powerChoice ")) return label;
   if (label.startsWith("greedy ")) return label.split(" ").slice(0, 2).join(" ");
   return label.split(/ #| [A-Z]|\d/)[0].trim();

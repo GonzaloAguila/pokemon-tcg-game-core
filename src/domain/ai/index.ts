@@ -31,6 +31,7 @@ export type {
   PlayTrainerAction,
   RetreatAction,
   DiscardFromPlayAction,
+  UsePowerAction,
   EndTurnAction,
   AttackEvaluation,
   PokemonEvaluation,

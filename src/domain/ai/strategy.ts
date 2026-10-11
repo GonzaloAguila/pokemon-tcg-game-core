@@ -7,11 +7,19 @@
  * 3. Evolucionar cuando es posible
  * 4. Atacar si puede (prioriza KO)
  * 5. Terminar turno
+ *
+ * Trainers / powers that change the hand (Bill, Energy Search, Evolutionary Light...) are
+ * planned ALONE, without endTurn: the caller executes them and asks for a new plan (the
+ * single-player loop and the simulator both do), which then sees the new cards. See
+ * cardEffects.ts for when each Trainer / power is used.
  */
 
 import type { GameState } from "@/domain/match";
 import { canUseAttack, canPokemonAttack, hasStatusCondition } from "@/domain/match";
 import { isPokemonCard, isEnergyCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
+import { swapSides } from "@/domain/board";
+import { canPlayTrainerCard } from "@/domain/effects";
+import { planHandChange, planStepIn, planSupportPowers, planTrainers } from "./cardEffects";
 import { executeAIAction } from "./executor";
 import type { AIAction, Side } from "./types";
 import {
@@ -48,6 +56,10 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
       simulatedState = after;
     }
   }
+
+  // 0.5 A Trainer / power that changes the hand: alone, then the turn is planned again
+  const handChange = planHandChange(swapSides(simulatedState));
+  if (handChange) return [...actions, handChange];
 
   // 1. Si no tiene activo, jugar uno
   if (!simulatedState.opponentActivePokemon) {
@@ -109,6 +121,16 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
     // Re-evaluar
     benchSlot = getFirstEmptyBenchSlot(simulatedState, side);
     basicsInHand = getBasicPokemonInHand(simulatedState, side);
+  }
+
+  // 2.5 Step In: a Benched Dragonite that can attack replaces an Active that can't
+  const stepIn = planStepIn(swapSides(simulatedState));
+  if (stepIn) {
+    const after = executeAIAction(simulatedState, stepIn);
+    if (after !== simulatedState) {
+      actions.push(stepIn);
+      simulatedState = after;
+    }
   }
 
   // 3. Adjuntar energía (si no lo hizo aún)
@@ -194,7 +216,24 @@ export function decideOpponentTurn(state: GameState): AIAction[] {
     }
   }
 
-  // 5. Jugar trainers simples (Bill, etc.)
+  // 4.5 Powers that help this turn (Gather Fire, Strange Behavior): applied to the plan's state
+  for (const power of planSupportPowers(swapSides(simulatedState))) {
+    const after = executeAIAction(simulatedState, power);
+    if (after === simulatedState) break;
+    actions.push(power);
+    simulatedState = after;
+  }
+
+  // 5. Jugar trainers (Potion, PlusPower, and the Fossil / Team Rocket ones of cardEffects)
+  const willAttack =
+    !!simulatedState.opponentActivePokemon &&
+    !!simulatedState.playerActivePokemon &&
+    canPokemonAttack(simulatedState.opponentActivePokemon) &&
+    getUsableAttacks(simulatedState, side).length > 0;
+  const otherTrainers = planTrainers(swapSides(simulatedState), { willAttack });
+  actions.push(...otherTrainers);
+  const playedIds = new Set(otherTrainers.map((a) => (a.type === "playTrainer" ? a.cardId : "")));
+  simulatedState = { ...simulatedState, opponentHand: simulatedState.opponentHand.filter((c) => !playedIds.has(c.id)) };
   const trainersPlayed = playSimpleTrainers(simulatedState, side);
   actions.push(...trainersPlayed.actions);
   simulatedState = trainersPlayed.state;
@@ -255,27 +294,15 @@ function playSimpleTrainers(
   let currentState = state;
 
   const hand = side === "player" ? state.playerHand : state.opponentHand;
+  // The engine's view of the AI (Hay Fever, Headache... block every Trainer)
+  const view = side === "player" ? state : swapSides(state);
 
   for (const card of hand) {
     if (!isTrainerCard(card)) continue;
+    if (canPlayTrainerCard(view, card.id) !== null) continue;
 
-    // Solo jugar trainers simples que la IA puede manejar
+    // Solo jugar trainers simples que la IA puede manejar (Bill: cardEffects, before the rest)
     switch (card.name) {
-      case "Bill":
-        // Bill: robar 2 cartas - siempre útil
-        actions.push({
-          type: "playTrainer",
-          cardId: card.id,
-          trainerName: card.name,
-          selections: [],
-          delay: 800,
-        });
-        currentState = {
-          ...currentState,
-          opponentHand: currentState.opponentHand.filter(c => c.id !== card.id),
-        };
-        break;
-
       case "Potion":
         // Potion: curar 20 de daño - usar si el activo tiene daño
         if (currentState.opponentActivePokemon?.currentDamage &&

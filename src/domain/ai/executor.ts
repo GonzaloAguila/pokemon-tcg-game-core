@@ -9,7 +9,7 @@ import type { GameState } from "@/domain/match";
 import { canExecuteAttack, flipAttackCoins, getAttackCoinPlan } from "@/lib/gameState";
 import { executeAttack, endTurn, executeRetreat, createGameEvent, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
-import type { AIAction } from "./types";
+import type { AIAction, PlayTrainerAction, UsePowerAction } from "./types";
 import {
   playBasicToActive,
   playBasicToBench,
@@ -17,7 +17,19 @@ import {
   evolve,
   actAs,
 } from "./actions";
-import { canPlayTrainerCard, playTrainerCard } from "@/domain/effects";
+import {
+  canPlayTrainerCard,
+  canUsePokemonPower,
+  getPowerCoinFlips,
+  getPowerSteps,
+  getTrainerCoinFlips,
+  getTrainerSteps,
+  playTrainerCard,
+  usePokemonPower,
+  type CoinFlipRequirement,
+} from "@/domain/effects";
+import type { CoinFlipResult } from "@/domain/constants";
+import { answerPowerStepForAI, answerTrainerStepForAI, collectAnswers } from "./cardEffects";
 import { canDiscardFromPlay, discardFromPlay } from "@/domain/board";
 import { resolveOwnAttackPendings } from "./pending";
 import { IllegalActionError } from "@/shared/errors";
@@ -84,7 +96,10 @@ export function executeAIAction(state: GameState, action: AIAction): GameState {
       return executeOpponentAttack(state, action.attackIndex);
 
     case "playTrainer":
-      return executeTrainer(state, action.cardId, action.trainerName, action.selections);
+      return executeTrainer(state, action);
+
+    case "usePower":
+      return executePower(state, action);
 
     case "retreat":
       return executeOpponentRetreat(state, action.energyIdsToDiscard, action.benchIndex);
@@ -374,28 +389,75 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
   return finalState;
 }
 
+/** The AI flips the coins an effect asks for (like its attack coins). */
+function flipCoins(requirement: CoinFlipRequirement): CoinFlipResult[] {
+  const flip = (): CoinFlipResult => (Math.random() < 0.5 ? "heads" : "tails");
+  if (requirement === "untilTails") {
+    const coins: CoinFlipResult[] = [];
+    // Capped like the API's until-tails runs; the last coin is then tails
+    for (let i = 0; i < 64; i++) {
+      const coin = i === 63 ? "tails" : flip();
+      coins.push(coin);
+      if (coin === "tails") break;
+    }
+    return coins;
+  }
+  return Array.from({ length: requirement }, flip);
+}
+
+/** Run an engine effect for the AI; an illegal one leaves the state unchanged. */
+function tryEffect(view: GameState, run: () => GameState): GameState {
+  try {
+    return run();
+  } catch (error) {
+    if (error instanceof IllegalActionError) return view;
+    throw error;
+  }
+}
+
 /**
- * Ejecuta un trainer del oponente a través del registro de efectos del engine
- * (las selecciones significan lo mismo que para el jugador; sin monedas: la IA no juega Poké Ball).
+ * Ejecuta un trainer del oponente a través del registro de efectos del engine (las selecciones
+ * significan lo mismo que para el jugador). The AI flips its coins; with `answerAtPlay` it also
+ * answers the steps now (cardEffects.answerTrainerStepForAI).
  */
-function executeTrainer(
-  state: GameState,
-  cardId: string,
-  _trainerName: string,
-  selections: string[][]
-): GameState {
+function executeTrainer(state: GameState, action: PlayTrainerAction): GameState {
+  const { cardId, trainerName } = action;
   return actAs(
     state,
     "opponent",
     (s) => canPlayTrainerCard(s, cardId),
-    (s) => {
-      try {
-        return playTrainerCard(s, cardId, selections);
-      } catch (error) {
-        if (error instanceof IllegalActionError) return s;
-        throw error;
-      }
-    }
+    (s) =>
+      tryEffect(s, () => {
+        const coins = flipCoins(getTrainerCoinFlips(s, cardId));
+        const coinsForSteps = coins.length > 0 ? coins : undefined;
+        const selections = action.answerAtPlay
+          ? collectAnswers(
+              (answered) => getTrainerSteps(s, cardId, answered, coinsForSteps),
+              (step) => answerTrainerStepForAI(s, cardId, trainerName, step)
+            )
+          : action.selections;
+        return playTrainerCard(s, cardId, selections, { coinResults: coins });
+      })
+  );
+}
+
+/** Usa el Poder Pokémon activado de un Pokémon de la IA (monedas y respuestas al ejecutarlo). */
+function executePower(state: GameState, action: UsePowerAction): GameState {
+  const { pokemonId, powerName } = action;
+  return actAs(
+    state,
+    "opponent",
+    (s) => canUsePokemonPower(s, pokemonId),
+    (s) =>
+      tryEffect(s, () => {
+        const coins = flipCoins(getPowerCoinFlips(s, pokemonId));
+        const coinsForSteps = coins.length > 0 ? coins : undefined;
+        const selections = collectAnswers(
+          (answered) => getPowerSteps(s, pokemonId, answered, coinsForSteps),
+          (step) => answerPowerStepForAI(s, powerName, step)
+        );
+        return usePokemonPower(s, pokemonId, selections, { coinResults: coins });
+      })
   );
 }
 
