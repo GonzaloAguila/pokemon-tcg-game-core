@@ -8,6 +8,10 @@ Each entry: card, the question, what was implemented meanwhile. Agents append he
 - **Dark Raichu (TR #83, "Rare Secret")** mapped to `CardRarity.RareHolo` (no secret rarity in the enum).
 - **Starter decks and cosmetic skins** not changed for the new sets.
 - **Mysterious Fossil in setup/mulligan**: treated as a Basic Pokémon ("play as if it were a Basic Pokémon").
+- **Deck copy limit (mismatch to settle):** the frontend deck builder allows max 4 copies **by name across sets** (classic rule: Base Set Pikachu + Jungle Pikachu count together); the API validates max 4 **per card id**. The frontend is stricter, so nothing breaks today, but pick one rule (recommended: by name) and align the API.
+- **Booster art for Fossil and Team Rocket is generated** (no scans were found): composites of the real logo + card art crops in `pokemon-tcg/public/packs/{fossil,team-rocket}/`. Replace with real pack images if you have them.
+- **Power names:** Fossil/Team Rocket power names are in Spanish; Base Set/Jungle ones are still in English. Pick one convention.
+- **Not done on purpose:** starter/theme decks, cosmetic skins for the new cards, landing page, game-core version bump (planned 0.6.0), merge, publish, deploy.
 
 ## Open questions
 
