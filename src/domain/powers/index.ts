@@ -311,7 +311,8 @@ export function canUsePower(
 export function canAttachWithPower(
   power: PokemonPower,
   targetPokemon: PokemonInPlay,
-  energyCard: GameCard
+  energyCard: GameCard,
+  state?: GameState
 ): string | null {
   if (power.type !== PokemonPowerType.UnlimitedEnergyAttach) {
     return "Este poder no permite adjuntar energía";
@@ -328,7 +329,10 @@ export function canAttachWithPower(
 
   // Check target Pokemon type
   if (power.targetPokemonTypes && isPokemonCard(targetPokemon.pokemon)) {
-    const pokemonTypes = targetPokemon.pokemon.types;
+    // Its type right now: Shift (Venomoth) or a transformed Ditto's copied type
+    const pokemonTypes = targetPokemon.shiftedType
+      ? [targetPokemon.shiftedType]
+      : ((state ? getEffectivePokemonCard(state, targetPokemon)?.types : undefined) ?? targetPokemon.pokemon.types);
     const hasMatchingType = pokemonTypes.some(t =>
       power.targetPokemonTypes!.includes(t)
     );
@@ -448,7 +452,7 @@ export function attachEnergyWithRainDance(
   }
 
   // Validate attachment
-  const attachError = canAttachWithPower(power, targetPokemon, energyCard);
+  const attachError = canAttachWithPower(power, targetPokemon, energyCard, state);
   if (attachError) {
     return {
       ...state,
@@ -923,8 +927,8 @@ export function moveDamageWithDamageSwap(
 
 /**
  * Check if a Pokemon has StatusImmunity power active.
- * Unlike other powers, StatusImmunity is NOT blocked by status conditions
- * (since it prevents status from being applied in the first place).
+ * Thick Skinned: "This power can't be used if Snorlax is already Asleep, Confused, or
+ * Paralyzed" (e.g. Confused while Toxic Gas was in play), so those statuses block it too.
  */
 export function hasStatusImmunity(pokemon: PokemonInPlay, state?: GameState): boolean {
   if (!isPokemonCard(pokemon.pokemon)) return false;
@@ -932,7 +936,7 @@ export function hasStatusImmunity(pokemon: PokemonInPlay, state?: GameState): bo
   if (isTrainerInPlay(pokemon.pokemon)) return true;
   const power = pokemon.pokemon.power;
   return !!power && power.type === PokemonPowerType.StatusImmunity &&
-    isPowerActive(state, pokemon, { ignoreBlockingStatus: true });
+    isPowerActive(state, pokemon);
 }
 
 // ============================================================================
@@ -1014,7 +1018,7 @@ export function canAutoAttachEnergy(
   // Check if any available UnlimitedEnergyAttach power can handle this energy + target combo
   for (const pp of pokemonWithPower) {
     if (!isPokemonCard(pp.pokemon) || !pp.pokemon.power) continue;
-    const error = canAttachWithPower(pp.pokemon.power, targetPokemon, energyCard);
+    const error = canAttachWithPower(pp.pokemon.power, targetPokemon, energyCard, state);
     if (!error) {
       return { powerPokemon: pp };
     }

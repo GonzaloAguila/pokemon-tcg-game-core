@@ -29,6 +29,9 @@ export type {
   RetreatOptions,
 } from "./lib/gameState";
 
+// PlusPower / Defender modifiers: which Pokémon they are attached to (it keeps them when it evolves)
+export { modifierAppliesTo } from "./lib/modifiers";
+
 export type {
   Card,
   PokemonCard,

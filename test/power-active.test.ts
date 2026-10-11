@@ -29,9 +29,10 @@ describe("isPowerActive", () => {
     expect(isPowerActive(state, other)).toBe(true);
   });
 
-  it("Thick Skinned keeps working while statused (current behavior) but not while suppressed", () => {
-    const snorlax = inPlay("Snorlax", { set: "jungle", statuses: [StatusCondition.Confused] });
+  it("Thick Skinned works while healthy, not while already statused or suppressed", () => {
+    const snorlax = inPlay("Snorlax", { set: "jungle" });
     expect(hasStatusImmunity(snorlax, makeState())).toBe(true);
+    expect(hasStatusImmunity({ ...snorlax, statusConditions: [StatusCondition.Confused] }, makeState())).toBe(false);
     expect(hasStatusImmunity(snorlax, suppressAll(makeState()))).toBe(false);
   });
 });

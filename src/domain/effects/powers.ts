@@ -56,6 +56,7 @@ import {
   executePeek,
   arePrizesRevealed,
   hasStatusImmunity,
+  getEffectiveHp,
 } from "@/domain/powers";
 import { allOwnPokemon, findInPlay } from "@/domain/board";
 import type { CardEffectDef, SelectionOption } from "./types";
@@ -111,7 +112,7 @@ function rainDanceEnergies(state: GameState, pokemonId: string): GameCard[] {
 function rainDanceTargets(state: GameState, pokemonId: string, energy: GameCard | undefined): PokemonInPlay[] {
   const power = powerOf(state, pokemonId);
   if (!power || !energy) return [];
-  return allOwnPokemon(state).filter((p) => canAttachWithPower(power, p, energy) === null);
+  return allOwnPokemon(state).filter((p) => canAttachWithPower(power, p, energy, state) === null);
 }
 
 // ---------------------------------------------------------------------------- Energy Trans
@@ -124,14 +125,15 @@ function energyTransEnergies(state: GameState, pokemonId: string, source: Pokemo
 
 // ---------------------------------------------------------------------------- Damage Swap
 
-/** Most damage `target` can take without being Knocked Out */
-function damageRoom(target: PokemonInPlay): number {
+/** Most damage `target` can take without being Knocked Out (a transformed Ditto: the copy's HP) */
+function damageRoom(target: PokemonInPlay, state?: GameState): number {
   if (!isPokemonCard(target.pokemon)) return 0;
-  return Math.max(0, target.pokemon.hp - (target.currentDamage ?? 0) - 10);
+  const hp = state ? getEffectiveHp(state, target) : target.pokemon.hp;
+  return Math.max(0, hp - (target.currentDamage ?? 0) - 10);
 }
 
 function damageSwapTargets(state: GameState, source: PokemonInPlay): PokemonInPlay[] {
-  return allOwnPokemon(state).filter((p) => p.pokemon.id !== source.pokemon.id && damageRoom(p) >= 10);
+  return allOwnPokemon(state).filter((p) => p.pokemon.id !== source.pokemon.id && damageRoom(p, state) >= 10);
 }
 
 // ---------------------------------------------------------------------------- Curse
@@ -309,7 +311,7 @@ export const POWER_EFFECTS: Record<string, CardEffectDef> = {
       }
       if (selections.length === 2) {
         const target = ownPokemonById(state, selections[1][0]);
-        const max = target ? Math.min(source.currentDamage ?? 0, damageRoom(target)) : 0;
+        const max = target ? Math.min(source.currentDamage ?? 0, damageRoom(target, state)) : 0;
         const amounts = Array.from({ length: Math.floor(max / 10) }, (_, i) => String((i + 1) * 10));
         return {
           title: "Damage Swap",

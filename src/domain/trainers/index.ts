@@ -17,6 +17,7 @@ import { ALL_CARDS } from "@/domain/catalog";
 import { isBasicEnergy, isPokemonCard, cardOutOfPlay } from "@/domain/cards";
 import { GamePhase, CardKind, PokemonStage } from "@/domain/constants";
 import { evolvePokemonInPlay, clearEffectsAsIfEvolved } from "@/domain/board";
+import { modifiersAttachedTo } from "@/lib/modifiers";
 
 
 // ============================================================================
@@ -221,6 +222,8 @@ export function playPlusPower(state: GameState, cardId: string): GameState {
     id: `mod-${Date.now()}-${Math.random()}`,
     source: "plusPower",
     card,
+    // Attached to the Active: it stays with that Pokémon (a Switch doesn't pass it on)
+    ...(state.playerActivePokemon && { targetPokemonId: state.playerActivePokemon.pokemon.id }),
     amount: 10,
     expiresAfterTurn: state.turnNumber,
     playerId: "player",
@@ -1373,6 +1376,10 @@ export function playDevolutionSpray(
     playerDiscard: newDiscard,
     playerActivePokemon: newActive,
     playerBench: newBench,
+    // Attached Trainers (Defender, PlusPower) stay on the devolved Pokémon
+    activeModifiers: state.activeModifiers.map((m) =>
+      m.targetPokemonId === evolutionCard.id ? { ...m, targetPokemonId: previousStage.id } : m
+    ),
     events,
   };
 
@@ -1632,6 +1639,9 @@ export function playScoopUp(
     }
   }
   newDiscard = [...newDiscard, ...cardsToDiscard.map(cardOutOfPlay)];
+  // Attached Trainers kept as modifiers (Defender, PlusPower) are discarded too
+  const { attached, rest: activeModifiers } = modifiersAttachedTo(state, target);
+  newDiscard = [...newDiscard, ...attached.map((m) => m.card)];
 
   let newActive = state.playerActivePokemon;
   let newBench = [...state.playerBench];
@@ -1651,6 +1661,7 @@ export function playScoopUp(
       playerActivePokemon: null,
       playerBench: newBench,
       playerNeedsToPromote: newBench.length > 0,
+      activeModifiers,
       events,
     };
   } else {
@@ -1670,6 +1681,7 @@ export function playScoopUp(
     playerDiscard: newDiscard,
     playerActivePokemon: newActive,
     playerBench: newBench,
+    activeModifiers,
     events,
   };
 }

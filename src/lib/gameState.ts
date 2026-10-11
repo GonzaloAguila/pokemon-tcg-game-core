@@ -44,6 +44,7 @@ import { isAttackChoiceEffect, startAttackChoices, type AttackChoiceContext } fr
 export { resolveAttackChoice, isAttackChoiceEffect } from "./attackChoices";
 export type { AttackChoiceContext } from "./attackChoices";
 import type { PendingPowerChoice } from "./powerChoices";
+import { defenderReduction as attachedDefenderReduction, modifierAppliesTo, releaseOrphanModifiers } from "./modifiers";
 export { resolvePowerChoice, triggerOnPlayPower, ON_PLAY_POWERS } from "./powerChoices";
 export type { PendingPowerChoice, OnPlayPowerDef } from "./powerChoices";
 import { assertLegal } from "@/shared/errors";
@@ -717,6 +718,15 @@ export function executeRetreat(
   const benchPokemon = gameState.playerBench[benchIndex];
 
   // Validaciones
+  // A normal action of the turn: not after attacking, not while a prize / promotion / pending effect waits
+  const turnBlocker = getTurnActionBlocker(gameState);
+  if (turnBlocker) {
+    return {
+      ...gameState,
+      events: [...gameState.events, createGameEvent(turnBlocker, "info")],
+    };
+  }
+
   if (!activePokemon) {
     return {
       ...gameState,
@@ -1137,12 +1147,14 @@ export function executeBenchDamage(
   const events = [...gameState.events];
   let newPlayerBench = [...gameState.playerBench];
   let newOpponentBench = [...gameState.opponentBench];
+  // Strikes Back (Machamp) of a chosen Benched Pokémon: damage to the attacker (no W/R)
+  let strikesBack = 0;
 
   if (targetSide === "opponent") {
     newOpponentBench = newOpponentBench.map((p) => {
       if (!p || !selectedPokemonIds.includes(p.pokemon.id)) return p;
 
-      const dealt = applyDamageHalving(p, damageAmount, gameState);
+      const dealt = applyDamageHalving(p, Math.max(0, damageAmount - attachedDefenderReduction(gameState, p)), gameState);
       const newDamage = (p.currentDamage || 0) + dealt;
       events.push(
         createGameEvent(
@@ -1150,6 +1162,11 @@ export function executeBenchDamage(
           "action"
         )
       );
+      const reaction = dealt > 0 && gameState.playerActivePokemon ? getDamageReaction(p, false, gameState) : null;
+      if (reaction) {
+        strikesBack += reaction.reactionDamage;
+        events.push(createGameEvent(`¡${reaction.powerName}! ${p.pokemon.name} contraataca con ${reaction.reactionDamage} de daño desde la banca`, "action"));
+      }
 
       return {
         ...p,
@@ -1160,7 +1177,7 @@ export function executeBenchDamage(
     newPlayerBench = newPlayerBench.map((p) => {
       if (!p || !selectedPokemonIds.includes(p.pokemon.id)) return p;
 
-      const dealt = applyDamageHalving(p, damageAmount, gameState);
+      const dealt = applyDamageHalving(p, Math.max(0, damageAmount - attachedDefenderReduction(gameState, p)), gameState);
       const newDamage = (p.currentDamage || 0) + dealt;
       events.push(
         createGameEvent(
@@ -1177,9 +1194,12 @@ export function executeBenchDamage(
   }
 
   // The attack may already have knocked out an Active: a bench KO can leave a side with
-  // no Pokémon at all (Spark KOs the Active, then the last benched Pokémon)
-  const newState = endGameIfNoPokemonLeft(processBenchKnockouts({
+  // no Pokémon at all (Spark KOs the Active, then the last benched Pokémon). Strikes Back can
+  // Knock Out the attacker (checkKnockouts: bench KOs first, then the Actives)
+  const attacker = gameState.playerActivePokemon;
+  const newState = endGameIfNoPokemonLeft(checkKnockouts({
     ...gameState,
+    playerActivePokemon: attacker && strikesBack > 0 ? { ...attacker, currentDamage: (attacker.currentDamage || 0) + strikesBack } : attacker,
     playerBench: newPlayerBench,
     opponentBench: newOpponentBench,
     pendingBenchDamageSelection: undefined,
@@ -1335,7 +1355,8 @@ export function checkKnockouts(state: GameState): GameState {
     !isAwaitingTransformTarget(next, p);
   if (next.gameResult === null && isOut(next.opponentActivePokemon)) next = knockOutOpponentActive(next);
   if (next.gameResult === null && isOut(next.playerActivePokemon)) next = knockOutPlayerActive(next);
-  return next === state ? state : endGameIfNoPokemonLeft(next);
+  // Defender / PlusPower of a Pokémon that left play go to the discard pile with it
+  return releaseOrphanModifiers(next === state ? state : endGameIfNoPokemonLeft(next));
 }
 
 /**
@@ -2127,6 +2148,10 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     if (pokemon.nextTurnEffectAppliedOnTurn == null) return pokemon;
     // Effect was applied on turn T. It should be available during turn T+1 (opponent's turn).
     // If we reach T+2 without it being consumed, it expires.
+    // Swords Dance's bonus is for the attacker's OWN next turn (T+2): only the reduction ends here
+    if (pokemon.nextTurnBonusDamage && newTurnNumber === pokemon.nextTurnEffectAppliedOnTurn + 2) {
+      return pokemon.nextTurnDamageReduction ? { ...pokemon, nextTurnDamageReduction: undefined } : pokemon;
+    }
     if (newTurnNumber > pokemon.nextTurnEffectAppliedOnTurn + 1) {
       const hadBonus = pokemon.nextTurnBonusDamage;
       const hadReduction = pokemon.nextTurnDamageReduction;
@@ -2175,12 +2200,13 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
       shiftedType: undefined,
     };
   }
-  // Clear shiftedType from bench Pokemon as well
+  // Clear shiftedType and Energy Burn from bench Pokemon as well (both work from the Bench,
+  // and a Charizard may have been benched after using Energy Burn)
   updatedState.playerBench = updatedState.playerBench.map(p =>
-    p && p.shiftedType ? { ...p, shiftedType: undefined } : p
+    p && (p.shiftedType || p.energyConversionType) ? { ...p, shiftedType: undefined, energyConversionType: undefined } : p
   );
   updatedState.opponentBench = updatedState.opponentBench.map(p =>
-    p && p.shiftedType ? { ...p, shiftedType: undefined } : p
+    p && (p.shiftedType || p.energyConversionType) ? { ...p, shiftedType: undefined, energyConversionType: undefined } : p
   );
 
   // =====================================================================
@@ -2530,12 +2556,13 @@ export function canUseAttack(
       wildCards += 1;
       continue;
     }
-    if (energy.kind === CardKind.Energy) {
+    // A Buzzap Electrode is a Pokémon card attached as Energy (kind stays "pokemon")
+    if (energy.kind === CardKind.Energy || energy.buzzapEnergyType) {
       // Determine effective energy type:
       // 1. Energy Burn: all energy counts as the conversion type
       // 2. Buzzap energy: use the chosen buzzap type
       // 3. Normal energy: use the card's energy type
-      let effectiveType = energy.energyType;
+      let effectiveType = isEnergyCard(energy) ? energy.energyType : energy.buzzapEnergyType!;
       if (energyConversionType) {
         effectiveType = energyConversionType;
       } else if (energy.buzzapEnergyType) {
@@ -2741,8 +2768,13 @@ export function calculateBaseDamage(
         const totalOfType = attacker.attachedEnergy.filter(
           e => e.kind === CardKind.Energy && (anyType || energyProvidesType(e, energyType))
         ).length;
-        // Count how many are required by the attack cost
-        const requiredOfType = attack.cost.filter(c => c === energyType).length;
+        // Count how many are required by the attack cost: its symbols of that type, plus the
+        // Colorless part that the other Energy can't pay (Poliwrath W W W for W W C: no extra)
+        const otherValue = getTotalEnergyValue(attacker.attachedEnergy.filter(
+          e => e.kind === CardKind.Energy && !(anyType || energyProvidesType(e, energyType))
+        ));
+        const colorlessCost = attack.cost.filter(c => c === EnergyTypeEnum.Colorless).length;
+        const requiredOfType = attack.cost.filter(c => c === energyType).length + Math.max(0, colorlessCost - otherValue);
         const extraCount = Math.min(Math.max(0, totalOfType - requiredOfType), maxExtra);
         baseDamage += effect.extraDamagePerEnergy * extraCount;
       }
@@ -3349,7 +3381,8 @@ function executeAttackUnchecked(
   // The bonus is consumed and cleared later when assembling the final state
   let consumedBonusDamage = false;
   let bonusDamageMessage = "";
-  if (attacker.nextTurnBonusDamage && attacker.nextTurnBonusDamage > 0) {
+  // Only an attack that does damage gets it ("Slash's base damage is 60"; not Swords Dance again)
+  if (attacker.nextTurnBonusDamage && attacker.nextTurnBonusDamage > 0 && baseDamage > 0) {
     baseDamage += attacker.nextTurnBonusDamage;
     consumedBonusDamage = true;
     bonusDamageMessage = `¡Efecto de turno anterior! +${attacker.nextTurnBonusDamage} de daño extra`;
@@ -3398,18 +3431,19 @@ function executeAttackUnchecked(
   }
 
   // Aplicar bonus de PlusPower (después de debilidad/resistencia, según reglas TCG)
-  // PlusPower only adds damage if the attack does damage to the defending Pokemon (baseDamage > 0)
+  // PlusPower only adds damage if the attack does damage to the defending Pokemon after
+  // Weakness and Resistance (10 vs Resistance = 0: no PlusPower)
   const plusPowerModifiers = gameState.activeModifiers.filter(
-    (m) => m.source === "plusPower" && m.playerId === "player"
+    (m) => m.source === "plusPower" && m.playerId === "player" && modifierAppliesTo(m, attacker)
   );
   const plusPowerBonus = plusPowerModifiers.reduce((sum, m) => sum + m.amount, 0);
-  if (plusPowerBonus > 0 && baseDamage > 0) {
+  if (plusPowerBonus > 0 && damage > 0) {
     damage += plusPowerBonus;
   }
 
   // Aplicar reducción de Defender (después de debilidad/resistencia)
   const defenderModifiers = gameState.activeModifiers.filter(
-    (m) => m.source === "defender" && m.targetPokemonId === defender.pokemon.id
+    (m) => m.source === "defender" && modifierAppliesTo(m, defender)
   );
   const defenderReduction = defenderModifiers.reduce((sum, m) => sum + Math.abs(m.amount), 0);
   if (defenderReduction > 0) {
@@ -3668,7 +3702,7 @@ function executeAttackUnchecked(
 
         // Apply Defender reduction to self-damage
         const selfDefenderMods = gameState.activeModifiers.filter(
-          (m) => m.source === "defender" && m.targetPokemonId === newPlayerActive!.pokemon.id
+          (m) => m.source === "defender" && modifierAppliesTo(m, newPlayerActive)
         );
         const selfDefenderReduction = selfDefenderMods.reduce((sum, m) => sum + Math.abs(m.amount), 0);
         if (selfDefenderReduction > 0) {
@@ -3716,6 +3750,9 @@ function executeAttackUnchecked(
       if (effect.type === AttackEffectType.BenchDamage && effect.amount && effect.benchTarget) {
         const benchDamageAmount = effect.amount;
         const target = effect.benchTarget;
+        // Opponent's Benched Pokémon this effect damaged now (Strikes Back reacts only for them;
+        // chosen targets react in executeBenchDamage)
+        const damagedOpponentBenchIds = new Set<string>();
 
         // Chain Lightning: use original defender types (not newOpponentActive which may be promoted replacement)
         const defenderTypes = defenderCard.types;
@@ -3784,7 +3821,8 @@ function executeAttackUnchecked(
                 }
 
                 opponentHitsRemaining--;
-                const dealt = applyDamageHalving(benchPokemon, benchDamageAmount, gameState);
+                const dealt = applyDamageHalving(benchPokemon, Math.max(0, benchDamageAmount - attachedDefenderReduction(gameState, benchPokemon)), gameState);
+                if (dealt > 0) damagedOpponentBenchIds.add(benchPokemon.pokemon.id);
                 const newBenchDamage = (benchPokemon.currentDamage || 0) + dealt;
                 events.push(
                   createGameEvent(
@@ -3837,7 +3875,7 @@ function executeAttackUnchecked(
                 }
 
                 ownHitsRemaining--;
-                const dealt = applyDamageHalving(benchPokemon, benchDamageAmount, gameState);
+                const dealt = applyDamageHalving(benchPokemon, Math.max(0, benchDamageAmount - attachedDefenderReduction(gameState, benchPokemon)), gameState);
                 const newBenchDamage = (benchPokemon.currentDamage || 0) + dealt;
                 events.push(
                   createGameEvent(
@@ -3863,8 +3901,9 @@ function executeAttackUnchecked(
           if (newPlayerActive && !attackerKnockedOut) {
             for (const benchPokemon of newOpponentBench) {
               if (!benchPokemon) continue;
-              // Not damaged by this bench damage (Mass Explosion only hits named Pokémon)
-              if (effect.benchNameFilter && !effect.benchNameFilter.includes(benchPokemon.pokemon.name)) continue;
+              // Not damaged by this bench damage (Mass Explosion's names, Chain Lightning's type,
+              // Thunderstorm's tails, a target still to be chosen)
+              if (!damagedOpponentBenchIds.has(benchPokemon.pokemon.id)) continue;
               const reaction = getDamageReaction(benchPokemon, false, gameState); // false = from bench
               if (reaction) {
                 const counterDamage = reaction.reactionDamage;
@@ -3899,7 +3938,10 @@ function executeAttackUnchecked(
 
       // Heal: cure damage from self (e.g., Butterfree Mega Drain, Exeggcute Leech Seed, Venonat Leech Life)
       if (effect.type === AttackEffectType.Heal && effect.target === AttackTarget.Self && newPlayerActive) {
-        let healAmount = effect.amount || 0;
+        // Leech Seed: "unless all damage from this attack is prevented" (protection, Invisible Wall,
+        // Transparency); an attack without damage (Spacing Out) heals anyway
+        const damagePrevented = transparencyPrevents || (defenderIsProtected && damage > 0) || damageBarrierBlocked;
+        let healAmount = damagePrevented ? 0 : effect.amount || 0;
         if (effect.healFromDamage === "all") {
           // Leech Life: as many counters as the damage done (after W/R)
           healAmount = effectiveDamage;
@@ -4129,7 +4171,8 @@ function executeAttackUnchecked(
         if (!effect.bonusDamageSource) {
           newPlayerActive = {
             ...newPlayerActive,
-            nextTurnBonusDamage: (newPlayerActive.nextTurnBonusDamage || 0) + effect.amount,
+            // "base damage is 60 instead of 30": a second Swords Dance doesn't stack
+            nextTurnBonusDamage: effect.amount,
             nextTurnEffectAppliedOnTurn: gameState.turnNumber,
           };
           events.push(
@@ -4264,6 +4307,10 @@ function executeAttackUnchecked(
                     newOpponentActive = { ...newOpponentActive, poisonDamage: effect.poisonDamage };
                   }
                   events.push(createGameEvent(statusMessage(newOpponentActive.pokemon.name, s), "action"));
+                } else if (s === StatusCondition.Poisoned && effect.poisonDamage && hasStatusCondition(newOpponentActive, s) && newOpponentActive.poisonDamage !== effect.poisonDamage) {
+                  // Toxic: "20 Poison damage instead of 10 ... (even if it was already Poisoned)"
+                  newOpponentActive = { ...newOpponentActive, poisonDamage: effect.poisonDamage };
+                  events.push(createGameEvent(`¡${newOpponentActive.pokemon.name} ahora recibe ${effect.poisonDamage} de daño por veneno!`, "action"));
                 }
               }
             }
@@ -4978,12 +5025,16 @@ export function executeMetronome(
     ? executeAttackUnchecked(tempState, 0, { ...skipEndTurnOrOptions, selectedEnergyIds: undefined }, false)
     : executeAttackUnchecked(tempState, 0, !!skipEndTurnOrOptions, skipDefenderPromotion, undefined);
 
-  // Restaurar el Pokémon original (con sus ataques reales) después de ejecutar
+  // Restaurar el Pokémon original (con sus ataques reales) después de ejecutar; also the card
+  // itself when the copied attack moved it out of play (Selfdestruct, Strikes Back, Vanish...)
+  const realCard = (c: GameCard): GameCard => (c.id === attacker.pokemon.id ? attacker.pokemon : c);
   return {
     ...resultState,
     playerActivePokemon: resultState.playerActivePokemon
       ? { ...resultState.playerActivePokemon, pokemon: attacker.pokemon }
       : null,
+    playerDiscard: resultState.playerDiscard.map(realCard),
+    playerDeck: resultState.playerDeck.map(realCard),
   };
 }
 

@@ -40,6 +40,7 @@
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { applyStatusCondition, createGameEvent, drawCard, energyCardLabel, getEnergyTypeInSpanish, shuffle, triggerOnPlayPower } from "@/lib/gameState";
 import { hasStatusImmunity } from "@/domain/powers";
+import { modifiersAttachedTo } from "@/lib/modifiers";
 import { ALL_CARDS } from "@/domain/catalog";
 import { cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { CardKind, PokemonStage, StatusCondition } from "@/domain/constants";
@@ -719,10 +720,13 @@ Object.assign(TRAINER_EFFECTS, {
       const index = state.playerBench.findIndex((p) => p?.pokemon.id === pokemonId);
       const target = state.playerBench[index];
       const played = discardPlayed(state, cardId, "Jugaste Mr. Fuji");
+      // An attached Defender is one of "its cards" (kept as a modifier by the engine)
+      const { attached, rest } = modifiersAttachedTo(state, target);
       return {
         ...played,
+        activeModifiers: rest,
         playerBench: state.playerBench.filter((_, i) => i !== index),
-        playerDeck: shuffle([...state.playerDeck, ...cardsLeavingPlay(target)]),
+        playerDeck: shuffle([...state.playerDeck, ...cardsLeavingPlay(target), ...attached.map((m) => m.card)]),
         events: [...played.events, createGameEvent(`Mr. Fuji: ${target.pokemon.name} y sus cartas se barajaron en el mazo`, "info")],
       };
     }

@@ -46,6 +46,7 @@ import {
 } from "@/domain/powers";
 import { evolvePokemonInPlay, getEvolutionBlocker } from "@/domain/board";
 import { IllegalActionError } from "@/shared/errors";
+import { modifierAppliesTo } from "./modifiers";
 import type { GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
 import {
   checkKnockouts,
@@ -620,11 +621,11 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
   }
   let consumedReduction = false;
   if (isActive) {
-    const plusPower = state.activeModifiers.filter((m) => m.source === "plusPower" && m.playerId === "player").reduce((sum, m) => sum + m.amount, 0);
+    const plusPower = state.activeModifiers.filter((m) => m.source === "plusPower" && m.playerId === "player" && modifierAppliesTo(m, attacker)).reduce((sum, m) => sum + m.amount, 0);
     if (damage > 0) damage += plusPower;
   }
   const defenderReduction = state.activeModifiers
-    .filter((m) => m.source === "defender" && m.targetPokemonId === targetId)
+    .filter((m) => m.source === "defender" && modifierAppliesTo(m, target))
     .reduce((sum, m) => sum + Math.abs(m.amount), 0);
   damage = Math.max(0, damage - defenderReduction);
   if (isActive && target.nextTurnDamageReduction && damage > 0) {
