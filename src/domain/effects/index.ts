@@ -39,7 +39,7 @@ export type {
 } from "./types";
 export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames, isPlayedAsBasic } from "./trainers";
 export { POWER_EFFECTS, ACTIVATED_POWER_TYPES } from "./powers";
-export { checkSelection, minSelectionsOf } from "./validate";
+export { checkSelection, minSelectionsOf, stepForAnswerer } from "./validate";
 
 // ============================================================================
 // Shared runner

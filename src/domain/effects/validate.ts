@@ -33,6 +33,16 @@ export function minSelectionsOf(step: SelectionStep): number {
   return step.minSelections ?? step.maxSelections;
 }
 
+/**
+ * The step as the player who answers it reads it: on a `chooser: "opponent"` step, its
+ * `answererTitle` / `answererDescription` replace `title` / `description`. Any other step is
+ * returned as is (same object).
+ */
+export function stepForAnswerer(step: SelectionStep): SelectionStep {
+  if (step.chooser !== "opponent" || (step.answererTitle === undefined && step.answererDescription === undefined)) return step;
+  return { ...step, title: step.answererTitle ?? step.title, description: step.answererDescription ?? step.description };
+}
+
 /** Throws unless `chosen` is a valid answer to `step`. */
 export function checkSelection(step: SelectionStep, chosen: string[] | undefined): void {
   if (!Array.isArray(chosen)) throw new IllegalActionError(`Falta elegir: ${step.description}`);

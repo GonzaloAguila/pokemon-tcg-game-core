@@ -296,6 +296,7 @@ function stepFor(
       return {
         title,
         description: `Tu rival elige el Pokémon de su Banca que cambia por ${defender.pokemon.name}`,
+        answererDescription: `Tu rival usó ${context.attackName}: elige el Pokémon de tu Banca que cambia por ${defender.pokemon.name}`,
         options: state.opponentBench.map((p) => ({ id: p.pokemon.id, label: p.pokemon.name })),
         maxSelections: 1,
         thumbnails: state.opponentBench.map((p) => p.pokemon),

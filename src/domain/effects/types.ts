@@ -37,8 +37,19 @@ export type SelectionStep = {
   orderingCards?: GameCard[];
   /** Don't auto-select when there is a single option */
   disableAutoSelect?: boolean;
-  /** Who answers: the card's owner (default) or the opponent ("he or she chooses") */
+  /**
+   * Who answers: the card's owner (default) or the opponent ("he or she chooses"). `title` and
+   * `description` always speak to the card's owner / attacker (the side whose view built the
+   * step) — on an opponent step that is what the waiting player reads.
+   */
   chooser?: "self" | "opponent";
+  /**
+   * Only on `chooser: "opponent"` steps: the same question worded for the player who answers
+   * it ("Tu rival usó Golpe Terrorífico: elige el Pokémon de tu Banca…"). Omitted = `title` /
+   * `description`. Show the step to its answerer with `stepForAnswerer(step)`.
+   */
+  answererTitle?: string;
+  answererDescription?: string;
   /**
    * The step shows hidden information of the other player to the chooser: "opponentHand" =
    * `cards` is the opponent's whole hand (Rocket's Sneak Attack). In multiplayer the server

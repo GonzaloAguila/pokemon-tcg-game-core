@@ -820,11 +820,13 @@ function challengeStep(deck: GameCard[], benchSize: number, chooser: "self" | "o
   return {
     title: "Challenge!",
     description:
-      room === 0
-        ? "Tu Banca está llena: no puedes poner Pokémon"
-        : chooser === "self"
-          ? "Elige los Pokémon Básicos de tu mazo que pones en tu Banca"
-          : "Tu rival elige los Pokémon Básicos de su mazo que pone en su Banca",
+      chooser === "self"
+        ? room === 0 ? "Tu Banca está llena: no puedes poner Pokémon" : "Elige los Pokémon Básicos de tu mazo que pones en tu Banca"
+        : room === 0 ? "La Banca de tu rival está llena: no puede poner Pokémon" : "Tu rival elige los Pokémon Básicos de su mazo que pone en su Banca",
+    ...(chooser === "opponent" && {
+      answererDescription:
+        room === 0 ? "Tu Banca está llena: no puedes poner Pokémon" : "Tu rival jugó Challenge!: elige los Pokémon Básicos de tu mazo que pones en tu Banca",
+    }),
     options: basics.map(cardOption),
     maxSelections: Math.min(room, basics.length),
     minSelections: 0,
@@ -923,7 +925,9 @@ Object.assign(TRAINER_EFFECTS, {
       if (selections.length === 0) {
         return {
           title: "Challenge!",
-          description: "Tu rival te desafía: ¿aceptas? Si aceptas, cada uno pone Pokémon Básicos de su mazo en su Banca; si no, tu rival roba 2 cartas",
+          description: "Tu rival decide si acepta el desafío. Si lo acepta, cada uno pone Pokémon Básicos de su mazo en su Banca; si no, robas 2 cartas",
+          answererDescription:
+            "Tu rival jugó Challenge!: ¿aceptas el desafío? Si lo aceptas, cada uno pone Pokémon Básicos de su mazo en su Banca; si no, tu rival roba 2 cartas",
           options: [
             { id: "accept", label: "Aceptar" },
             { id: "decline", label: "Rechazar" },

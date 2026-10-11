@@ -245,6 +245,7 @@ export {
   getUsablePowerPokemonIds,
   checkSelection,
   minSelectionsOf,
+  stepForAnswerer,
 } from "./domain/effects";
 
 // =============================================================================
