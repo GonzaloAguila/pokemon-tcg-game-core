@@ -11,6 +11,7 @@ import { CardKind, CardSet, EnergyType, PokemonStage } from "@/domain/constants"
 import type { Deck, DeckEntry } from "@/domain/decks";
 import { UNSUPPORTED_TRAINERS } from "@/domain/effects";
 import { pick, pickSome, randomInt, shuffled, type Rng } from "./rng";
+import { cardRarity, type ExploreMemory } from "./explore";
 
 export const DECK_SIZE = 60;
 const MAX_COPIES = 4;
@@ -28,6 +29,33 @@ type Counted = { card: Card; quantity: number };
 
 function key(card: Card): string {
   return `${card.set}#${card.number}`;
+}
+
+/** Deck being built: max 4 copies of a non-basic-Energy card by name, never over 60 cards */
+function createDeckAccumulator() {
+  const entries = new Map<string, Counted>();
+  const countByName = new Map<string, number>();
+  let total = 0;
+  const add = (card: Card, quantity: number): number => {
+    const isEnergy = card.kind === CardKind.Energy && card.isBasic;
+    const room = isEnergy ? quantity : Math.min(quantity, MAX_COPIES - (countByName.get(card.name) ?? 0));
+    const added = Math.max(0, Math.min(room, DECK_SIZE - total));
+    if (added === 0) return 0;
+    const existing = entries.get(key(card));
+    entries.set(key(card), { card, quantity: (existing?.quantity ?? 0) + added });
+    countByName.set(card.name, (countByName.get(card.name) ?? 0) + added);
+    total += added;
+    return added;
+  };
+  const toDeck = (name: string): Deck => {
+    const cards: DeckEntry[] = [...entries.values()].map(({ card, quantity }) => ({
+      cardNumber: card.number,
+      quantity,
+      set: card.set === CardSet.BaseSet ? undefined : card.set,
+    }));
+    return { id: `sim-${name}`, name, image: "", cards };
+  };
+  return { entries, add, toDeck, total: () => total };
 }
 
 /**
@@ -50,20 +78,7 @@ export function buildRandomDeck(rng: Rng, setIds: readonly CardSetId[], name = "
   const usedTypes = BASIC_ENERGY_TYPES.filter((t) => pokemon.some((p) => p.stage === PokemonStage.Basic && p.types.includes(t)));
   const deckTypes = pickSome(rng, usedTypes.length > 0 ? usedTypes : [EnergyType.Fighting], 1, 2);
 
-  const entries = new Map<string, Counted>();
-  const countByName = new Map<string, number>();
-  let total = 0;
-  const add = (card: Card, quantity: number): number => {
-    const isEnergy = card.kind === CardKind.Energy && card.isBasic;
-    const room = isEnergy ? quantity : Math.min(quantity, MAX_COPIES - (countByName.get(card.name) ?? 0));
-    const added = Math.max(0, Math.min(room, DECK_SIZE - total));
-    if (added === 0) return 0;
-    const existing = entries.get(key(card));
-    entries.set(key(card), { card, quantity: (existing?.quantity ?? 0) + added });
-    countByName.set(card.name, (countByName.get(card.name) ?? 0) + added);
-    total += added;
-    return added;
-  };
+  const { entries, add, toDeck, total: deckTotal } = createDeckAccumulator();
 
   // Evolution lines whose Basic matches the deck types (or is Colorless)
   const fits = (p: PokemonCard) => p.types.some((t) => deckTypes.includes(t) || t === EnergyType.Colorless);
@@ -90,7 +105,7 @@ export function buildRandomDeck(rng: Rng, setIds: readonly CardSetId[], name = "
 
   // Trainers
   const trainerTarget = 8 + randomInt(rng, 9);
-  for (let i = 0; i < 40 && total < DECK_SIZE && trainers.length > 0 && countTrainers(entries) < trainerTarget; i++) {
+  for (let i = 0; i < 40 && deckTotal() < DECK_SIZE && trainers.length > 0 && countTrainers(entries) < trainerTarget; i++) {
     add(pick(rng, trainers), 1 + randomInt(rng, 2));
   }
   if (doubleColorless && rng() < 0.5) add(doubleColorless, 1 + randomInt(rng, 3));
@@ -101,17 +116,12 @@ export function buildRandomDeck(rng: Rng, setIds: readonly CardSetId[], name = "
 
   // Fill with basic Energy of the deck types
   let typeIndex = 0;
-  while (total < DECK_SIZE) {
+  while (deckTotal() < DECK_SIZE) {
     add(basicEnergyOf(deckTypes[typeIndex % deckTypes.length]), 1);
     typeIndex++;
   }
 
-  const cards: DeckEntry[] = [...entries.values()].map(({ card, quantity }) => ({
-    cardNumber: card.number,
-    quantity,
-    set: card.set === CardSet.BaseSet ? undefined : card.set,
-  }));
-  return { id: `sim-${name}`, name, image: "", cards };
+  return toDeck(name);
 }
 
 function countTrainers(entries: Map<string, Counted>): number {
@@ -123,4 +133,96 @@ function countTrainers(entries: Map<string, Counted>): number {
 /** All set ids known to the registry */
 export function allSetIds(): CardSetId[] {
   return CARD_SETS.map((s) => s.id);
+}
+
+/**
+ * `--decks random-mix`: a legal random deck mixing every chosen set, built around complete
+ * evolution lines of any type (Dark lines, Fossil lines from Mysterious Fossil...), with
+ * Trainers and special Energy of all the sets and basic Energy of the types the lines' attacks
+ * need. With a memory, the featured lines are those whose attacks / powers the run used least
+ * (and the Trainers lean toward the least played), so rare cards keep showing up.
+ */
+export function buildMixDeck(rng: Rng, setIds: readonly CardSetId[], name = "mix", memory?: ExploreMemory): Deck {
+  const sets = setIds.map((id) => getSet(id)).filter((s): s is NonNullable<typeof s> => !!s);
+  if (sets.length === 0) throw new Error(`No known set in ${setIds.join(",")}`);
+  const pool = sets.flatMap((s) => s.cards);
+  const pokemon = pool.filter((c): c is PokemonCard => c.kind === CardKind.Pokemon);
+  const trainers = pool.filter((c) => c.kind === CardKind.Trainer && !UNSUPPORTED_TRAINERS.includes(c.name));
+  const energySet = getSet("base-set")!.cards;
+  const basicEnergyOf = (type: EnergyType) =>
+    energySet.find((c) => c.kind === CardKind.Energy && c.isBasic && c.energyType === type)!;
+  const specials = [...energySet, ...pool].filter((c, i, all) => c.kind === CardKind.Energy && !c.isBasic && all.indexOf(c) === i);
+  const rarity = (card: Card) => (memory ? cardRarity(memory, card) : 0);
+  const { entries, add, toDeck, total } = createDeckAccumulator();
+
+  // A line whose earlier stages aren't in the chosen sets takes them from any set (Team
+  // Rocket's Dark Raichu evolves from Base Set / Jungle Pikachu)
+  const everyCard = CARD_SETS.flatMap((s) => s.cards);
+  const stagesNamed = (from: string, cards: readonly Card[]): Card[] =>
+    cards.filter((c) => c.name === from && (c.kind === CardKind.Pokemon || (c.kind === CardKind.Trainer && !!c.playsAsBasic)));
+  /** Basic (or Mysterious Fossil) → … → card, picking one card per name at random */
+  const lineOf = (top: PokemonCard): Card[] => {
+    const line: Card[] = [top];
+    let current: Card = top;
+    for (let guard = 0; guard < 3 && current.kind === CardKind.Pokemon && current.evolvesFrom; guard++) {
+      const from: string = current.evolvesFrom;
+      const inPool = stagesNamed(from, pool);
+      const previous = inPool.length > 0 ? inPool : stagesNamed(from, everyCard);
+      if (previous.length === 0) return [];
+      current = pick(rng, previous);
+      line.unshift(current);
+    }
+    return line;
+  };
+  /** Least-covered cards first (random among ties), then anything */
+  const featured = (candidates: PokemonCard[]): PokemonCard | undefined => {
+    if (candidates.length === 0) return undefined;
+    const low = Math.min(...candidates.map(rarity));
+    return pick(rng, candidates.filter((c) => rarity(c) === low));
+  };
+
+  const lines: Card[][] = [];
+  const used = new Set<string>();
+  const addLine = (top: PokemonCard | undefined) => {
+    if (!top) return;
+    const line = lineOf(top);
+    if (line.length === 0 || line.some((c) => used.has(c.name))) return;
+    line.forEach((c) => used.add(c.name));
+    lines.push(line);
+  };
+  const withLine = pokemon.filter((p) => lineOf(p).length > 0);
+  addLine(featured(withLine));
+  addLine(featured(withLine.filter((p) => !used.has(p.name))));
+  for (let i = 0, extra = 1 + randomInt(rng, 2); i < extra; i++) addLine(pick(rng, withLine));
+
+  // Lines: 4 Basics, 3 Stage 1, 2-3 Stage 2 (fewer when the name is already at 4)
+  for (const line of lines) {
+    line.forEach((card, stage) => add(card, stage === 0 ? 4 : stage === 1 ? 3 : 2 + randomInt(rng, 2)));
+  }
+
+  // Energy types: what the lines' attacks ask for (then their Pokémon types), at most 3
+  const lineCards = lines.flat().filter((c): c is PokemonCard => c.kind === CardKind.Pokemon);
+  const wanted = [
+    ...lineCards.flatMap((c) => c.attacks.flatMap((a) => a.cost)),
+    ...lineCards.flatMap((c) => c.types),
+  ].filter((t) => BASIC_ENERGY_TYPES.includes(t));
+  const deckTypes = [...new Set(wanted)].slice(0, 3);
+  if (deckTypes.length === 0) deckTypes.push(pick(rng, BASIC_ENERGY_TYPES));
+
+  // Trainers (half of the picks favour the least played ones)
+  const trainerTarget = 10 + randomInt(rng, 7);
+  for (let i = 0; i < 40 && total() < DECK_SIZE - 16 && countTrainers(entries) < trainerTarget; i++) {
+    const low = Math.min(...trainers.map(rarity));
+    const choice = memory && rng() < 0.5 ? pick(rng, trainers.filter((t) => rarity(t) === low)) : pick(rng, trainers);
+    add(choice, 1 + randomInt(rng, 2));
+  }
+  // Special Energy (Double Colorless, Rainbow, Full Heal, Potion): limited to 4 like any card
+  for (const special of specials) if (rng() < 0.4) add(special, 1 + randomInt(rng, 2));
+
+  let typeIndex = 0;
+  while (total() < DECK_SIZE) {
+    add(basicEnergyOf(deckTypes[typeIndex % deckTypes.length]), 1);
+    typeIndex++;
+  }
+  return toDeck(name);
 }

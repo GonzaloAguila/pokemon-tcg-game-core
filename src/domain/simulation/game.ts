@@ -28,11 +28,13 @@ import {
   takePrize,
 } from "@/lib/gameState";
 import { isPokemonCard } from "@/domain/cards";
-import { GamePhase, PokemonStage } from "@/domain/constants";
+import { GamePhase, PokemonPowerType, PokemonStage } from "@/domain/constants";
 import type { Deck } from "@/domain/decks";
 import { swapSides } from "@/domain/board";
-import type { SelectionStep } from "@/domain/effects";
-import { checkInvariants, ownedCardIds } from "./invariants";
+import { ACTIVATED_POWER_TYPES, type SelectionStep } from "@/domain/effects";
+import { isPowerActive } from "@/domain/powers";
+import { cardIdentities, checkInvariants, ownedCardIds, type CardIdentity } from "./invariants";
+import { GameRules } from "./rules";
 import { flipCoin, withRandom, type Rng } from "./rng";
 import type { Policy, ViewAction } from "./policies";
 
@@ -47,6 +49,10 @@ export type GameOptions = {
   maxTurns?: number;
   /** Actions allowed in one turn before it is reported as stuck. Default 150 */
   maxActionsPerTurn?: number;
+  /** Called with the kind of every applied action (the keys of actionCounts), e.g. to feed ExploreMemory */
+  onAction?: (kind: string) => void;
+  /** Also fail when an action changes the state it was given (slower: fingerprints every state) */
+  checkMutation?: boolean;
 };
 
 export type GameOutcome = {
@@ -56,7 +62,14 @@ export type GameOutcome = {
   actions: number;
   /** How many times each kind of action ran (Trainer / power names included) */
   actionCounts: Record<string, number>;
+  /** Passive Pokémon Powers seen in play in this game (either side), and those seen working (isPowerActive) */
+  passivePowers: { inPlay: string[]; working: string[] };
 };
+
+/** A power that is neither activated nor "when you play it from your hand" (Invisible Wall, Toxic Gas...) */
+export function isPassivePower(type: PokemonPowerType): boolean {
+  return !ACTIVATED_POWER_TYPES.includes(type) && type !== PokemonPowerType.OnPlayFromHand;
+}
 
 /** A violated invariant or an unexpected exception, with what is needed to replay it. */
 export class SimulationFailure extends Error {
@@ -79,7 +92,7 @@ const EVENTS_KEPT = 200;
  * "playTrainer Bill" / "usePower Heal" / "attack Kabutops: Absorber" keep the card (and attack);
  * other labels keep their first word(s)
  */
-function actionKind(label: string): string {
+export function actionKind(label: string): string {
   if (label.startsWith("attack ") || label.startsWith("greedy attack ")) return label.replace(/^greedy /, "");
   if (label.startsWith("benchTrainer ") || label.startsWith("discardFromPlay ")) return label;
   if (label.startsWith("playTrainer ") || label.startsWith("greedy playTrainer ")) return label.replace(/^greedy /, "");
@@ -94,15 +107,20 @@ class GameRunner {
   actions = 0;
   actionsThisTurn = 0;
   readonly actionCounts: Record<string, number> = {};
+  private readonly passiveInPlay = new Set<string>();
+  private readonly passiveWorking = new Set<string>();
   private lastAction = "start";
   private readonly recentActions: string[] = [];
   private readonly initialIds: { player: string[]; opponent: string[] };
+  private readonly initialCards: Map<string, CardIdentity>;
+  private readonly rules = new GameRules();
 
   constructor(
     initial: GameState,
     private readonly options: Required<GameOptions>
   ) {
     this.state = initial;
+    this.initialCards = cardIdentities(initial);
     this.initialIds = {
       player: [...ownedCardIds(initial, "player")].sort(),
       opponent: [...ownedCardIds(initial, "opponent")].sort(),
@@ -147,21 +165,41 @@ class GameRunner {
       if (this.recentActions.length > 30) this.recentActions.shift();
     }
     let next: GameState;
+    const fingerprint = this.options.checkMutation ? JSON.stringify(before) : "";
     try {
       const result = action.run(this.view(side));
       next = side === "A" ? result : swapSides(result);
     } catch (error) {
       this.fail(`exception: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
     }
+    if (this.options.checkMutation && JSON.stringify(before) !== fingerprint) {
+      const was = JSON.parse(fingerprint) as Record<string, unknown>;
+      const changed = Object.keys(was).filter((k) => JSON.stringify(was[k]) !== JSON.stringify((before as Record<string, unknown>)[k]));
+      this.fail(`the action mutated its input state (${changed.join(", ")})`);
+    }
     if (next.events.length > EVENTS_KEPT) next = { ...next, events: next.events.slice(-EVENTS_KEPT) };
     this.state = next;
     this.actions++;
     const kind = actionKind(action.label);
     this.actionCounts[kind] = (this.actionCounts[kind] ?? 0) + 1;
+    this.options.onAction?.(kind);
     if (next.turnNumber !== before.turnNumber) this.actionsThisTurn = 0;
     else this.actionsThisTurn++;
-    const problems = checkInvariants(next, { initialIds: this.initialIds, before });
+    this.notePassivePowers(next);
+    const problems = [
+      ...checkInvariants(next, { initialIds: this.initialIds, before, initialCards: this.initialCards }),
+      ...this.rules.check(before, next, side === "A" ? "player" : "opponent", action.label),
+    ];
     if (problems.length > 0) this.fail(problems.join("; "));
+  }
+
+  private notePassivePowers(state: GameState): void {
+    const inPlay = [state.playerActivePokemon, ...state.playerBench, state.opponentActivePokemon, ...state.opponentBench];
+    for (const p of inPlay) {
+      if (!p || !isPokemonCard(p.pokemon) || !p.pokemon.power || !isPassivePower(p.pokemon.power.type)) continue;
+      this.passiveInPlay.add(p.pokemon.power.name);
+      if (isPowerActive(state, p)) this.passiveWorking.add(p.pokemon.power.name);
+    }
   }
 
   /** The acting side's answer to a selection step (deck search, bench damage). */
@@ -319,7 +357,14 @@ class GameRunner {
     const loserView = this.view(this.other(winner));
     const reason: GameOutcome["reason"] =
       winnerView.playerPrizes.length === 0 ? "prizes" : loserView.playerDeck.length === 0 ? "deck-out" : "no-pokemon";
-    return { winner, reason, turns: this.state.turnNumber, actions: this.actions, actionCounts: this.actionCounts };
+    return {
+      winner,
+      reason,
+      turns: this.state.turnNumber,
+      actions: this.actions,
+      actionCounts: this.actionCounts,
+      passivePowers: { inPlay: [...this.passiveInPlay].sort(), working: [...this.passiveWorking].sort() },
+    };
   }
 }
 
@@ -328,7 +373,7 @@ class GameRunner {
  * exception or invariant violation. Deterministic for a given rng seed.
  */
 export function playAIGame(deckA: Deck, deckB: Deck, options: GameOptions): GameOutcome {
-  const settings: Required<GameOptions> = { maxTurns: 300, maxActionsPerTurn: 150, ...options };
+  const settings: Required<GameOptions> = { maxTurns: 300, maxActionsPerTurn: 150, onAction: () => undefined, checkMutation: false, ...options };
   return withRandom(settings.rng, () => {
     const initial = startGame(initializeMultiplayerGame(deckA, deckB));
     return new GameRunner(initial, settings).play();

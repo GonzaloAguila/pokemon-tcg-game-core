@@ -209,7 +209,8 @@ export function attackAction(attackIndex: number, rng: Rng, name = `#${attackInd
   };
 }
 
-function retreatAction(view: GameState, rng: Rng): ViewAction | null {
+/** Random Energy cards paying the Active's retreat cost, or null when it can't retreat now */
+function retreatPayment(view: GameState, rng: Rng): string[] | null {
   const active = view.playerActivePokemon;
   if (!active || getTurnActionBlocker(view)) return null;
   if (!canRetreat(active, view.playerBench.length, view.retreatedThisTurn)) return null;
@@ -222,12 +223,27 @@ function retreatAction(view: GameState, rng: Rng): ViewAction | null {
     energyIds.push(energy.id);
     paid += getEnergyValue(energy);
   }
-  const benchIndex = randomInt(rng, view.playerBench.length);
+  return energyIds;
+}
+
+function retreatWith(energyIds: string[], benchIndex: number, rng: Rng): ViewAction {
   // Sinkhole (Dark Dugtrio): the retreating side flips the coins
   return {
     label: `retreat to bench #${benchIndex}`,
     run: (v) => executeRetreat(v, energyIds, benchIndex, { coinResults: flipFor(getRetreatCoinFlips(v), rng) }),
   };
+}
+
+function retreatAction(view: GameState, rng: Rng): ViewAction | null {
+  const energyIds = retreatPayment(view, rng);
+  if (!energyIds) return null;
+  return retreatWith(energyIds, randomInt(rng, view.playerBench.length), rng);
+}
+
+/** Retreat the Active to a chosen Bench slot (random payment), or null when it can't */
+export function retreatTo(view: GameState, benchIndex: number, rng: Rng): ViewAction | null {
+  const energyIds = retreatPayment(view, rng);
+  return energyIds ? retreatWith(energyIds, benchIndex, rng) : null;
 }
 
 // ============================================================================

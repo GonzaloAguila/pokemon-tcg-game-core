@@ -4,29 +4,49 @@
  */
 
 import type { CardSetId } from "@/domain/catalog";
-import { buildRandomDeck } from "./decks";
+import { buildMixDeck, buildRandomDeck } from "./decks";
+import { ExploreMemory, createExplorePolicy } from "./explore";
 import { playAIGame, SimulationFailure, type GameOutcome } from "./game";
 import { createGreedyPolicy, randomLegalPolicy, type Policy } from "./policies";
 import { mulberry32 } from "./rng";
 
-export { playAIGame, SimulationFailure } from "./game";
+export { playAIGame, SimulationFailure, actionKind, isPassivePower } from "./game";
 export type { GameOptions, GameOutcome, SideId } from "./game";
-export { randomLegalPolicy, createGreedyPolicy, legalActions, randomAnswer, firstAnswer } from "./policies";
+export { randomLegalPolicy, createGreedyPolicy, legalActions, randomAnswer, firstAnswer, retreatTo } from "./policies";
 export type { Policy, ViewAction } from "./policies";
-export { buildRandomDeck, DECK_SIZE, allSetIds } from "./decks";
+export { buildRandomDeck, buildMixDeck, DECK_SIZE, allSetIds } from "./decks";
+export { ExploreMemory, createExplorePolicy, exploreKeys, cardRarity } from "./explore";
 export { checkInvariants, ownedCardIds } from "./invariants";
 export { mulberry32, withRandom } from "./rng";
 export type { Rng } from "./rng";
 export { swapSides } from "@/domain/board";
 
-export type PolicyName = "greedy" | "random";
-/** "mixed" = greedy (A) vs random (B) */
-export type PolicyPair = PolicyName | "mixed";
+export type PolicyName = "greedy" | "random" | "explore";
+/** "mixed" = greedy (A) vs random (B); "A:B" = any two policies (e.g. "explore:greedy") */
+export type PolicyPair = PolicyName | "mixed" | `${PolicyName}:${PolicyName}`;
+/** "random": 1-2 Energy types and lines that fit them (default); "random-mix": see buildMixDeck */
+export type DeckMode = "random" | "random-mix";
 
-export function policyPair(pair: PolicyPair): [Policy, Policy] {
-  const make = (name: PolicyName) => (name === "greedy" ? createGreedyPolicy() : randomLegalPolicy);
+const POLICY_NAMES: readonly PolicyName[] = ["greedy", "random", "explore"];
+
+export function isPolicyPair(value: string): value is PolicyPair {
+  if (value === "mixed") return true;
+  const parts = value.split(":");
+  return parts.length <= 2 && parts.every((p) => (POLICY_NAMES as readonly string[]).includes(p));
+}
+
+/** The two policies of a pair; explore policies read (and the batch feeds) `memory` */
+export function policyPair(pair: PolicyPair, memory: ExploreMemory = new ExploreMemory()): [Policy, Policy] {
+  const make = (name: PolicyName) =>
+    name === "greedy" ? createGreedyPolicy() : name === "explore" ? createExplorePolicy(memory) : randomLegalPolicy;
   if (pair === "mixed") return [make("greedy"), make("random")];
-  return [make(pair), make(pair)];
+  const [a, b = a] = pair.split(":") as PolicyName[];
+  return [make(a), make(b)];
+}
+
+/** Whether games of the batch depend on the earlier ones (explore policy or random-mix decks) */
+export function isAdaptiveBatch(policy: PolicyPair, decks: DeckMode = "random"): boolean {
+  return decks === "random-mix" || policy.split(":").includes("explore");
 }
 
 export type BatchFailure = {
@@ -44,27 +64,57 @@ export type BatchResult = {
   failures: BatchFailure[];
 };
 
+export type BatchOptions = {
+  games: number;
+  seed: number;
+  sets: CardSetId[];
+  policy: PolicyPair;
+  maxTurns?: number;
+  /** Default "random" */
+  decks?: DeckMode;
+  /** Stop at the first failing game */
+  stopOnFailure?: boolean;
+  /** Fail when an action mutates its input state (slower) */
+  checkMutation?: boolean;
+};
+
 /**
  * Run `games` seeded games: game i uses seed `seed + i` for both its decks and its play,
- * so any failure replays with `--games 1 --seed <reported seed>`.
+ * so any failure replays with `--games 1 --seed <reported seed>`. Adaptive batches (explore
+ * policy, random-mix decks) share an ExploreMemory across games: game i also depends on the
+ * games before it, so it replays with the batch's first seed and `--games i + 1`.
  */
-export function runBatch(options: { games: number; seed: number; sets: CardSetId[]; policy: PolicyPair; maxTurns?: number }): BatchResult {
+export function runBatch(options: BatchOptions): BatchResult {
   const outcomes: GameOutcome[] = [];
   const failures: BatchFailure[] = [];
+  const decks = options.decks ?? "random";
+  const memory = new ExploreMemory();
+  const adaptive = isAdaptiveBatch(options.policy, decks);
+  const buildDeck = decks === "random-mix" ? buildMixDeck : buildRandomDeck;
   for (let gameIndex = 0; gameIndex < options.games; gameIndex++) {
     const seed = options.seed + gameIndex;
     const rng = mulberry32(seed);
-    const [policyA, policyB] = policyPair(options.policy);
+    const [policyA, policyB] = policyPair(options.policy, memory);
     try {
-      const deckA = buildRandomDeck(rng, options.sets, "A");
-      const deckB = buildRandomDeck(rng, options.sets, "B");
-      outcomes.push(playAIGame(deckA, deckB, { rng, policyA, policyB, maxTurns: options.maxTurns ?? 300 }));
+      const deckA = buildDeck(rng, options.sets, "A", memory);
+      const deckB = buildDeck(rng, options.sets, "B", memory);
+      outcomes.push(
+        playAIGame(deckA, deckB, {
+          rng,
+          policyA,
+          policyB,
+          maxTurns: options.maxTurns ?? 300,
+          checkMutation: options.checkMutation ?? false,
+          onAction: adaptive ? (kind) => memory.bump(kind) : undefined,
+        })
+      );
     } catch (error) {
       if (error instanceof SimulationFailure) {
         failures.push({ gameIndex, seed, problem: error.problem, action: error.action, turn: error.turn, lastEvents: error.lastEvents });
       } else {
         failures.push({ gameIndex, seed, problem: `setup exception: ${String(error)}`, action: "-", turn: 0, lastEvents: [] });
       }
+      if (options.stopOnFailure) break;
     }
   }
   return { games: options.games, outcomes, failures };
