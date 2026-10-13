@@ -2320,24 +2320,24 @@ export function getCardImageUrl(card: GameCard): string {
  */
 export function getEnergyTypeInSpanish(energyType: string): string {
   const translations: Record<string, string> = {
-    grass: "planta",
-    fire: "fuego",
-    water: "agua",
-    lightning: "eléctrica",
-    psychic: "psíquica",
-    fighting: "lucha",
-    darkness: "oscuridad",
-    metal: "metal",
-    fairy: "hada",
-    dragon: "dragón",
-    colorless: "incolora"
+    grass: "Planta",
+    fire: "Fuego",
+    water: "Agua",
+    lightning: "Eléctrica",
+    psychic: "Psíquica",
+    fighting: "Lucha",
+    darkness: "Oscuridad",
+    metal: "Metal",
+    fairy: "Hada",
+    dragon: "Dragón",
+    colorless: "Incolora"
   };
 
   return translations[energyType.toLowerCase()] || energyType;
 }
 
 /**
- * Display label of an Energy card: "Energía fuego" for a basic Energy, the card's name for a
+ * Display label of an Energy card: "Energía Fuego" for a basic Energy, the card's name for a
  * special Energy ("Rainbow Energy", "Double Colorless Energy"), the name for anything else.
  */
 export function energyCardLabel(card: GameCard): string {
@@ -4983,7 +4983,7 @@ export function executeMetronome(
   // Log del uso de Metronomo
   const events = [
     ...gameState.events,
-    createGameEvent(`${attacker.pokemon.name} uso Metronomo y copio ${copiedAttack.name}!`, "action"),
+    createGameEvent(`¡${attacker.pokemon.name} usó Metrónomo y copió ${copiedAttack.name}!`, "action"),
   ];
 
   // Crear un ataque temporal que use el daño y efectos del ataque copiado

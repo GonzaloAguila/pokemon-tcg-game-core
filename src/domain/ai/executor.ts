@@ -343,7 +343,7 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
         events: [
           ...finalState.events,
           createGameEvent(
-            `${promotedPokemon.pokemon.name} pasa a ser el Pokemon activo del rival`,
+            `${promotedPokemon.pokemon.name} pasa a ser el Pokémon activo del rival`,
             "info"
           ),
         ],
@@ -356,7 +356,7 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
         gameResult: "victory",
         events: [
           ...finalState.events,
-          createGameEvent("¡Victoria! El rival no tiene más Pokemon", "system"),
+          createGameEvent("¡Victoria! El rival no tiene más Pokémon", "system"),
         ],
       };
     }

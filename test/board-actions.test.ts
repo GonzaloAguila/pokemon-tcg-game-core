@@ -92,7 +92,7 @@ describe("attachEnergyCard", () => {
 
     expect(names(next.playerActivePokemon!.attachedEnergy)).toEqual(["Fire Energy"]);
     expect(next.energyAttachedThisTurn).toBe(true);
-    expect(next.events.at(-1)?.message).toBe("Adjuntaste energía fuego a Charmander");
+    expect(next.events.at(-1)?.message).toBe("Adjuntaste energía Fuego a Charmander");
     expect(canAttachEnergy(next, fire2.id, next.playerBench[0].pokemon.id)).toMatch(/una energía por turno/);
   });
 
@@ -280,7 +280,7 @@ describe("AI board actions go through the engine", () => {
     });
     expect(attached.opponentActivePokemon!.attachedEnergy).toHaveLength(1);
     expect(attached.energyAttachedThisTurn).toBe(true);
-    expect(attached.events.at(-1)?.message).toBe("Rival adjuntó energía eléctrica a Electabuzz");
+    expect(attached.events.at(-1)?.message).toBe("Rival adjuntó energía Eléctrica a Electabuzz");
   });
 
   it("the AI can't evolve on its first turn even when the human started (turn 2)", () => {

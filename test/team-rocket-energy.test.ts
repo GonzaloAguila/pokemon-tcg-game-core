@@ -68,7 +68,7 @@ describe("Rainbow Energy", () => {
     expect(isBasicEnergy(rainbow())).toBe(false);
     const search = gameCard("Energy Search", "fossil");
     const state = makeState({ player: { active: inPlay("Machop"), hand: [search], deck: [rainbow(), energy(Fire)] }, opponent: { active: inPlay("Onix") } });
-    expect(getTrainerSteps(state, search.id, [])!.options.map((o) => o.label)).toEqual(["Energía fuego"]);
+    expect(getTrainerSteps(state, search.id, [])!.options.map((o) => o.label)).toEqual(["Energía Fuego"]);
     const retrieval = gameCard("Energy Retrieval", "base");
     const noBasics = makeState({
       player: { active: inPlay("Machop"), hand: [retrieval, gameCard("Bill", "base")], discard: [rainbow()] },

@@ -285,7 +285,7 @@ describe("attacker choices after the damage", () => {
     const slowpoke = rocket("Slowpoke");
     const state = vs(slowpoke, inPlay("Onix"), { player: { deck: [energy(Grass), energy(Psychic), gameCard("Rainbow Energy", "rocket")] } });
     const next = attack(state, "Siesta");
-    expect(optionLabels(next)).toEqual(["Energía psíquica"]);
+    expect(optionLabels(next)).toEqual(["Energía Psíquica"]);
     const done = choose(next, [optionIds(next)[0]]);
     expect(names(done.playerActivePokemon!.attachedEnergy).slice(-1)).toEqual(["Psychic Energy"]);
     expect(done.playerDeck).toHaveLength(2);

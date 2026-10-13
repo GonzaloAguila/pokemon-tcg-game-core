@@ -155,7 +155,7 @@ describe("Nightly Garbage Run", () => {
     const discard = [card("Abra"), gameCard("Bill", "base"), energy(Fire), card("Dark Golbat"), card("Rainbow Energy"), gameCard("Mysterious Fossil", "fossil")];
     const state = withHand([trainer], { player: { discard, deck: [] } });
     const step = getTrainerSteps(state, trainer.id, [])!;
-    expect(step.options.map((o) => o.label)).toEqual(["Abra", "Energía fuego", "Dark Golbat"]);
+    expect(step.options.map((o) => o.label)).toEqual(["Abra", "Energía Fuego", "Dark Golbat"]);
     expect(step.maxSelections).toBe(3);
     const next = playTrainerCard(state, trainer.id, [[discard[0].id, discard[3].id]]);
     expect(names(next.playerDeck).sort()).toEqual(["Abra", "Dark Golbat"]);

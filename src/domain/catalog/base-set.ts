@@ -217,7 +217,7 @@ export const baseSetCards: Card[] = [
           name: "Metrónomo",
           cost: [EnergyType.Colorless, EnergyType.Colorless, EnergyType.Colorless],
           text:
-            "Elige 1 de los ataques del Pokémon a la defensa. Metrónomo copia ese ataque excepto por su coste de energía y cualquier otra cosa necesaria para poder usar el ataque, como descartar cartas de energía. (No importa cual sea el tipo de Pokémon a la defensa, la Energía de Clefairy es siempre incolora).",
+            "Elige 1 de los ataques del Pokémon a la defensa. Metrónomo copia ese ataque excepto por su coste de energía y cualquier otra cosa necesaria para poder usar el ataque, como descartar cartas de energía. (No importa cuál sea el tipo de Pokémon a la defensa, la Energía de Clefairy es siempre incolora).",
           effects: [
             {
               type: AttackEffectType.CopyAttack,
@@ -395,7 +395,7 @@ export const baseSetCards: Card[] = [
           name: "Barrera",
           cost: [EnergyType.Psychic, EnergyType.Psychic],
           text:
-            "Descarta 1 carta de Energía Psiquica unida a Mewtwo para poder usar este ataque. Durante el próximo turno de tu rival, previene todos los efectos de ataques, incluyendo daño, hechos a Mewtwo.",
+            "Descarta 1 carta de Energía Psíquica unida a Mewtwo para poder usar este ataque. Durante el próximo turno de tu rival, previene todos los efectos de ataques, incluyendo daño, hechos a Mewtwo.",
           effects: [
             {
               type: AttackEffectType.Discard,
@@ -430,7 +430,7 @@ export const baseSetCards: Card[] = [
           cost: [EnergyType.Grass, EnergyType.Colorless, EnergyType.Colorless],
           damage: 30,
           text:
-            "Echa la moneda a cara o cruz. Si sale cara, este ataque hace 30 puntos de daño mas otros 10 puntos más; si sale cruz este ataque hace 30 puntos de daño y Nidoking se hace 10 puntos de daño a sí mismo.",
+            "Echa la moneda a cara o cruz. Si sale cara, este ataque hace 30 puntos de daño más otros 10 puntos más; si sale cruz este ataque hace 30 puntos de daño y Nidoking se hace 10 puntos de daño a sí mismo.",
           effects: [
             {
               type: AttackEffectType.CoinFlipDamage,
