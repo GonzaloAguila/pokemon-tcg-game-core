@@ -30,6 +30,7 @@ export {
 // Re-export validators from lib/gameState (to be migrated)
 export {
   hasBasicPokemon,
+  canMulligan,
   canRetreat,
   hasEnoughEnergyToRetreat,
   getRetreatCost,

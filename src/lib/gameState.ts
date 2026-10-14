@@ -1657,9 +1657,28 @@ export function hasBasicPokemon(hand: GameCard[]): boolean {
 }
 
 /**
- * Realiza un mulligan: devuelve la mano al mazo, mezcla y roba 7 nuevas cartas
+ * Why that side (`isPlayer`: the "player" side, else the "opponent" side) can't mulligan
+ * now, or null. Only before the game starts (MULLIGAN/SETUP), with no Pokémon in play and
+ * no Basic Pokémon (or card played as a Basic) in the hand.
+ */
+export function canMulligan(gameState: GameState, isPlayer: boolean): string | null {
+  if (gameState.gamePhase !== GamePhase.Mulligan && gameState.gamePhase !== GamePhase.Setup) {
+    return "Solo puedes hacer mulligan antes de empezar la partida";
+  }
+  const active = isPlayer ? gameState.playerActivePokemon : gameState.opponentActivePokemon;
+  const bench = isPlayer ? gameState.playerBench : gameState.opponentBench;
+  if (active || bench.length > 0) return "Ya tienes Pokémon en juego: no puedes hacer mulligan";
+  const hand = isPlayer ? gameState.playerHand : gameState.opponentHand;
+  if (hasBasicPokemon(hand)) return "Tienes Pokémon básicos en la mano: no puedes hacer mulligan";
+  return null;
+}
+
+/**
+ * Realiza un mulligan: devuelve la mano al mazo, mezcla y roba 7 nuevas cartas.
+ * Throws IllegalActionError when `canMulligan` gives a reason.
  */
 export function doMulligan(gameState: GameState, isPlayer: boolean): GameState {
+  assertLegal(canMulligan(gameState, isPlayer));
   const hand = isPlayer ? gameState.playerHand : gameState.opponentHand;
   const deck = isPlayer ? gameState.playerDeck : gameState.opponentDeck;
 

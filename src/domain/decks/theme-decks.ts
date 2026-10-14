@@ -79,6 +79,7 @@ export const decks: Deck[] = [
     id: "blackout",
     name: "Blackout",
     image: "/theme-decks/Blackout.jpg",
+    // 1999 list (24 Pokémon / 8 Trainers / 28 Energy) with Jungle Mankey/Primeape for Sandshrew/Farfetch'd
     featuredPokemon: [
       { cardNumber: 34 },                        // Machoke
       { cardNumber: 7 },                          // Hitmonchan
@@ -95,12 +96,12 @@ export const decks: Deck[] = [
       { cardNumber: 63, quantity: 4 },  // Squirtle
       { cardNumber: 65, quantity: 3 },  // Staryu
       { cardNumber: 55, quantity: 3, set: CardSet.Jungle },  // Mankey
-      // Trainers (9)
+      // Trainers (8)
       { cardNumber: 79, quantity: 1 },  // Super Energy Removal
       { cardNumber: 84, quantity: 1 },  // PlusPower
       { cardNumber: 88, quantity: 1 },  // Professor Oak
       { cardNumber: 92, quantity: 4 },  // Energy Removal
-      { cardNumber: 93, quantity: 2 },  // Gust of Wind
+      { cardNumber: 93, quantity: 1 },  // Gust of Wind
       // Energy (28)
       { cardNumber: 97, quantity: 16 }, // Fighting Energy
       { cardNumber: 102, quantity: 12 }, // Water Energy
@@ -110,6 +111,7 @@ export const decks: Deck[] = [
     id: "brushfire",
     name: "Brushfire",
     image: "/theme-decks/Brushfire.jpg",
+    // 1999 list (22 Pokémon / 10 Trainers / 28 Energy) with Jungle Eevee/Flareon/Bellsprout for Weedle/Nidoran♂
     featuredPokemon: [
       { cardNumber: 24 },                        // Charmeleon
       { cardNumber: 12 },                         // Ninetales
@@ -127,13 +129,13 @@ export const decks: Deck[] = [
       { cardNumber: 51, quantity: 4, set: CardSet.Jungle },  // Eevee
       { cardNumber: 49, quantity: 2, set: CardSet.Jungle },  // Bellsprout
       { cardNumber: 66, quantity: 2 },  // Tangela
-      // Trainers (11)
+      // Trainers (10)
       { cardNumber: 75, quantity: 1 },  // Lass
       { cardNumber: 81, quantity: 2 },  // Energy Retrieval
       { cardNumber: 84, quantity: 1 },  // PlusPower
       { cardNumber: 95, quantity: 1 },  // Switch
       { cardNumber: 94, quantity: 3 },  // Potion
-      { cardNumber: 93, quantity: 2 },  // Gust of Wind
+      { cardNumber: 93, quantity: 1 },  // Gust of Wind
       { cardNumber: 92, quantity: 1 },  // Energy Removal
       // Energy (28)
       { cardNumber: 98, quantity: 16 }, // Fire Energy

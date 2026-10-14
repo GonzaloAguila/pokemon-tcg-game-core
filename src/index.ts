@@ -180,6 +180,7 @@ export {
   canPokemonAttack,
   canPokemonRetreat,
   hasBasicPokemon,
+  canMulligan,
   hasEnoughEnergyToRetreat,
 } from "./lib/gameState";
 
