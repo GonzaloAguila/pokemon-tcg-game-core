@@ -54,7 +54,17 @@ import {
   type CoinFlipRequirement,
   type SelectionStep,
 } from "@/domain/effects";
-import { decideOpponentTurn, decideOpponentSetup, executeAIAction, type AIAction } from "@/domain/ai";
+import {
+  choosePromotion,
+  chooseForcedSwitch,
+  decideOpponentTurn,
+  decideOpponentSetup,
+  decideOpponentTurnLegacy,
+  decideOpponentSetupLegacy,
+  executeAIAction,
+  knowledgeView,
+  type AIAction,
+} from "@/domain/ai";
 import { getEffectivePokemonCard } from "@/domain/powers";
 import { swapSides } from "@/domain/board";
 import { flipCoin, pick, pickSome, randomInt, shuffled, type Rng } from "./rng";
@@ -77,6 +87,11 @@ export interface Policy {
   answer(step: SelectionStep, rng: Rng): string[] | null;
   /** Bench index to promote (view = this side as "player") */
   promotion(view: GameState, rng: Rng): number;
+  /**
+   * Bench index of the OTHER side's Pokémon this side's attack brings up (Whirlwind...; view =
+   * this side as "player"). Default: `promotion` on the other side's view.
+   */
+  forceSwitch?(view: GameState, rng: Rng): number;
   /** Prize index to take */
   prize(view: GameState, rng: Rng): number;
 }
@@ -331,13 +346,18 @@ export const randomLegalPolicy: Policy = {
  * view (actor = "opponent") through executeAIAction. A plan that doesn't end the turn (a
  * Trainer / power that changed the hand) is followed by a new plan, like the frontend's loop.
  */
-export function createGreedyPolicy(): Policy & { aiViewAction(action: AIAction, view?: GameState): ViewAction } {
+export function createGreedyPolicy(
+  variant: "smart" | "legacy" = "smart",
+  name: string = variant === "smart" ? "greedy" : "legacy"
+): Policy & { aiViewAction(action: AIAction, view?: GameState): ViewAction } {
+  const decideTurn = variant === "smart" ? decideOpponentTurn : decideOpponentTurnLegacy;
+  const decideSetup = variant === "smart" ? decideOpponentSetup : decideOpponentSetupLegacy;
   let planKey = "";
   let plan: AIAction[] = [];
   let planEndsTurn = true;
   let replans = 0;
   const newPlan = (view: GameState): AIAction[] => {
-    const next = decideOpponentTurn(toAiView(view));
+    const next = decideTurn(toAiView(view));
     planEndsTurn = next.some((a) => a.type === "attack" || a.type === "endTurn");
     return next;
   };
@@ -349,10 +369,10 @@ export function createGreedyPolicy(): Policy & { aiViewAction(action: AIAction, 
     run: (view) => swapSides(executeAIAction(toAiView(view), action)),
   });
   return {
-    name: "greedy",
+    name,
     aiViewAction,
     setup(view) {
-      return decideOpponentSetup(toAiView(view)).map((action) => aiViewAction(action));
+      return decideSetup(toAiView(view)).map((action) => aiViewAction(action));
     },
     nextAction(view, _rng, actionsThisTurn) {
       const key = `${view.turnNumber}`;
@@ -368,7 +388,10 @@ export function createGreedyPolicy(): Policy & { aiViewAction(action: AIAction, 
       return next ? aiViewAction(next, view) : null;
     },
     answer: (step) => firstAnswer(step),
-    promotion: () => 0,
+    // The legacy AI promoted its first Benched Pokémon; the smart one chooses (it moves next
+    // when it promotes off-turn, after the other side Knocked Out its Active)
+    promotion: (view) => (variant === "smart" ? choosePromotion(knowledgeView(view), !view.isPlayerTurn) : 0),
+    forceSwitch: variant === "smart" ? (view) => chooseForcedSwitch(knowledgeView(view)) : undefined,
     prize: () => 0,
   };
 }

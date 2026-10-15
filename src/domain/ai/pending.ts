@@ -18,6 +18,8 @@ import { isPokemonCard } from "@/domain/cards";
 import { PokemonStage } from "@/domain/constants";
 import type { SelectionStep } from "@/domain/effects/types";
 import { minSelectionsOf } from "@/domain/effects/validate";
+import { chooseForcedSwitch, choosePromotion } from "./choices";
+import { knowledgeView } from "./knowledge";
 
 /**
  * The AI's answer to any selection step (attack choices, and what a consumer needs when the
@@ -49,11 +51,6 @@ function remainingHp(pokemon: PokemonInPlay): number {
   return isPokemonCard(pokemon.pokemon) ? pokemon.pokemon.hp - (pokemon.currentDamage ?? 0) : 0;
 }
 
-/** Bench indexes sorted by remaining HP, lowest first. */
-function weakestFirst(bench: PokemonInPlay[]): number[] {
-  return bench.map((_, i) => i).sort((a, b) => remainingHp(bench[a]) - remainingHp(bench[b]));
-}
-
 /**
  * Resolve every pending choice of the AI's own attack (view: AI = "player"). Choices that
  * belong to the other side (an attack choice with `chooser: "opponent"`) are left pending.
@@ -64,16 +61,18 @@ export function resolveOwnAttackPendings(view: GameState): GameState {
     if (state.gameResult !== null) return state;
 
     if (state.pendingForceSwitch) {
-      // Bring up the opponent's weakest benched Pokémon (easiest Knock Out next turn)
-      const [index] = weakestFirst(state.opponentBench);
-      state = index === undefined ? skipPendingSwitch(state, NO_END) : applyForceSwitch(state, index, NO_END);
+      // Bring up the opponent's Pokémon that hurts the AI least / is stuck / can be Knocked Out
+      // (public information only: knowledgeView)
+      state = state.opponentBench.length === 0
+        ? skipPendingSwitch(state, NO_END)
+        : applyForceSwitch(state, chooseForcedSwitch(knowledgeView(state)), NO_END);
       continue;
     }
     if (state.pendingSelfSwitch) {
-      // Send in the healthiest benched Pokémon
-      const order = weakestFirst(state.playerBench);
-      const index = order[order.length - 1];
-      state = index === undefined ? skipPendingSwitch(state, NO_END) : applySelfSwitch(state, index, NO_END);
+      // Send in the Benched Pokémon that does best (the opponent moves next)
+      state = state.playerBench.length === 0
+        ? skipPendingSwitch(state, NO_END)
+        : applySelfSwitch(state, choosePromotion(knowledgeView(state), false), NO_END);
       continue;
     }
     if (state.pendingDeckSearch) {

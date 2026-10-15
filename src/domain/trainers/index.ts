@@ -494,14 +494,19 @@ export function playFullHeal(state: GameState, cardId: string): GameState {
 }
 
 // ============================================================================
-// ENERGY REMOVAL (#92) — Discard 1 energy from opponent's active Pokemon
+// ENERGY REMOVAL (#92) — "Choose 1 Energy card attached to 1 of your opponent's Pokémon and discard it"
 // ============================================================================
+
+/** The opponent's Pokémon (Active or Benched) holding that Energy card. */
+function opponentHolderOf(state: GameState, energyId: string): PokemonInPlay | undefined {
+  return [state.opponentActivePokemon, ...state.opponentBench].find(
+    (p): p is PokemonInPlay => p != null && p.attachedEnergy.some((e) => e.id === energyId)
+  );
+}
 
 export function canPlayEnergyRemoval(state: GameState, cardId: string, energyId: string): boolean {
   if (!canPlayTrainer(state, cardId)) return false;
-  if (!state.opponentActivePokemon) return false;
-  if (!state.opponentActivePokemon.attachedEnergy.some((e) => e.id === energyId)) return false;
-  return true;
+  return opponentHolderOf(state, energyId) !== undefined;
 }
 
 export function playEnergyRemoval(
@@ -515,17 +520,18 @@ export function playEnergyRemoval(
   const newHand = state.playerHand.filter((c) => c.id !== cardId);
   let newDiscard = [...state.playerDiscard, card];
 
-  const opponent = state.opponentActivePokemon!;
+  const opponent = opponentHolderOf(state, energyId)!;
   const removedEnergy = opponent.attachedEnergy.find((e) => e.id === energyId);
   const newOpponentDiscard = [...state.opponentDiscard];
   if (removedEnergy) {
     newOpponentDiscard.push(removedEnergy);
   }
 
-  const newOpponentActive: PokemonInPlay = {
+  const withoutEnergy: PokemonInPlay = {
     ...opponent,
     attachedEnergy: opponent.attachedEnergy.filter((e) => e.id !== energyId),
   };
+  const replace = (p: PokemonInPlay) => (p === opponent ? withoutEnergy : p);
 
   const events = [
     ...state.events,
@@ -540,7 +546,8 @@ export function playEnergyRemoval(
     ...state,
     playerHand: newHand,
     playerDiscard: newDiscard,
-    opponentActivePokemon: newOpponentActive,
+    opponentActivePokemon: state.opponentActivePokemon && replace(state.opponentActivePokemon),
+    opponentBench: state.opponentBench.map(replace),
     opponentDiscard: newOpponentDiscard,
     events,
   };

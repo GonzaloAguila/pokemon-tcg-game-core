@@ -152,5 +152,6 @@ describe("AI", () => {
     expect(next.pendingPowerChoice).toBeUndefined();
     expect(next.opponentBench).toHaveLength(2);
     expect(next.opponentDeck).toHaveLength(1);
-  });
+    // The first (dynamic) import of the AI module graph can be slow while the suite runs in parallel
+  }, 30_000);
 });

@@ -8,7 +8,7 @@
  * | Switch / Gust of Wind | [[benchPokemonId]] (own / opponent's bench) |
  * | Potion / Defender / Scoop Up / Devolution Spray | [[ownPokemonId]] |
  * | Super Potion | [[ownPokemonId], [energyId]] |
- * | Energy Removal | [[opponentActiveEnergyId]] |
+ * | Energy Removal | [[energyId attached to any of the opponent's Pokémon]] |
  * | Super Energy Removal | [[ownPokemonId], [ownEnergyId], [opponentPokemonId], [1–2 energyIds]] |
  * | Energy Retrieval | [[handCardId], [1–2 basic energyIds from discard]] |
  * | Maintenance | [[handCardId, handCardId]] |
@@ -271,21 +271,26 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
     (state, cardId, [pokemonId]) => playDefender(state, cardId, pokemonId)
   ),
 
+  // "Choose 1 Energy card attached to 1 of your opponent's Pokémon": Active or Benched
   "Energy Removal": singleStep(
     (state) => {
-      const energies = state.opponentActivePokemon?.attachedEnergy ?? [];
+      const holders = [
+        ...(state.opponentActivePokemon ? [{ pokemon: state.opponentActivePokemon, location: "Activo rival" }] : []),
+        ...state.opponentBench.map((pokemon) => ({ pokemon, location: "Banca rival" })),
+      ];
+      const choices = holders.flatMap(({ pokemon, location }) =>
+        pokemon.attachedEnergy.map((energy) => ({ energy, holder: `${pokemon.pokemon.name} (${location})` }))
+      );
       return {
         title: "Energy Removal",
-        description: `Selecciona una energía de ${state.opponentActivePokemon?.pokemon.name ?? "rival"}`,
-        options: energies.map(energyOption),
+        description: "Selecciona una energía unida a un Pokémon del rival",
+        options: choices.map(({ energy, holder }) => ({ ...energyOption(energy), sublabel: holder })),
         maxSelections: 1,
-        thumbnails: energies,
+        thumbnails: choices.map(({ energy }) => energy),
       };
     },
     (state) =>
-      state.opponentActivePokemon && state.opponentActivePokemon.attachedEnergy.length > 0
-        ? null
-        : "El Pokémon activo rival no tiene energías",
+      opponentPokemonChoices(state, hasEnergy).options.length > 0 ? null : "Los Pokémon del rival no tienen energías",
     (state, cardId, [energyId]) => playEnergyRemoval(state, cardId, energyId)
   ),
 

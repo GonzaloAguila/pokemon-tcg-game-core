@@ -2637,7 +2637,7 @@ export const baseSetCards: Card[] = [
       set: SET,
       rarity: CardRarity.Rare,
       trainerType: TrainerType.Item,
-      effect: "Descarta 1 carta de Energía unida a 1 de tus Pokémon. Luego elige 2 cartas de Energía unidas al Pokémon Activo de tu rival y descártalas.",
+      effect: "Descarta 1 carta de Energía unida a 1 de tus Pokémon para elegir 1 de los Pokémon de tu rival y hasta 2 cartas de Energía unidas a él. Descarta esas cartas de Energía.",
     }),
     createTrainerCard({
       id: makeCardId(SET, 80, "Defender"),
@@ -2754,7 +2754,7 @@ export const baseSetCards: Card[] = [
       set: SET,
       rarity: CardRarity.Common,
       trainerType: TrainerType.Item,
-      effect: "Descarta 1 carta de Energía unida al Pokémon Activo de tu rival.",
+      effect: "Elige 1 carta de Energía unida a 1 de los Pokémon de tu rival y descártala.",
     }),
     createTrainerCard({
       id: makeCardId(SET, 93, "Gust of Wind"),

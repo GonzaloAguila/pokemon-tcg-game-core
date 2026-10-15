@@ -69,10 +69,16 @@ describe("AI and Mysterious Fossil", () => {
 });
 
 describe("AI discards an Active Mysterious Fossil it can't use", () => {
-  it("plans discardFromPlay first and promotes its first benched Pokémon; keeps it with a Kabuto in hand", async () => {
+  it("plans discardFromPlay first and promotes its benched Pokémon; keeps it with a Kabuto in hand", async () => {
     const { decideOpponentTurn } = await import("@/domain/ai");
     const fossil = inPlay("Mysterious Fossil", { set: "fossil" });
-    const state = makeState({ turnNumber: 4, isPlayerTurn: false, opponent: { active: fossil, bench: [inPlay("Machop")] }, player: { active: inPlay("Abra") } });
+    // Machop can attack once it gets the Fighting Energy in hand
+    const state = makeState({
+      turnNumber: 4,
+      isPlayerTurn: false,
+      opponent: { active: fossil, bench: [inPlay("Machop")], hand: [energy(EnergyType.Fighting)] },
+      player: { active: inPlay("Abra") },
+    });
     const plan = decideOpponentTurn(state);
     expect(plan[0]).toEqual(expect.objectContaining({ type: "discardFromPlay", pokemonId: fossil.pokemon.id }));
     const after = executeAIAction(state, plan[0]);
@@ -88,5 +94,12 @@ describe("AI discards an Active Mysterious Fossil it can't use", () => {
     const planWithKabuto = decideOpponentTurn(withKabuto);
     expect(planWithKabuto.some((a) => a.type === "discardFromPlay")).toBe(false);
     expect(planWithKabuto.some((a) => a.type === "evolve")).toBe(true);
-  });
+  }, 30_000);
+
+  it("keeps it as a wall (no Prize when Knocked Out) while the only benched Pokémon can't attack soon", async () => {
+    const { decideOpponentTurn } = await import("@/domain/ai");
+    const fossil = inPlay("Mysterious Fossil", { set: "fossil" });
+    const state = makeState({ turnNumber: 4, isPlayerTurn: false, opponent: { active: fossil, bench: [inPlay("Machop")] }, player: { active: inPlay("Abra") } });
+    expect(decideOpponentTurn(state).some((a) => a.type === "discardFromPlay")).toBe(false);
+  }, 30_000);
 });

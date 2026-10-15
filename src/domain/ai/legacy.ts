@@ -1,5 +1,6 @@
 /**
- * AI Strategy - Greedy Decision Logic
+ * Legacy AI (until 0.6.x): the fixed greedy script, kept as a baseline for the simulator
+ * (`--policy smart:legacy`). The shipped AI is smart.ts.
  *
  * Implementa una IA básica con estrategia greedy:
  * 1. Poner Pokemon básicos en banca (expandir opciones)
@@ -36,7 +37,7 @@ import {
  * Decide las acciones que la IA debe tomar en su turno
  * Retorna una lista de acciones a ejecutar secuencialmente
  */
-export function decideOpponentTurn(state: GameState): AIAction[] {
+export function decideOpponentTurnLegacy(state: GameState): AIAction[] {
   const actions: AIAction[] = [];
   const side: Side = "opponent";
 
@@ -348,7 +349,7 @@ function playSimpleTrainers(
 /**
  * Decide las acciones del oponente durante la fase de SETUP
  */
-export function decideOpponentSetup(state: GameState): AIAction[] {
+export function decideOpponentSetupLegacy(state: GameState): AIAction[] {
   const actions: AIAction[] = [];
   const side: Side = "opponent";
 

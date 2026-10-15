@@ -39,11 +39,19 @@ describe("Trainers that change the AI's hand are played first, then the turn is 
 
   it("Bill is played before the rest of the turn", () => {
     const bill = gameCard("Bill", "base");
-    const state = aiTurn({ active: inPlay("Machop"), hand: [bill] });
+    const deck = Array.from({ length: 30 }, () => energy(Fighting));
+    const state = aiTurn({ active: inPlay("Machop"), hand: [bill], deck });
     const plan = decideOpponentTurn(state);
     expect(trainersIn(plan)).toEqual(["Bill"]);
     expect(endsTurn(plan)).toBe(false);
     expect(run(state, plan).opponentHand).toHaveLength(2);
+  });
+
+  it("no Bill late in a long game when its deck would run out before the other one", () => {
+    const bill = gameCard("Bill", "base");
+    // 10 cards left on both sides: drawing 2 more risks losing the deck-out race
+    const state = aiTurn({ active: inPlay("Machop"), hand: [bill] });
+    expect(trainersIn(decideOpponentTurn(state))).toEqual([]);
   });
 
   it("Gambler only with a small hand", () => {

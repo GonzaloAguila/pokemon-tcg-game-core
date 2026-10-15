@@ -37,8 +37,12 @@ export type {
   PokemonEvaluation,
 } from "./types";
 
-// Strategy (decision making)
-export { decideOpponentTurn, decideOpponentSetup } from "./strategy";
+// Strategy (decision making): the smart AI; the previous greedy script stays as a simulator baseline
+export { decideOpponentTurn, decideOpponentSetup, decideOpponentPromotion } from "./smart";
+export { choosePromotion, chooseForcedSwitch } from "./choices";
+export { decideOpponentTurnLegacy, decideOpponentSetupLegacy } from "./legacy";
+export { knowledgeView } from "./knowledge";
+export { evaluateBoard } from "./evaluate";
 
 // Executor (apply actions to state)
 export { executeAIAction } from "./executor";

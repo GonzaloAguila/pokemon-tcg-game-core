@@ -4,7 +4,7 @@
  */
 
 import type { CardSetId } from "@/domain/catalog";
-import { buildMixDeck, buildRandomDeck } from "./decks";
+import { buildMixDeck, buildRandomDeck, buildThemeDeck } from "./decks";
 import { ExploreMemory, createExplorePolicy } from "./explore";
 import { playAIGame, SimulationFailure, type GameOutcome } from "./game";
 import { createGreedyPolicy, randomLegalPolicy, type Policy } from "./policies";
@@ -14,20 +14,21 @@ export { playAIGame, SimulationFailure, actionKind, isPassivePower } from "./gam
 export type { GameOptions, GameOutcome, SideId } from "./game";
 export { randomLegalPolicy, createGreedyPolicy, legalActions, randomAnswer, firstAnswer, retreatTo } from "./policies";
 export type { Policy, ViewAction } from "./policies";
-export { buildRandomDeck, buildMixDeck, DECK_SIZE, allSetIds } from "./decks";
+export { buildRandomDeck, buildMixDeck, buildThemeDeck, DECK_SIZE, allSetIds } from "./decks";
 export { ExploreMemory, createExplorePolicy, exploreKeys, cardRarity } from "./explore";
 export { checkInvariants, ownedCardIds } from "./invariants";
 export { mulberry32, withRandom } from "./rng";
 export type { Rng } from "./rng";
 export { swapSides } from "@/domain/board";
 
-export type PolicyName = "greedy" | "random" | "explore";
-/** "mixed" = greedy (A) vs random (B); "A:B" = any two policies (e.g. "explore:greedy") */
+/** greedy = smart = the single-player AI; legacy = the greedy script it replaced (baseline) */
+export type PolicyName = "greedy" | "smart" | "legacy" | "random" | "explore";
+/** "mixed" = greedy (A) vs random (B); "A:B" = any two policies (e.g. "smart:legacy") */
 export type PolicyPair = PolicyName | "mixed" | `${PolicyName}:${PolicyName}`;
-/** "random": 1-2 Energy types and lines that fit them (default); "random-mix": see buildMixDeck */
-export type DeckMode = "random" | "random-mix";
+/** "random": 1-2 Energy types and lines that fit them (default); "random-mix": see buildMixDeck; "theme": the theme decks */
+export type DeckMode = "random" | "random-mix" | "theme";
 
-const POLICY_NAMES: readonly PolicyName[] = ["greedy", "random", "explore"];
+const POLICY_NAMES: readonly PolicyName[] = ["greedy", "smart", "legacy", "random", "explore"];
 
 export function isPolicyPair(value: string): value is PolicyPair {
   if (value === "mixed") return true;
@@ -38,7 +39,13 @@ export function isPolicyPair(value: string): value is PolicyPair {
 /** The two policies of a pair; explore policies read (and the batch feeds) `memory` */
 export function policyPair(pair: PolicyPair, memory: ExploreMemory = new ExploreMemory()): [Policy, Policy] {
   const make = (name: PolicyName) =>
-    name === "greedy" ? createGreedyPolicy() : name === "explore" ? createExplorePolicy(memory) : randomLegalPolicy;
+    name === "greedy" || name === "smart"
+      ? createGreedyPolicy("smart", name)
+      : name === "legacy"
+        ? createGreedyPolicy("legacy")
+        : name === "explore"
+          ? createExplorePolicy(memory)
+          : randomLegalPolicy;
   if (pair === "mixed") return [make("greedy"), make("random")];
   const [a, b = a] = pair.split(":") as PolicyName[];
   return [make(a), make(b)];
@@ -90,7 +97,7 @@ export function runBatch(options: BatchOptions): BatchResult {
   const decks = options.decks ?? "random";
   const memory = new ExploreMemory();
   const adaptive = isAdaptiveBatch(options.policy, decks);
-  const buildDeck = decks === "random-mix" ? buildMixDeck : buildRandomDeck;
+  const buildDeck = decks === "random-mix" ? buildMixDeck : decks === "theme" ? buildThemeDeck : buildRandomDeck;
   for (let gameIndex = 0; gameIndex < options.games; gameIndex++) {
     const seed = options.seed + gameIndex;
     const rng = mulberry32(seed);

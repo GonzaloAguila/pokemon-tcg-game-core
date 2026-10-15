@@ -75,8 +75,33 @@ export function actAs(
   };
 }
 
+/**
+ * Log lines of Trainers / retreats written for "player" that name a side, rewritten for the
+ * human when the AI played them (most specific first).
+ */
+const OPPONENT_REWRITES: [RegExp, string][] = [
+  [/^Descartaste 2 cartas y buscaste 1 carta de tu mazo$/, "Rival descartó 2 cartas y buscó 1 carta de su mazo"],
+  [/^Descartaste 2 cartas y recuperaste (.+) del descarte$/, "Rival descartó 2 cartas y recuperó $1 del descarte"],
+  [/^Descartaste (\d+ cartas?) de tu mano$/, "Rival descartó $1 de su mano"],
+  [/^Descartaste 1 energía propia y (.+)$/, "Rival descartó 1 energía propia y $1"],
+  [/^Descartaste (.+)$/, "Rival descartó $1"],
+  [/^Barajaste (\d+ Trainers?) en tu mazo$/, "Rival barajó $1 en su mazo"],
+  [/^El rival barajó (\d+ Trainers?) en su mazo$/, "Barajaste $1 en tu mazo"],
+  [/^El rival barajó su mano en su mazo y robó (\d+) cartas$/, "Barajaste tu mano en tu mazo y robaste $1 cartas"],
+  [/^Barajaste (\d+) cartas en tu mazo$/, "Rival barajó $1 cartas en su mazo"],
+  [/^Reordenaste las (\d+) cartas superiores de tu mazo$/, "Rival reordenó las $1 cartas superiores de su mazo"],
+  [/^Salió cara — encontraste (.+) en tu mazo$/, "Salió cara — Rival encontró $1 en su mazo"],
+  [/^Intercambiaste (.+) por (.+) de tu mazo$/, "Rival intercambió $1 por $2 de su mazo"],
+  [/^(.+) es ahora tu Pokémon activo$/, "$1 es ahora el Pokémon activo del rival"],
+  [/^(.+) del rival fue forzado a salir como Pokémon activo$/, "Tu $1 fue forzado a salir como Pokémon activo"],
+  [/^Se descartó 1 energía de (.+) del rival$/, "Se descartó 1 energía de tu $1"],
+];
+
 /** Board-action log lines written for "player", as seen by the human when the AI acts. */
 export function toOpponentMessage(message: string): string {
+  for (const [pattern, replacement] of OPPONENT_REWRITES) {
+    if (pattern.test(message)) return message.replace(pattern, replacement);
+  }
   if (message.startsWith("Colocaste ")) return `Rival colocó ${message.slice("Colocaste ".length)}`;
   if (message.startsWith("Jugaste ")) return `Rival jugó ${message.slice("Jugaste ".length)}`;
   if (message.startsWith("Robaste ")) return `Rival robó ${message.slice("Robaste ".length)}`;

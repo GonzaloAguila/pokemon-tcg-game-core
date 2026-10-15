@@ -8,7 +8,7 @@
 import type { Card, PokemonCard } from "@/domain/cards";
 import { CARD_SETS, getSet, type CardSetId } from "@/domain/catalog";
 import { CardKind, CardSet, EnergyType, PokemonStage } from "@/domain/constants";
-import type { Deck, DeckEntry } from "@/domain/decks";
+import { decks as themeDecks, type Deck, type DeckEntry } from "@/domain/decks";
 import { UNSUPPORTED_TRAINERS } from "@/domain/effects";
 import { pick, pickSome, randomInt, shuffled, type Rng } from "./rng";
 import { cardRarity, type ExploreMemory } from "./explore";
@@ -128,6 +128,11 @@ function countTrainers(entries: Map<string, Counted>): number {
   let count = 0;
   for (const { card, quantity } of entries.values()) if (card.kind === CardKind.Trainer) count += quantity;
   return count;
+}
+
+/** `--decks theme`: one of the theme decks (the sets filter doesn't apply), picked at random. */
+export function buildThemeDeck(rng: Rng): Deck {
+  return pick(rng, themeDecks);
 }
 
 /** All set ids known to the registry */

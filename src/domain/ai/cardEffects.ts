@@ -5,11 +5,15 @@
  * what the engine allows right now (canPlayTrainerCard / canUsePokemonPower: Hay Fever,
  * Headache, Goop Gas...). Answers to the effects' steps are given when the action is executed
  * (`answerTrainerStepForAI` / `answerPowerStepForAI`), when the deck, the coins and the hand
- * are known.
+ * are known (a search shows the deck). Before playing, "the deck has X" is judged on the deck +
+ * Prizes (`unknownOwnCards`: the AI knows its list, not which cards are Prizes).
+ * The smart AI (smart.ts) adds Computer Search, Poké Ball, Energy Retrieval, Professor Oak and
+ * the Base Set Trainers it judges by evaluation; their answers are here too (spare the cards of
+ * least value, `handCardValue`; search what `wantedFromDeck` lists).
  *
  * | Card / power | When |
  * |---|---|
- * | Bill | deck > 6 (hand change: played alone, the turn is planned again) |
+ * | Bill | deck > 6; with `saveDeck` (smart AI) only when 2 more draws can't lose the deck-out race (hand change: played alone, the turn is planned again) |
  * | Energy Search | no Energy card in hand, none attached this turn (hand change) |
  * | The Boss's Way | the deck has a Dark evolution of a Pokémon in play, none in hand (hand change) |
  * | Gambler | at most 1 other card in hand, deck ≥ 10 (hand change) |
@@ -40,7 +44,9 @@ import {
   type SelectionStep,
 } from "@/domain/effects";
 import { getEffectivePokemonCard, hasStatusImmunity, isPowerActive } from "@/domain/powers";
+import { minSelectionsOf } from "@/domain/effects/validate";
 import { answerStepForAI } from "./pending";
+import { unknownOwnCards } from "./knowledge";
 import type { AIAction } from "./types";
 
 /**
@@ -117,6 +123,55 @@ export function spareCard(view: GameState, exceptId?: string): GameCard | undefi
   return undefined;
 }
 
+/** Drawing `count` extra cards now doesn't risk losing the deck-out race (public deck counts). */
+export function canAffordDraws(view: GameState, count: number): boolean {
+  const left = view.playerDeck.length - count;
+  return left >= 20 || left > view.opponentDeck.length + 4;
+}
+
+/** How much the AI wants to keep a card of its hand (low = can be discarded). */
+export function handCardValue(view: GameState, card: GameCard): number {
+  const hand = view.playerHand;
+  if (isTrainerCard(card)) {
+    if (AI_NEVER_PLAYS.has(card.name)) return 0;
+    return ["Computer Search", "Gust of Wind", "Professor Oak", "Pokémon Breeder", "Super Potion", "Switch"].includes(card.name) ? 40 : 25;
+  }
+  if (isEnergyCard(card)) {
+    const energies = hand.filter(isEnergyCard).length;
+    const needed = neededEnergyTypes(view);
+    const useful = !isBasicEnergy(card) || needed.length === 0 || needed.includes(card.energyType);
+    return useful ? (energies >= 3 ? 20 : 50) : 12;
+  }
+  if (isPokemonCard(card)) {
+    if (card.stage === PokemonStage.Basic) return view.playerBench.length >= MAX_BENCH ? 8 : 38;
+    if (evolvesFromInPlay(view, card)) return 90;
+    // An evolution of something still in the hand / deck
+    const lower = card.evolvesFrom;
+    return hand.some((c) => c.name === lower) ? 45 : 15;
+  }
+  return 20;
+}
+
+/** `count` cards the AI can spare (lowest value first), or null when it would hurt. */
+export function spareHandCards(view: GameState, exceptId: string, count: number, maxValue = 35): GameCard[] | null {
+  const hand = view.playerHand.filter((c) => c.id !== exceptId);
+  if (hand.length < count) return null;
+  const chosen = [...hand].sort((a, b) => handCardValue(view, a) - handCardValue(view, b)).slice(0, count);
+  return chosen.every((c) => handCardValue(view, c) <= maxValue) ? chosen : null;
+}
+
+/** What the AI would like to find in its deck now (Computer Search, Poké Ball), best first. */
+export function wantedFromDeck(view: GameState): ((card: GameCard | undefined) => boolean)[] {
+  const wants: ((card: GameCard | undefined) => boolean)[] = [];
+  const hand = view.playerHand;
+  const isBasic = (c: GameCard | undefined) => !!c && isPokemonCard(c) && c.stage === PokemonStage.Basic;
+  if (view.playerBench.length === 0 && !hand.some(isBasic)) wants.push(isBasic);
+  if (!view.energyAttachedThisTurn && !hand.some(isEnergyCard)) wants.push(isNeededEnergy(view));
+  if (!hand.some((c) => evolvesFromInPlay(view, c))) wants.push((c) => evolvesFromInPlay(view, c));
+  if (view.playerBench.length < 3 && !hand.some(isBasic)) wants.push(isBasic);
+  return wants;
+}
+
 /** The Benched Pokémon Mr. Fuji would save: no Energy, lost at least half its HP. */
 function fujiTarget(view: GameState): PokemonInPlay | undefined {
   if (view.playerBench.length < 2) return undefined;
@@ -159,30 +214,34 @@ function withUsablePower(view: GameState, powerName: string): PokemonInPlay[] {
  * A Trainer / power that changes the AI's hand, worth playing now (or null). The caller plays
  * it alone and plans the turn again once it resolved, with the new cards.
  */
-export function planHandChange(view: GameState): AIAction | null {
+export function planHandChange(view: GameState, options: { saveDeck?: boolean } = {}): AIAction | null {
   if (!view.playerActivePokemon) return null;
   const deck = view.playerDeck;
   const hand = view.playerHand;
 
+  // saveDeck (smart AI): in a long game don't draw toward a deck-out the other side won't suffer first
   const bill = playable(view, "Bill");
-  if (bill && deck.length > 6) return playTrainer(bill);
+  if (bill && deck.length > 6 && (!options.saveDeck || canAffordDraws(view, 2))) return playTrainer(bill);
+
+  // What may still be in the deck: deck + Prizes (the AI knows its list, not where each card is)
+  const pool = unknownOwnCards(view);
 
   const search = playable(view, "Energy Search");
-  if (search && !view.energyAttachedThisTurn && !hand.some(isEnergyCard) && deck.length > 3 && deck.some(isBasicEnergy)) {
+  if (search && !view.energyAttachedThisTurn && !hand.some(isEnergyCard) && deck.length > 3 && pool.some(isBasicEnergy)) {
     return playTrainer(search);
   }
 
   const boss = playable(view, "The Boss's Way");
   if (boss && !hand.some((c) => evolvesFromInPlay(view, c))) {
-    const step = getTrainerSteps(view, boss.id, []);
-    if (step?.cards?.some((c) => evolvesFromInPlay(view, c))) return playTrainer(boss);
+    const darkEvolution = pool.some((c) => isPokemonCard(c) && c.name.startsWith("Dark ") && evolvesFromInPlay(view, c));
+    if (darkEvolution) return playTrainer(boss);
   }
 
   const gambler = playable(view, "Gambler");
   if (gambler && hand.length <= 2 && deck.length >= 10) return playTrainer(gambler);
 
   const [light] = withUsablePower(view, "Luz Evolutiva");
-  if (light && !hand.some((c) => evolvesFromInPlay(view, c)) && deck.some((c) => evolvesFromInPlay(view, c))) return usePower(light);
+  if (light && !hand.some((c) => evolvesFromInPlay(view, c)) && pool.some((c) => evolvesFromInPlay(view, c))) return usePower(light);
 
   const [exchange] = withUsablePower(view, "Intercambio de Materia");
   if (exchange && deck.length >= 5 && spareCard(view)) return usePower(exchange);
@@ -311,6 +370,42 @@ export function answerTrainerStepForAI(view: GameState, cardId: string, name: st
       const target = fujiTarget(view);
       return prefer(view, step, [(_c, id) => id === target?.pokemon.id]);
     }
+    case "Computer Search":
+    case "Item Finder":
+    case "Energy Retrieval": {
+      // Hand step: the cards the AI can best spare
+      if (step.source === "hand") {
+        const options = new Set(enabledIds(step));
+        const spare = view.playerHand
+          .filter((c) => options.has(c.id) && c.id !== cardId)
+          .sort((a, b) => handCardValue(view, a) - handCardValue(view, b))
+          .slice(0, step.maxSelections)
+          .map((c) => c.id);
+        return spare.length >= minSelectionsOf(step) ? spare : answerStepForAI(step);
+      }
+      if (name === "Energy Retrieval") {
+        const needed = isNeededEnergy(view);
+        const ids = enabledIds(step);
+        const ordered = [...ids.filter((id) => needed(cardById(view, id))), ...ids.filter((id) => !needed(cardById(view, id)))];
+        return ordered.slice(0, step.maxSelections);
+      }
+      if (name === "Item Finder") {
+        const best = ["Computer Search", "Gust of Wind", "Professor Oak", "Super Potion", "Pokémon Breeder", "Switch", "Energy Removal", "Super Energy Removal", "PlusPower", "Bill"];
+        return prefer(view, step, best.map((wanted) => (c: GameCard | undefined) => c?.name === wanted));
+      }
+      return prefer(view, step, [
+        ...wantedFromDeck(view),
+        (c) => evolvesFromInPlay(view, c),
+        isNeededEnergy(view),
+        (c) => !!c && isPokemonCard(c) && c.stage === PokemonStage.Basic,
+      ]);
+    }
+    case "Poké Ball":
+      return prefer(view, step, [
+        ...wantedFromDeck(view),
+        (c) => evolvesFromInPlay(view, c),
+        (c) => !!c && isPokemonCard(c) && c.stage === PokemonStage.Basic,
+      ]);
     default:
       return answerStepForAI(step);
   }

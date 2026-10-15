@@ -5,6 +5,7 @@
  */
 
 import type { GameCard, PokemonInPlay } from "@/domain/match";
+import type { EnergyType } from "@/domain/constants";
 
 /** Identificador del lado del tablero */
 export type Side = "player" | "opponent";
@@ -61,6 +62,10 @@ export interface EvolveAction extends AIActionBase {
 export interface AttackAction extends AIActionBase {
   type: "attack";
   attackIndex: number;
+  /** Metronome-style attacks (CopyAttack): the Defending Pokémon's attack to copy, by name */
+  copiedAttackName?: string;
+  /** Conversion 1 / 2 (Porygon): the type chosen for the Weakness / Resistance */
+  chosenType?: EnergyType;
 }
 
 /** Jugar una carta de entrenador */
@@ -82,6 +87,8 @@ export interface UsePowerAction extends AIActionBase {
   type: "usePower";
   pokemonId: string;
   powerName: string;
+  /** Answers planned by the AI (powers without coins: Energy Trans, Damage Swap, Curse); otherwise answered when used */
+  selections?: string[][];
 }
 
 /** Retirarse (cambiar Pokemon activo) */

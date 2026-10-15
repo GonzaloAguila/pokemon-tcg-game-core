@@ -112,6 +112,22 @@ describe("generic trainer entry points", () => {
     expect(potioned.playerActivePokemon!.attachedEnergy).toHaveLength(0);
   });
 
+  it("Energy Removal: an Energy card attached to any of the opponent's Pokémon (Benched too)", () => {
+    const removal = gameCard("Energy Removal");
+    const onix = inPlay("Onix", { energy: [EnergyType.Fighting] });
+    const machop = inPlay("Machop", { energy: [EnergyType.Fighting, EnergyType.Fighting] });
+    const state = makeState({ player: { active: inPlay("Abra"), hand: [removal] }, opponent: { active: onix, bench: [machop] } });
+    const step = getTrainerSteps(state, removal.id, [])!;
+    expect(step.options.map((o) => o.id)).toEqual([onix.attachedEnergy[0].id, ...machop.attachedEnergy.map((e) => e.id)]);
+    const after = playTrainerCard(state, removal.id, [[machop.attachedEnergy[1].id]]);
+    expect(after.opponentBench[0].attachedEnergy.map((e) => e.id)).toEqual([machop.attachedEnergy[0].id]);
+    expect(after.opponentActivePokemon!.attachedEnergy).toHaveLength(1);
+    expect(after.opponentDiscard.map((c) => c.id)).toEqual([machop.attachedEnergy[1].id]);
+    // Only the Benched Pokémon has Energy: still playable
+    const benchOnly = makeState({ player: { active: inPlay("Abra"), hand: [removal] }, opponent: { active: inPlay("Onix"), bench: [machop] } });
+    expect(canPlayTrainerCard(benchOnly, removal.id)).toBeNull();
+  });
+
   it("Super Energy Removal: own energy, opponent Pokémon, up to 2 energies", () => {
     const ser = gameCard("Super Energy Removal");
     const machop = inPlay("Machop", { energy: [EnergyType.Fighting] });

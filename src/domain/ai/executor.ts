@@ -6,10 +6,11 @@
  */
 
 import type { GameState } from "@/domain/match";
-import { canExecuteAttack, flipAttackCoins, getAttackCoinPlan } from "@/lib/gameState";
+import { canExecuteAttack, canExecuteMetronome, executeMetronome, canRetreat, flipAttackCoins, getAttackCoinPlan, getRetreatCoinFlips, getRetreatCost, getTotalEnergyValue } from "@/lib/gameState";
 import { executeAttack, endTurn, executeRetreat, createGameEvent, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
-import type { AIAction, PlayTrainerAction, UsePowerAction } from "./types";
+import type { AIAction, AttackAction, PlayTrainerAction, UsePowerAction } from "./types";
+import { getEffectivePokemonCard } from "@/domain/powers";
 import {
   playBasicToActive,
   playBasicToBench,
@@ -30,7 +31,9 @@ import {
 } from "@/domain/effects";
 import type { CoinFlipResult } from "@/domain/constants";
 import { answerPowerStepForAI, answerTrainerStepForAI, collectAnswers } from "./cardEffects";
-import { canDiscardFromPlay, discardFromPlay } from "@/domain/board";
+import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker } from "@/domain/board";
+import { choosePromotion } from "./choices";
+import { knowledgeView } from "./knowledge";
 import { resolveOwnAttackPendings } from "./pending";
 import { IllegalActionError } from "@/shared/errors";
 
@@ -93,7 +96,7 @@ export function executeAIAction(state: GameState, action: AIAction): GameState {
       return evolve(state, "opponent", action.evolutionCardId, action.targetIndex);
 
     case "attack":
-      return executeOpponentAttack(state, action.attackIndex);
+      return executeOpponentAttack(state, action);
 
     case "playTrainer":
       return executeTrainer(state, action);
@@ -111,8 +114,8 @@ export function executeAIAction(state: GameState, action: AIAction): GameState {
         (s) => canDiscardFromPlay(s, action.pokemonId),
         (s) => {
           const discarded = discardFromPlay(s, action.pokemonId);
-          // The AI's Active was discarded: it promotes its first benched Pokémon
-          return discarded.playerNeedsToPromote ? promoteActivePokemon(discarded, 0, true) : discarded;
+          // The AI's Active was discarded: it promotes (the human moves next)
+          return discarded.playerNeedsToPromote ? promoteActivePokemon(discarded, choosePromotion(knowledgeView(discarded), false), true) : discarded;
         }
       );
 
@@ -130,19 +133,25 @@ export function executeAIAction(state: GameState, action: AIAction): GameState {
  * IMPORTANTE: Usamos skipEndTurn=true para que endTurn se llame DESPUÉS del swap,
  * así los mensajes tienen la perspectiva correcta.
  */
-function executeOpponentAttack(state: GameState, attackIndex: number): GameState {
+function executeOpponentAttack(state: GameState, action: AttackAction): GameState {
+  const { attackIndex } = action;
   const attacker = state.opponentActivePokemon;
   const defender = state.playerActivePokemon;
 
   if (!attacker || !defender) return state;
   if (!isPokemonCard(attacker.pokemon) || !isPokemonCard(defender.pokemon)) return state;
 
-  const attack = attacker.pokemon.attacks[attackIndex];
+  // A transformed Ditto uses the copied card's attacks
+  const attack = getEffectivePokemonCard(state, attacker)?.attacks[attackIndex];
   if (!attack) return state;
+  // Metronome: the Defending Pokémon's attack it copies
+  const copied = action.copiedAttackName
+    ? getEffectivePokemonCard(state, defender)?.attacks.find((a) => a.name === action.copiedAttackName)
+    : undefined;
 
   // Illegal attack (planned on a simulated state, or Leer/Paralysis/energy changed): the
   // engine would throw, so the AI just ends its turn.
-  const illegalReason = canExecuteAttack(swapSides(state), attackIndex);
+  const illegalReason = copied ? canExecuteMetronome(swapSides(state), copied) : canExecuteAttack(swapSides(state), attackIndex);
   if (illegalReason) {
     return endTurn({
       ...state,
@@ -180,9 +189,9 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
         ],
       };
 
-      // The AI knocked itself out: it always promotes its first benched Pokémon
+      // The AI knocked itself out: it promotes (the human moves next)
       if (!afterFlip.opponentActivePokemon && afterFlip.gamePhase !== "GAME_OVER") {
-        const benchIndex = afterFlip.opponentBench.findIndex((p) => p != null);
+        const benchIndex = afterFlip.opponentBench.length > 0 ? choosePromotion(knowledgeView(swapSides(afterFlip)), false) : -1;
         if (benchIndex !== -1) {
           afterFlip = promoteActivePokemon(afterFlip, benchIndex, false);
         }
@@ -225,13 +234,14 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
   // The AI flips the attack's coins; the engine resolves every coin effect.
   // skipEndTurn: endTurn runs after the swap back, so its messages have the right perspective.
   // skipDefenderPromotion: the human chooses which Pokémon to promote.
-  const coinResults = flipAttackCoins(getAttackCoinPlan(swappedState, attackIndex), () => (Math.random() < 0.5 ? "heads" : "tails"));
+  const coinResults = flipAttackCoins(getAttackCoinPlan(swappedState, copied ?? attackIndex), () => (Math.random() < 0.5 ? "heads" : "tails"));
   // The AI answers its own attack's choices (switch, deck search, bench damage) in its view.
-  const resultState = resolveOwnAttackPendings(executeAttack(swappedState, attackIndex, {
-    coinResults,
-    skipEndTurn: true,
-    skipDefenderPromotion: true,
-  }));
+  const options = { coinResults, skipEndTurn: true, skipDefenderPromotion: true };
+  const resultState = resolveOwnAttackPendings(
+    copied
+      ? executeMetronome(swappedState, copied, options)
+      : executeAttack(swappedState, attackIndex, { ...options, ...(action.chosenType && { chosenType: action.chosenType }) })
+  );
 
   // Swap de vuelta
   // En resultState, "opponent" = jugador real. Si opponentActivePokemon es null y hay bench,
@@ -332,8 +342,8 @@ function executeOpponentAttack(state: GameState, attackIndex: number): GameState
   if (finalState.opponentActivePokemon === null && finalState.gamePhase !== "GAME_OVER") {
     const opponentBenchWithPokemon = finalState.opponentBench.filter(p => p !== null);
     if (opponentBenchWithPokemon.length > 0) {
-      // IA promueve automaticamente el primer Pokemon de su banca
-      const promotedPokemon = opponentBenchWithPokemon[0];
+      // The AI promotes (the human moves next)
+      const promotedPokemon = opponentBenchWithPokemon[choosePromotion(knowledgeView(swapSides(finalState)), false)] ?? opponentBenchWithPokemon[0];
       const newOpponentBench = finalState.opponentBench.filter(p => p !== promotedPokemon);
 
       finalState = {
@@ -452,45 +462,44 @@ function executePower(state: GameState, action: UsePowerAction): GameState {
       tryEffect(s, () => {
         const coins = flipCoins(getPowerCoinFlips(s, pokemonId));
         const coinsForSteps = coins.length > 0 ? coins : undefined;
-        const selections = collectAnswers(
-          (answered) => getPowerSteps(s, pokemonId, answered, coinsForSteps),
-          (step) => answerPowerStepForAI(s, powerName, step)
-        );
+        const selections =
+          action.selections ??
+          collectAnswers(
+            (answered) => getPowerSteps(s, pokemonId, answered, coinsForSteps),
+            (step) => answerPowerStepForAI(s, powerName, step)
+          );
         return usePokemonPower(s, pokemonId, selections, { coinResults: coins });
       })
   );
 }
 
+/** Why the AI's Active can't retreat now paying `energyIds` (AI view), or null. */
+function retreatBlocker(view: GameState, energyIds: string[], benchIndex: number): string | null {
+  const blocker = getTurnActionBlocker(view);
+  if (blocker) return blocker;
+  const active = view.playerActivePokemon;
+  if (!active || !view.playerBench[benchIndex]) return "No hay Pokémon para el cambio";
+  if (!canRetreat(active, view.playerBench.length, view.retreatedThisTurn)) return "No puede retirarse";
+  const paid = getTotalEnergyValue(active.attachedEnergy.filter((e) => energyIds.includes(e.id)));
+  return paid >= getRetreatCost(active, view.playerBench, view) ? null : "Energía insuficiente para retirarse";
+}
+
 /**
- * Ejecuta un retreat del oponente
+ * Retirada del Pokémon activo de la IA (on its view, through the engine). A refused retreat
+ * leaves the state unchanged. The AI flips the Sinkhole coins (Dark Dugtrio).
  */
 function executeOpponentRetreat(
   state: GameState,
   energyIdsToDiscard: string[],
   benchIndex: number
 ): GameState {
-  // Similar al ataque, necesitamos swap perspective
-  const swappedState: GameState = {
-    ...state,
-    playerActivePokemon: state.opponentActivePokemon,
-    playerBench: state.opponentBench,
-    playerDiscard: state.opponentDiscard,
-    opponentActivePokemon: state.playerActivePokemon,
-    opponentBench: state.playerBench,
-    opponentDiscard: state.playerDiscard,
-  };
-
-  const resultState = executeRetreat(swappedState, energyIdsToDiscard, benchIndex);
-
-  // Swap de vuelta
-  return {
-    ...resultState,
-    playerActivePokemon: resultState.opponentActivePokemon,
-    playerBench: resultState.opponentBench,
-    playerDiscard: resultState.opponentDiscard,
-    opponentActivePokemon: resultState.playerActivePokemon,
-    opponentBench: resultState.playerBench,
-    opponentDiscard: resultState.playerDiscard,
-    retreatedThisTurn: resultState.retreatedThisTurn,
-  };
+  return actAs(
+    state,
+    "opponent",
+    (view) => retreatBlocker(view, energyIdsToDiscard, benchIndex),
+    (view) => {
+      const coins = Array.from({ length: getRetreatCoinFlips(view) }, (): CoinFlipResult => (Math.random() < 0.5 ? "heads" : "tails"));
+      return executeRetreat(view, energyIdsToDiscard, benchIndex, { coinResults: coins });
+    }
+  );
 }

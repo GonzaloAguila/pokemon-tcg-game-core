@@ -278,6 +278,7 @@ export type { AIAction } from "./domain/ai";
 export {
   decideOpponentTurn,
   decideOpponentSetup,
+  decideOpponentPromotion,
   executeAIAction,
 } from "./domain/ai";
 export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice } from "./domain/ai/pending";

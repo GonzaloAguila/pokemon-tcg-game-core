@@ -93,9 +93,9 @@ const stopOnFailure = process.argv.includes("--stop-on-fail");
 const checkMutation = process.argv.includes("--check-mutation");
 const pairs = (policyArg === "all" ? "greedy,random,mixed" : policyArg).split(",");
 for (const pair of pairs) {
-  if (!isPolicyPair(pair)) throw new Error(`Unknown --policy "${pair}" (greedy, random, explore, mixed, A:B or all)`);
+  if (!isPolicyPair(pair)) throw new Error(`Unknown --policy "${pair}" (greedy = smart, legacy, random, explore, mixed, A:B or all)`);
 }
-if (decks !== "random" && decks !== "random-mix") throw new Error(`Unknown --decks "${decks}" (random or random-mix)`);
+if (decks !== "random" && decks !== "random-mix" && decks !== "theme") throw new Error(`Unknown --decks "${decks}" (random, random-mix or theme)`);
 const coverageSets = argValue("coverage", sets.join(",")).split(",") as CardSetId[];
 
 let failed = false;

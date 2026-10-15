@@ -223,7 +223,8 @@ class GameRunner {
       const bench = view.opponentBench;
       if (bench.length === 0) this.apply(actor, { label: "skip force switch", run: skipPendingSwitch });
       else {
-        const index = this.policy(actor).promotion(swapSides(view), rng);
+        const policy = this.policy(actor);
+        const index = policy.forceSwitch ? policy.forceSwitch(view, rng) : policy.promotion(swapSides(view), rng);
         this.apply(actor, { label: `force switch #${index}`, run: (v) => applyForceSwitch(v, index) });
       }
       return true;

@@ -48,6 +48,7 @@ import { defenderReduction as attachedDefenderReduction, modifierAppliesTo, rele
 export { resolvePowerChoice, triggerOnPlayPower, ON_PLAY_POWERS } from "./powerChoices";
 export type { PendingPowerChoice, OnPlayPowerDef } from "./powerChoices";
 import { assertLegal } from "@/shared/errors";
+import { chooseAutoPromotion } from "@/domain/ai/choices";
 
 // ============================================================================
 // TIPOS
@@ -2830,7 +2831,7 @@ export type ExecuteAttackOptions = {
 };
 
 /** Coins needed by an attack used by `attacker` (shared by all its coin effects). */
-function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?: GameState): number | "untilTails" {
+export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?: GameState): number | "untilTails" {
   let count = 0;
   for (const effect of attack.effects ?? []) {
     if (!effect.coinFlip) continue;
@@ -3137,7 +3138,7 @@ export function canExecuteMetronome(state: GameState, copiedAttack: Attack): str
 
 const NON_STATUS_COIN_OUTCOMES = ["damage", "protection", "preventRetreat"];
 
-type CoinResolution = {
+export type CoinResolution = {
   /** The attack's effects with every coin effect turned into a plain effect (or dropped). */
   effects: AttackEffect[];
   /** Coin effects that did not happen (tails on Scrunch...), for log messages. */
@@ -3159,7 +3160,7 @@ type CoinResolution = {
  * - SelfDamage → amount × matching coins. ApplyStatus → the status for the coin side.
  * - Protection, PreventRetreat, Draw (Pay Day) and anything else → kept once if any coin matches.
  */
-function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipResult[]): CoinResolution {
+export function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipResult[]): CoinResolution {
   // (Thunderstorm) perCoinBenchTarget: coin i decides the i-th Benched Pokémon of the target side
   const heads = coins.filter((c) => c === "heads").length;
   const tails = coins.length - heads;
@@ -4760,11 +4761,13 @@ function executeAttackUnchecked(
           ],
         };
       } else {
-        const promoted = remainingBench[0];
+        // Auto-promotion (single-player: the defender is the AI): the AI's promotion choice
+        const index = chooseAutoPromotion(stateAfterAttack);
+        const promoted = remainingBench[index];
         stateAfterAttack = {
           ...stateAfterAttack,
           opponentActivePokemon: promoted,
-          opponentBench: remainingBench.slice(1),
+          opponentBench: remainingBench.filter((_, i) => i !== index),
           events: [
             ...stateAfterAttack.events,
             createGameEvent(`${promoted.pokemon.name} pasa a ser el Pokémon activo del rival`, "info"),
