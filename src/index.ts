@@ -130,6 +130,7 @@ export {
   initializeGame,
   initializeMultiplayerGame,
   startGame,
+  DEFAULT_PRIZE_COUNT,
   buildDeckFromEntries,
 } from "./lib/gameState";
 
@@ -332,3 +333,5 @@ export type { CardSetId, CardSetInfo, CardImageInput } from "./domain/catalog";
 
 export type { DeckEntry, FeaturedPokemonRef, Deck, ResolvedDeckEntry, GroupedDeck } from "./domain/decks";
 export { decks, resolveDeck, findCardBySetAndNumber, findCardByNumber, getDeckById, getDeckEnergyTypes, getDeckCardCount, getDeckFeaturedPokemon, groupDeckByKind } from "./domain/decks";
+
+export type { StartGameOptions } from "./lib/gameState";

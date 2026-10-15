@@ -269,6 +269,8 @@ export type GameState = {
    * the game (read it with arePrizesRevealed; consumers must not hide the Prizes then).
    */
   prizesFaceUp?: boolean;
+  /** Prize cards each player set aside at the start (startGame's prizeCount; 6 when absent). */
+  prizeCount?: number;
   /**
    * Headache (Psyduck): no Trainer cards can be played during this turn number (the opponent's
    * next turn). Dropped by endTurn once that turn is over.
@@ -1591,10 +1593,23 @@ export function initializeMultiplayerGame(player1Deck: Deck, player2Deck: Deck):
   };
 }
 
+/** Prize cards in a standard game. */
+export const DEFAULT_PRIZE_COUNT = 6;
+
+export type StartGameOptions = {
+  /**
+   * Prize cards per player (1-6, default 6): shorter games vs the AI. The game is won as
+   * always, by taking the last one.
+   */
+  prizeCount?: number;
+};
+
 /**
  * Prepara el juego: reparte cartas y premios (sin coinflip, eso ocurre después del setup)
  */
-export function startGame(gameState: GameState): GameState {
+export function startGame(gameState: GameState, options: StartGameOptions = {}): GameState {
+  const prizeCount = Math.min(DEFAULT_PRIZE_COUNT, Math.max(1, Math.floor(options.prizeCount ?? DEFAULT_PRIZE_COUNT)));
+
   // Crear copias de los mazos para no mutar los originales
   const playerDeckCopy = [...gameState.playerDeck];
   const opponentDeckCopy = [...gameState.opponentDeck];
@@ -1603,20 +1618,22 @@ export function startGame(gameState: GameState): GameState {
   const shuffledPlayerDeck = shuffle(playerDeckCopy);
   const shuffledOpponentDeck = shuffle(opponentDeckCopy);
 
-  // Repartir: 7 cartas a la mano, 6 a premios, el resto queda en el mazo
+  // Repartir: 7 cartas a la mano, los premios, el resto queda en el mazo
+  const prizesEnd = 7 + prizeCount;
   const playerHand = shuffledPlayerDeck.slice(0, 7);
-  const playerPrizes = shuffledPlayerDeck.slice(7, 13);
-  const playerDeck = shuffledPlayerDeck.slice(13);
+  const playerPrizes = shuffledPlayerDeck.slice(7, prizesEnd);
+  const playerDeck = shuffledPlayerDeck.slice(prizesEnd);
 
   const opponentHand = shuffledOpponentDeck.slice(0, 7);
-  const opponentPrizes = shuffledOpponentDeck.slice(7, 13);
-  const opponentDeck = shuffledOpponentDeck.slice(13);
+  const opponentPrizes = shuffledOpponentDeck.slice(7, prizesEnd);
+  const opponentDeck = shuffledOpponentDeck.slice(prizesEnd);
+  const prizesText = `${prizeCount} ${prizeCount === 1 ? "premio" : "premios"}`;
 
   // Crear eventos
   const newEvents = [
     ...gameState.events,
-    createGameEvent("Tú robas 7 cartas y colocas 6 premios", "action"),
-    createGameEvent("Rival roba 7 cartas y coloca 6 premios", "action"),
+    createGameEvent(`Tú robas 7 cartas y colocas ${prizesText}`, "action"),
+    createGameEvent(`Rival roba 7 cartas y coloca ${prizesText}`, "action"),
   ];
 
   return {
@@ -1629,6 +1646,7 @@ export function startGame(gameState: GameState): GameState {
     opponentDeck,
     opponentHand,
     opponentPrizes,
+    prizeCount,
     opponentActivePokemon: null,
     opponentBench: [],
     turnNumber: 0,
