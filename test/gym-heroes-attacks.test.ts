@@ -381,6 +381,22 @@ describe("new effect kinds", () => {
     expect(clearEffectsAsIfEvolved(exeggcute).halveDamage).toBeUndefined();
   });
 
+  it("AttackFails defenderOnly (Egg Bomb): tails = nothing to the Defending Pokémon, but the attacker's own effects happen", () => {
+    const eggBomb = withAttack(inPlay("Exeggcute", { set: "jungle" }), {
+      damage: 40,
+      effects: [
+        { type: AttackEffectType.AttackFails, target: AttackTarget.Defender, defenderOnly: true, coinFlip: { count: 1, onTails: "damage" } },
+        { type: AttackEffectType.SelfDamage, target: AttackTarget.Self, amount: 20, coinFlip: { count: 1, onTails: "damage" } },
+      ],
+    });
+    const state = deepFreeze(vs(eggBomb, inPlay("Machop")));
+    const heads = use(state, [H]);
+    expect([heads.opponentActivePokemon!.currentDamage, heads.playerActivePokemon!.currentDamage]).toEqual([40, 0]);
+    const tails = use(state, [T]);
+    expect([tails.opponentActivePokemon!.currentDamage, tails.playerActivePokemon!.currentDamage]).toEqual([0, 20]);
+    expect(tails.attackedThisTurn).toBe(true);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {

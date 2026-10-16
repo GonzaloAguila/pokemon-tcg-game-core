@@ -68,6 +68,8 @@ export type AttackEffect = {
   names?: string[];
   /** SelfSwitch: "you may switch" — the attacker may decline (Teleport Blast), asked as a pending attack choice */
   optional?: boolean;
+  /** AttackFails: only nothing to the Defending Pokémon — the attack's effects on the attacker still happen (Egg Bomb) */
+  defenderOnly?: boolean;
   /** ShuffleSelfIntoDeck: the cards attached go into the deck too (Phoenix Flame, Take Away); default: discarded (Vanish) */
   withAttachedCards?: boolean;
   /** ChooseTargetDamage: who can be chosen ("opponentAny": Active or Benched; "opponentBench") */

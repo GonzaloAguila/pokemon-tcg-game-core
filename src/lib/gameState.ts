@@ -3553,7 +3553,7 @@ function executeAttackUnchecked(
   const evadeCoin = defenderCoinFor === "evade" ? defenderCoin : undefined;
 
   // Dive Bomb / Clamp tails: "this attack does nothing (not even damage)"
-  if (attack.effects?.some((e) => e.type === AttackEffectType.AttackFails && !e.coinFlip)) {
+  if (attack.effects?.some((e) => e.type === AttackEffectType.AttackFails && !e.coinFlip && !e.defenderOnly)) {
     const tokens = (coinResults ?? []).map((r) => `[coin:${r}]`).join(" ");
     const failed: GameState = {
       ...gameState,
@@ -3598,6 +3598,9 @@ function executeAttackUnchecked(
   let baseDamage = base.damage;
   // Drag Off: its damage goes to the Benched Pokémon switched in by its choice (attackChoices)
   if (attack.effects?.some((e) => e.type === AttackEffectType.ChooseTargetDamage && e.switchWithDefender)) baseDamage = 0;
+  // Egg Bomb tails: "this attack does nothing to the Defending Pokémon" (its effects on the attacker still happen)
+  const nothingToDefender = attack.effects?.some((e) => e.type === AttackEffectType.AttackFails && e.defenderOnly && !e.coinFlip) ?? false;
+  if (nothingToDefender) baseDamage = 0;
   // Lava Burst: the top cards of the attacker's deck are discarded; damage per basic Energy card of the type among them
   const mill = attack.effects?.find((e) => e.type === AttackEffectType.MillSelfForDamage && !e.coinFlip);
   const milledCards = mill ? gameState.playerDeck.slice(0, mill.amount ?? 5) : [];
@@ -3795,7 +3798,9 @@ function executeAttackUnchecked(
 
   // Mensaje del ataque con detalles de debilidad/resistencia y protección
   let damageMessage = "";
-  if (transparencyPrevents) {
+  if (nothingToDefender) {
+    damageMessage = ` pero no le hizo nada a ${defender.pokemon.name}`;
+  } else if (transparencyPrevents) {
     damageMessage = ` pero ${defender.pokemon.name} evitó todos sus efectos (Transparencia)`;
   } else if (defenderIsProtected && damage > 0) {
     if (defender.protection?.threshold !== undefined) {
