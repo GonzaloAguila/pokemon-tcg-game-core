@@ -96,7 +96,10 @@ export type AttackEffect = {
   poisonDamage?: number;
   amount?: number;
   benchTarget?: BenchDamageTarget;
+  /** Discard (Self): Energy cards to discard in order to use the attack (Colorless = any Energy card, Kindle) */
   discardCostRequirement?: EnergyType[];
+  /** Discard (Self) with `discardCostRequirement`: the cards go to the hand instead of the discard pile (Energy Loop) */
+  discardTo?: "hand";
   /** Discard (Self): every attached Energy card (Thunderbolt), or only those providing `energyType` (Discharge) */
   discardAll?: boolean;
   protectionType?: ProtectionType;

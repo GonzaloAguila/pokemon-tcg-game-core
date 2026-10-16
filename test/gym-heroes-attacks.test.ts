@@ -544,6 +544,19 @@ describe("new effect kinds", () => {
     expect(getAttackCoinPlan(vs(swift, inPlay("Scyther", { set: "jungle", evadeOnFlip: { attackName: "Imágenes Sombra" } })), 0).defender).toBe(0);
   });
 
+  it("Discard cost discardTo hand (Energy Loop): the Psychic Energy card goes back to the hand", () => {
+    const loop = withAttack(inPlay("Abra", { energy: [Psychic, Water] }), {
+      cost: [Psychic],
+      damage: 20,
+      effects: [{ type: AttackEffectType.Discard, target: AttackTarget.Self, discardCostRequirement: [Psychic], discardTo: "hand" }],
+    });
+    const next = use(deepFreeze(vs(loop, inPlay("Onix"))));
+    expect(names(next.playerHand)).toEqual(["Psychic Energy"]);
+    expect(next.playerDiscard).toEqual([]);
+    expect(names(next.playerActivePokemon!.attachedEnergy)).toEqual(["Water Energy"]);
+    expect(next.opponentActivePokemon!.currentDamage).toBe(20);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {

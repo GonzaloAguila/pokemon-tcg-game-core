@@ -4548,7 +4548,12 @@ function executeAttackUnchecked(
             }
           }
 
-          if (discardedEnergy.length > 0) {
+          if (discardedEnergy.length > 0 && effect.discardTo === "hand") {
+            // Energy Loop: the cost goes back to the hand instead
+            newPlayerHand = [...newPlayerHand, ...discardedEnergy];
+            newPlayerActive = { ...newPlayerActive, attachedEnergy: remainingEnergy };
+            events.push(createGameEvent(`${newPlayerActive.pokemon.name} devolvió ${discardedEnergy.map(energyCardLabel).join(", ")} a la mano`, "action"));
+          } else if (discardedEnergy.length > 0) {
             newPlayerDiscard.push(...discardedEnergy);
             newPlayerActive = {
               ...newPlayerActive,
