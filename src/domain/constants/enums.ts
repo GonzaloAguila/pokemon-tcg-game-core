@@ -48,6 +48,7 @@ export const CardSet = {
   Jungle: "Jungle",
   Fossil: "Fossil",
   TeamRocket: "Team Rocket",
+  GymHeroes: "Gym Heroes",
 } as const;
 export type CardSet = (typeof CardSet)[keyof typeof CardSet];
 

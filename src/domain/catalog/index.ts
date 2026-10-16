@@ -6,7 +6,8 @@ export { baseSetCards } from "./base-set";
 export { jungleCards } from "./jungle";
 export { fossilCards } from "./fossil";
 export { teamRocketCards } from "./team-rocket";
-export { getBaseSetImageUrl, getJungleImageUrl, getFossilImageUrl, getTeamRocketImageUrl } from "./image-urls";
+export { gymHeroesCards } from "./gym-heroes";
+export { getBaseSetImageUrl, getJungleImageUrl, getFossilImageUrl, getTeamRocketImageUrl, getGymHeroesImageUrl } from "./image-urls";
 export type { CardImageInput } from "./image-urls";
 export {
   CARD_SETS,

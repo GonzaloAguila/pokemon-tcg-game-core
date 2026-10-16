@@ -13,16 +13,17 @@ import { baseSetCards } from "./base-set";
 import { jungleCards } from "./jungle";
 import { fossilCards } from "./fossil";
 import { teamRocketCards } from "./team-rocket";
-import { getBaseSetImageUrl, getJungleImageUrl, getFossilImageUrl, getTeamRocketImageUrl, type CardImageInput } from "./image-urls";
+import { gymHeroesCards } from "./gym-heroes";
+import { getBaseSetImageUrl, getJungleImageUrl, getFossilImageUrl, getTeamRocketImageUrl, getGymHeroesImageUrl, type CardImageInput } from "./image-urls";
 
 /** Stable slug of a set (also the prefix of its card ids). */
-export type CardSetId = "base-set" | "jungle" | "fossil" | "team-rocket";
+export type CardSetId = "base-set" | "jungle" | "fossil" | "team-rocket" | "gym-heroes";
 
 export type CardSetInfo = {
   id: CardSetId;
   /** Value of `card.set` for the set's cards */
   name: CardSet;
-  /** Short printed code ("BS", "JU", "FO", "TR") */
+  /** Short printed code ("BS", "JU", "FO", "TR", "G1") */
   code: string;
   /** ISO date (YYYY-MM-DD) of the original English release */
   releaseDate: string;
@@ -71,6 +72,15 @@ export const CARD_SETS: readonly CardSetInfo[] = [
     totalCards: 83,
     cards: teamRocketCards,
     imageUrl: getTeamRocketImageUrl,
+  },
+  {
+    id: "gym-heroes",
+    name: CardSet.GymHeroes,
+    code: "G1",
+    releaseDate: "2000-08-14",
+    totalCards: 132,
+    cards: gymHeroesCards,
+    imageUrl: getGymHeroesImageUrl,
   },
 ];
 

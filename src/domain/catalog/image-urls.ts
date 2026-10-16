@@ -78,3 +78,9 @@ export const getFossilImageUrl = (card: CardImageInput): string => {
  */
 export const getTeamRocketImageUrl = (card: CardImageInput): string =>
   `https://pkmncards.com/wp-content/uploads/${toSlug(card.name)}-team-rocket-tr-${card.number}.jpg`;
+
+/**
+ * Generates the image URL for a Gym Heroes card ("Lt. Surge's Treaty" → lt-surges-treaty)
+ */
+export const getGymHeroesImageUrl = (card: CardImageInput): string =>
+  `https://pkmncards.com/wp-content/uploads/${toSlug(card.name)}-gym-heroes-g1-${card.number}.jpg`;
