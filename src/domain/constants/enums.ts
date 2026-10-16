@@ -189,6 +189,8 @@ export const AttackEffectType = {
   DamageCountersOnDamaged: "damageCountersOnDamaged",
   /** Tunneling: this Pokémon can't attack during your next turn (`thisAttackOnly`: only this attack, Screaming Headbutt) */
   CantAttackNextTurn: "cantAttackNextTurn",
+  /** Can't be used unless the attacker's side has Benched Pokémon (Alert) */
+  RequireOwnBench: "requireOwnBench",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

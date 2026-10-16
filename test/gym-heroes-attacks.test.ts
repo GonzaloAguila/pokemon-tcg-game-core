@@ -331,6 +331,12 @@ describe("new effect kinds", () => {
     expect(ko.playerCanTakePrize).toBe(true);
   });
 
+  it("RequireOwnBench (Alert): can't be used with an empty Bench", () => {
+    const alert = withAttack(inPlay("Zubat", { set: "fossil" }), { effects: [{ type: AttackEffectType.RequireOwnBench, target: null }] });
+    expect(canExecuteAttack(vs(alert, inPlay("Onix")), 0)).toMatch(/Banca/);
+    expect(canExecuteAttack(vs(alert, inPlay("Onix"), { player: { bench: [inPlay("Abra")] } }), 0)).toBeNull();
+  });
+
   describe("CantAttackNextTurn (Tunneling, Screaming Headbutt)", () => {
     const lockAll: AttackEffect = { type: AttackEffectType.CantAttackNextTurn, target: AttackTarget.Self };
     const lockThis: AttackEffect = { ...lockAll, thisAttackOnly: true };

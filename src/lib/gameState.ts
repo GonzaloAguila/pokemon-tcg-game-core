@@ -2532,21 +2532,24 @@ export function meetsAttackRequirements(
   attack: Attack,
   defender: PokemonInPlay | null | undefined,
   attacker?: PokemonInPlay | null,
-  defenderBench?: PokemonInPlay[]
+  defenderBench?: PokemonInPlay[],
+  attackerBench?: PokemonInPlay[]
 ): boolean {
-  return getAttackRequirementFailure(attack, defender, attacker, defenderBench) === null;
+  return getAttackRequirementFailure(attack, defender, attacker, defenderBench, attackerBench) === null;
 }
 
 /**
  * Why an attack's own requirement isn't met (Spanish reason), or null. Requirements on the
  * attacker are only checked when it is given, the opponent's Bench only when `defenderBench`
- * is given (Fling, Drag Off, Fascinate: "can't be used if your opponent has no Benched Pokémon").
+ * is given (Fling, Drag Off, Fascinate: "can't be used if your opponent has no Benched Pokémon"),
+ * the attacker's Bench only when `attackerBench` is given (Alert).
  */
 export function getAttackRequirementFailure(
   attack: Attack,
   defender: PokemonInPlay | null | undefined,
   attacker?: PokemonInPlay | null,
-  defenderBench?: PokemonInPlay[]
+  defenderBench?: PokemonInPlay[],
+  attackerBench?: PokemonInPlay[]
 ): string | null {
   for (const effect of attack.effects ?? []) {
     if (effect.type === AttackEffectType.RequireStatus && effect.requiredStatus) {
@@ -2565,6 +2568,9 @@ export function getAttackRequirementFailure(
     }
     if (effect.type === AttackEffectType.RequireOpponentBench && defenderBench && defenderBench.length === 0) {
       return `No puedes usar ${attack.name}: tu rival no tiene Pokémon en la Banca`;
+    }
+    if (effect.type === AttackEffectType.RequireOwnBench && attackerBench && attackerBench.length === 0) {
+      return `No puedes usar ${attack.name}: no tienes Pokémon en la Banca`;
     }
   }
   return null;
@@ -2599,7 +2605,7 @@ export function canUseAttack(
   const attack = pokemon.attacks[attackIndex];
   if (!attack) return false;
 
-  if (defender !== undefined && !meetsAttackRequirements(attack, defender, pokemonInPlay, state ? benchOfActive(state, defender) : undefined)) {
+  if (defender !== undefined && !meetsAttackRequirements(attack, defender, pokemonInPlay, state ? benchOfActive(state, defender) : undefined, state ? benchOfActive(state, pokemonInPlay) : undefined)) {
     return false;
   }
 
@@ -3256,7 +3262,7 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   if (attacker.attackLock?.onTurn === state.turnNumber && attacker.attackLock.attackName === attack.name) {
     return `${name} no puede usar ${attack.name} este turno`;
   }
-  const requirement = getAttackRequirementFailure(attack, defender, attacker, state.opponentBench);
+  const requirement = getAttackRequirementFailure(attack, defender, attacker, state.opponentBench, state.playerBench);
   if (requirement) return requirement;
   const isUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (isUseOnce && attacker.usedOnceAttacks?.includes(attack.name)) return `${attack.name} ya fue usado`;
@@ -3290,7 +3296,7 @@ export function canExecuteMetronome(state: GameState, copiedAttack: Attack): str
   const defenderCard = getEffectivePokemonCard(state, defender);
   const copyable = !!defenderCard && defenderCard.attacks.some((a) => a.name === copiedAttack.name);
   if (!copyable) return "Metrónomo solo puede copiar un ataque del Pokémon Defensor";
-  const requirement = getAttackRequirementFailure(copiedAttack, defender, undefined, state.opponentBench);
+  const requirement = getAttackRequirementFailure(copiedAttack, defender, undefined, state.opponentBench, state.playerBench);
   if (requirement) return requirement;
   return null;
 }
@@ -3540,7 +3546,7 @@ function executeAttackUnchecked(
   }
 
   // RequireStatus (Dream Eater): the attack can't be used unless the defender has the status
-  if (!meetsAttackRequirements(attack, defender, attacker, gameState.opponentBench)) {
+  if (!meetsAttackRequirements(attack, defender, attacker, gameState.opponentBench, gameState.playerBench)) {
     return {
       ...gameState,
       events: [
