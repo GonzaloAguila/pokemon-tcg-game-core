@@ -212,4 +212,45 @@ describe("new effect kinds", () => {
     const one = use(vs(withAttack(inPlay("Pikachu"), { effects: [{ ...charge, amount: 1, minAmount: 1 }] }), inPlay("Onix"), { player: { discard } }));
     expect([one.pendingAttackChoice!.step.minSelections, one.pendingAttackChoice!.step.maxSelections]).toEqual([1, 1]);
   });
+
+  describe("ReturnPokemonToHand (Fairy Power)", () => {
+    const fairyPower: AttackEffect = { type: AttackEffectType.ReturnPokemonToHand, target: AttackTarget.Self, coinFlip: { count: 1, onHeads: "damage" } };
+    const setup = () => {
+      const clefable = withAttack(inPlay("Clefable", { set: "jungle", energy: [Fire], damage: 30 }), { effects: [fairyPower] });
+      const abra = inPlay("Abra", { energy: [Psychic] });
+      const machop = inPlay("Machop", { damage: 20 });
+      return { clefable, abra, machop, state: deepFreeze(vs(clefable, inPlay("Onix"), { player: { bench: [abra, machop] } })) };
+    };
+
+    it("heads: any number of your Pokémon in play go to the hand with their cards; tails: nothing", () => {
+      const { clefable, abra, machop, state } = setup();
+      expect(use(state, [T]).pendingAttackChoice).toBeUndefined();
+      const next = use(state, [H]);
+      const step = next.pendingAttackChoice!.step;
+      // The most damaged Benched Pokémon first, the Active last
+      expect(optionIds(next)).toEqual([machop.pokemon.id, abra.pokemon.id, clefable.pokemon.id]);
+      expect([step.minSelections, step.maxSelections]).toEqual([0, 3]);
+      const done = choose(next, [abra.pokemon.id]);
+      expect(names(done.playerHand).sort()).toEqual(["Abra", "Psychic Energy"]);
+      expect(names(done.playerBench.map((p) => p.pokemon))).toEqual(["Machop"]);
+      expect(done.playerActivePokemon!.pokemon.name).toBe("Clefable");
+      expect(choose(next, []).playerBench).toHaveLength(2);
+    });
+
+    it("returning the Active Pokémon: the player promotes; returning everything loses the game", () => {
+      const { clefable, abra, machop, state } = setup();
+      const next = use(state, [H]);
+      const active = choose(next, [clefable.pokemon.id]);
+      expect(active.playerActivePokemon).toBeNull();
+      expect(active.playerNeedsToPromote).toBe(true);
+      expect(names(active.playerHand).sort()).toEqual(["Clefable", "Fire Energy"]);
+      const all = choose(next, [clefable.pokemon.id, abra.pokemon.id, machop.pokemon.id]);
+      expect(all.gameResult).toBe("defeat");
+    });
+
+    it("with an empty Bench the Active Pokémon isn't offered (returning it would lose the game)", () => {
+      const { clefable } = setup();
+      expect(use(vs(clefable, inPlay("Onix")), [H]).pendingAttackChoice).toBeUndefined();
+    });
+  });
 });

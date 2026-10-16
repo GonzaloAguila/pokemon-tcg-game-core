@@ -19,6 +19,7 @@
  * | `EvolveFromDeck` | Rapid Evolution (Magikarp) | self | 1 Gyarados / Dark Gyarados card of the deck |
  * | `AttachEnergyFromDeck` | Afternoon Nap (Slowpoke) | self | 1 basic Psychic Energy card of the deck |
  * | `AttachEnergyFromDiscard` | Charge (Lt. Surge's Electabuzz / Pikachu) | self | `minAmount`..`amount` basic Energy cards of `energyType` in the discard pile |
+ * | `ReturnPokemonToHand` | Fairy Power (Erika's Clefable) | self | any of your Pokémon in play (the Active only offered with a Bench) |
  *
  * Damage done by a choice (ChooseTargetDamage) is attack damage: PlusPower and Defender when the
  * target is the Defending Pokémon, Kabuto Armor, protection / Invisible Wall, Strikes Back,
@@ -33,10 +34,10 @@
  */
 
 import type { AttackEffect } from "@/domain/cards";
-import { isEnergyCard, isPokemonCard } from "@/domain/cards";
+import { cardsLeavingPlay, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkSelection } from "@/domain/effects/validate";
-import { AttackEffectType, AttackTarget, CardKind, type CoinFlipResult } from "@/domain/constants";
+import { AttackEffectType, AttackTarget, CardKind, GamePhase, type CoinFlipResult } from "@/domain/constants";
 import {
   applyDamageHalving,
   getDamageReaction,
@@ -95,6 +96,7 @@ export function isAttackChoiceEffect(effect: AttackEffect): boolean {
     case AttackEffectType.EvolveFromDeck:
     case AttackEffectType.AttachEnergyFromDeck:
     case AttackEffectType.AttachEnergyFromDiscard:
+    case AttackEffectType.ReturnPokemonToHand:
       return true;
     case AttackEffectType.SelfSwitch:
       return !!effect.optional;
@@ -292,6 +294,23 @@ function stepFor(
         maxSelections: max,
         minSelections: Math.min(effect.minAmount ?? 0, max),
         cards,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.ReturnPokemonToHand: {
+      // The most damaged Benched Pokémon first; the Active last, and only with a Bench (else the game is lost)
+      const bench = [...state.playerBench].sort((a, b) => (b.currentDamage ?? 0) - (a.currentDamage ?? 0));
+      const active = state.playerActivePokemon && bench.length > 0 ? [state.playerActivePokemon] : [];
+      const choices = [...bench.map((p) => pokemonChoice(p, "Banca")), ...active.map((p) => pokemonChoice(p, "Activo"))];
+      if (choices.length === 0) return null;
+      return {
+        title,
+        description: "Puedes devolver a tu mano cualquier cantidad de tus Pokémon en juego y todas las cartas unidas a ellos",
+        options: choices,
+        maxSelections: choices.length,
+        minSelections: 0,
+        thumbnails: [...bench, ...active].map((p) => p.pokemon),
+        disableAutoSelect: true,
         chooser: "self",
       };
     }
@@ -536,6 +555,28 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
         playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== card.id)),
       };
       return { state: log(next, `${name}: unió ${energyLabel(card)} a ${attacker.pokemon.name}. Se mezcló el mazo`) };
+    }
+    case AttackEffectType.ReturnPokemonToHand: {
+      if (selection.length === 0) return { state: log(state, `${name}: no se devolvió ningún Pokémon`) };
+      const active = state.playerActivePokemon;
+      const returned = [...(active ? [active] : []), ...state.playerBench].filter((p) => selection.includes(p.pokemon.id));
+      const activeReturned = !!active && selection.includes(active.pokemon.id);
+      const bench = state.playerBench.filter((p) => !selection.includes(p.pokemon.id));
+      let next: GameState = log(
+        {
+          ...state,
+          playerActivePokemon: activeReturned ? null : active,
+          playerBench: bench,
+          playerHand: [...state.playerHand, ...returned.flatMap((p) => cardsLeavingPlay(p))],
+        },
+        `${name}: ${returned.map((p) => p.pokemon.name).join(", ")} ${returned.length === 1 ? "volvió" : "volvieron"} a la mano con todas sus cartas`
+      );
+      if (activeReturned && bench.length > 0) {
+        next = { ...next, playerNeedsToPromote: true, events: [...next.events, createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")] };
+      } else if (activeReturned) {
+        next = { ...next, gameResult: "defeat", gamePhase: GamePhase.GameOver };
+      }
+      return { state: next };
     }
     case AttackEffectType.AttachEnergyFromDiscard: {
       if (selection.length === 0) return { state: log(state, `${name}: no se unió ninguna Energía`) };

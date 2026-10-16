@@ -172,6 +172,8 @@ export const AttackEffectType = {
   // ---------------------------------------------------------------- Gym Heroes
   /** Charge: up to `amount` (at least `minAmount`) basic Energy cards of `energyType` from the discard pile onto this Pokémon */
   AttachEnergyFromDiscard: "attachEnergyFromDiscard",
+  /** Fairy Power: return any number of your Pokémon in play, with every card attached, to your hand */
+  ReturnPokemonToHand: "returnPokemonToHand",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 
