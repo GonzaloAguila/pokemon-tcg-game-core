@@ -40,10 +40,12 @@ import type { AttackEffect } from "@/domain/cards";
 import { cardsLeavingPlay, isEnergyCard, isPokemonCard, type DeckCardFilter } from "@/domain/cards";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkSelection } from "@/domain/effects/validate";
-import { AttackEffectType, AttackTarget, CardKind, GamePhase, PokemonStage, StatusCondition, type CoinFlipResult } from "@/domain/constants";
+import { AttackEffectType, AttackTarget, CardKind, GamePhase, PokemonPowerType, PokemonStage, StatusCondition, type CoinFlipResult } from "@/domain/constants";
 import {
-  applyDamageHalving,
+  applyAttackDamageReductions,
+  asleepDamageReaction,
   getDamageReaction,
+  getDamagedStatusFlip,
   getEffectivePokemonCard,
   getEffectiveHp,
   getKnockOutRetaliation,
@@ -54,10 +56,17 @@ import { evolvePokemonInPlay, getEvolutionBlocker, maxBenchSize } from "@/domain
 import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
 import { IllegalActionError } from "@/shared/errors";
 import { modifierAppliesTo } from "./modifiers";
-import type { GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
+import type { AttackReactions, GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
 import {
   activeCounterAttack,
+  applyBenchGuard,
   applyStatusCondition,
+  benchGuardFor,
+  benchGuardStep,
+  executeAttack,
+  executeBenchDamage,
+  executeMetronome,
+  pauseForReaction,
   checkKnockouts,
   clearStatusConditionsOnRetreat,
   counterAttackDamage,
@@ -93,6 +102,8 @@ export type AttackChoiceContext = {
   counterAttackCoin?: CoinFlipResult;
   /** Shadow Images' coin (the attack's defender coin, flipped by the attacker): tails = no damage to it */
   evadeCoin?: CoinFlipResult;
+  /** Pollen Defense's coin (the attack's defender coin) when the Defending Pokémon is an Erika's Vileplume */
+  damagedStatusCoin?: CoinFlipResult;
 };
 
 /** Effects whose outcome is chosen by a player after the attack (see the table above). */
@@ -198,7 +209,7 @@ function stepFor(
       if (!attacker) return null;
       if (effect.optionalEnergyDiscard && !picked) {
         const type = effect.optionalEnergyDiscard;
-        const energies = attacker.attachedEnergy.filter((e) => energyProvidesType(e, type));
+        const energies = attacker.attachedEnergy.filter((e) => energyProvidesType(e, type, attacker, state));
         if (energies.length === 0) return null;
         return {
           title,
@@ -456,7 +467,7 @@ function stepFor(
     case AttackEffectType.DiscardEnergyForMill: {
       const attacker = attackerOf(state, context);
       const energies = (attacker?.attachedEnergy ?? []).filter(
-        (e) => e.kind === CardKind.Energy && (!effect.energyType || energyProvidesType(e, effect.energyType))
+        (e) => e.kind === CardKind.Energy && (!effect.energyType || energyProvidesType(e, effect.energyType, attacker, state))
       );
       if (energies.length === 0) return null;
       return {
@@ -518,8 +529,14 @@ export function startAttackChoices(state: GameState, effects: AttackEffect[], co
 }
 
 /** Apply one answer. Returns the new state and, for multi-step effects, the follow-up question. */
-function applyChoice(state: GameState, pending: PendingAttackChoice, selection: string[]): { state: GameState; next?: PendingAttackChoice } {
-  const { effect, context } = pending;
+function applyChoice(
+  state: GameState,
+  pending: PendingAttackChoice,
+  selection: string[],
+  reactions: AttackReactions = {}
+): { state: GameState; next?: PendingAttackChoice } {
+  const { context } = pending;
+  const effect = pending.effect!;
   const name = context.attackName;
   const log = (s: GameState, message: string): GameState => ({ ...s, events: [...s.events, createGameEvent(message, "action")] });
   /** Same effect, a follow-up step after `picked` (null when there's nothing left to ask). */
@@ -564,7 +581,7 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
           `${name}: ${incoming.pokemon.name} pasa a ser el Pokémon activo del rival`
         );
       }
-      return { state: dealChosenTargetDamage(next, selection[0], effect, context) };
+      return { state: dealChosenTargetDamage(next, selection[0], effect, context, { reactions, resume: { pending, selection, input: state } }) };
     }
     case AttackEffectType.MoveDefenderEnergyToBench: {
       if (!pending.picked) return { state, next: followUp(state, selection) };
@@ -803,7 +820,13 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
  * the original Defending Pokémon stop it (and Stare's power stop). Then Strikes Back, Mirror
  * Shell, Destiny Bond and Final Beam on the attacker, and Knock Outs (Prizes taken at once).
  */
-export function dealChosenTargetDamage(state: GameState, targetId: string, effect: AttackEffect, context: AttackChoiceContext): GameState {
+export function dealChosenTargetDamage(
+  state: GameState,
+  targetId: string,
+  effect: AttackEffect,
+  context: AttackChoiceContext,
+  guard: { reactions: AttackReactions; resume?: { pending: PendingAttackChoice; selection: string[]; input: GameState } } = { reactions: {} }
+): GameState {
   const attacker = attackerOf(state, context);
   const isActive = state.opponentActivePokemon?.pokemon.id === targetId;
   const target = isActive ? state.opponentActivePokemon! : state.opponentBench.find((p) => p.pokemon.id === targetId);
@@ -839,7 +862,7 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
     damage = Math.max(0, damage - target.nextTurnDamageReduction);
     consumedReduction = true;
   }
-  damage = applyDamageHalving(target, damage, state);
+  damage = applyAttackDamageReductions(target, damage, state, attacker);
   if ((isActive && protectionBlocksDamage(target, damage) && damage > 0) || isDamageBlocked(target, damage, state)) {
     events.push(createGameEvent(`${name}: el daño a ${target.pokemon.name} fue prevenido`, "action"));
     damage = 0;
@@ -853,6 +876,34 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
     }
   }
 
+  // Bench Guard (Brock's Rhydon): asked before the damage to a Benched Pokémon is done
+  let benchGuarded: { amount: number; guardId: string; powerName: string; guardName: string } | undefined;
+  if (!isActive && damage > 0) {
+    const found = benchGuardFor(state, "opponent", [{ id: targetId, damage }]);
+    if (found) {
+      const chosen = guard.reactions.benchGuard?.opponent;
+      if (chosen === undefined && guard.resume) {
+        const { pending, selection, input } = guard.resume;
+        return pauseForReaction(
+          { ...input, pendingAttackChoice: undefined },
+          {
+            powerType: PokemonPowerType.RedirectBenchDamage,
+            powerName: found.powerName,
+            pokemonId: found.guard.pokemon.id,
+            side: "opponent",
+            resume: { kind: "attackChoice", pending, selection, reactions: guard.reactions },
+          },
+          benchGuardStep({ ...state, opponentBench: state.opponentBench.map((p) => (p.pokemon.id === targetId ? { ...p, currentDamage: (p.currentDamage ?? 0) + damage } : p)) }, "opponent", found),
+          context
+        );
+      }
+      if (chosen?.includes(targetId)) {
+        benchGuarded = { amount: found.amount, guardId: found.guard.pokemon.id, powerName: found.powerName, guardName: found.guard.pokemon.name };
+        damage -= found.amount;
+      }
+    }
+  }
+
   const blockedEffects = isActive && target.protection?.type === "damageAndEffects";
   let hit: PokemonInPlay = {
     ...target,
@@ -862,6 +913,7 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
     ...(damage > 0 && { evadeOnFlip: undefined }),
   };
   if (damage > 0) events.push(createGameEvent(`${name}: ${target.pokemon.name} recibió ${damage} de daño`, "action"));
+  if (benchGuarded) events.push(createGameEvent(`${benchGuarded.powerName}: ${benchGuarded.guardName} recibió ${benchGuarded.amount} del daño de ${target.pokemon.name}`, "action"));
   const knockedOut = (hit.currentDamage ?? 0) >= getEffectiveHp(state, hit);
 
   // Stare: the chosen Pokémon's power stops until the end of the opponent's next turn
@@ -874,7 +926,20 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
 
   // Reactions of the damaged Pokémon on the attacker
   let retaliation = 0;
+  let attackerStatus: StatusCondition | undefined;
   if (damage > 0) {
+    // Restless Sleep (Rocket's Snorlax) while it was already Asleep
+    const restless = isActive ? asleepDamageReaction(state, target) : null;
+    if (restless) {
+      retaliation += restless.damage;
+      events.push(createGameEvent(`¡${restless.power.name}! ${target.pokemon.name} le hizo ${restless.damage} de daño a ${attacker.pokemon.name}`, "action"));
+    }
+    // Pollen Defense (its coin is the attack's defender coin, for the original Defending Pokémon)
+    const pollen = isActive && isOriginalDefender && context.damagedStatusCoin ? getDamagedStatusFlip(state, target) : undefined;
+    if (pollen) {
+      events.push(createGameEvent(`${pollen.name} de ${target.pokemon.name} - Moneda: [coin:${context.damagedStatusCoin}]`, "info"));
+      if (context.damagedStatusCoin === "heads") attackerStatus = pollen.status ?? StatusCondition.Confused;
+    }
     const reaction = getDamageReaction(target, isActive, state);
     if (reaction) {
       retaliation += reaction.reactionDamage;
@@ -905,10 +970,22 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
   }
   const destinyBond = knockedOut && damage > 0 && isActive && !!target.destinyBondActive;
 
+  let attackerAfter: PokemonInPlay = retaliation > 0 ? { ...attacker, currentDamage: (attacker.currentDamage ?? 0) + retaliation } : attacker;
+  if (attackerStatus) {
+    if (hasStatusImmunity(attackerAfter, state)) {
+      events.push(createGameEvent(`${attacker.pokemon.name} no puede verse afectado por estados especiales`, "action"));
+    } else {
+      attackerAfter = applyStatusCondition(attackerAfter, attackerStatus, state.turnNumber);
+      events.push(createGameEvent(`¡${attacker.pokemon.name} pasa a estar ${STATUS_LABELS[attackerStatus] ?? attackerStatus}!`, "action"));
+    }
+  }
+  const opponentBench = state.opponentBench.map((p) =>
+    p.pokemon.id === targetId ? hit : benchGuarded && p.pokemon.id === benchGuarded.guardId ? { ...p, currentDamage: (p.currentDamage ?? 0) + benchGuarded.amount } : p
+  );
   let next: GameState = {
     ...state,
-    ...(isActive ? { opponentActivePokemon: hit } : { opponentBench: state.opponentBench.map((p) => (p.pokemon.id === targetId ? hit : p)) }),
-    playerActivePokemon: retaliation > 0 ? { ...attacker, currentDamage: (attacker.currentDamage ?? 0) + retaliation } : attacker,
+    ...(isActive ? { opponentActivePokemon: hit } : { opponentBench }),
+    playerActivePokemon: attackerAfter,
     powersSuppressed,
     events,
   };
@@ -932,9 +1009,49 @@ export function resolveAttackChoice(state: GameState, selection: string[], optio
   const pending = state.pendingAttackChoice;
   if (!pending) throw new IllegalActionError("No hay ninguna elección de ataque pendiente");
   checkSelection(pending.step, selection);
-  const applied = applyChoice({ ...state, pendingAttackChoice: undefined }, pending, selection);
+  const cleared: GameState = { ...state, pendingAttackChoice: undefined };
+  if (pending.reaction) return resumeAfterReaction(cleared, pending.reaction, selection, options);
+  const applied = applyChoice(cleared, pending, selection, options.reactions);
+  // Bench Guard asked for the damage this choice does: nothing happened yet
+  if (applied.state.pendingAttackChoice?.reaction) return applied.state;
   const next = applied.next ?? nextChoice(applied.state, pending.queue, pending.context);
   if (next) return { ...applied.state, pendingAttackChoice: next };
   const done = checkKnockouts(applied.state);
   return options.skipEndTurn || done.gameResult !== null ? done : endTurn(done);
+}
+
+/** The reactions answered so far plus this answer (Flee: the Benched Pokémon or null; Bench Guard: the chosen ones). */
+function withAnswer(reaction: NonNullable<PendingAttackChoice["reaction"]>, selection: string[], previous: AttackReactions = {}): AttackReactions {
+  if (reaction.powerType === PokemonPowerType.SwitchWhenDamaged) return { ...previous, flee: selection[0] ?? null };
+  return { ...previous, benchGuard: { ...previous.benchGuard, [reaction.side]: selection } };
+}
+
+/**
+ * A power asked mid-attack was answered (Flee, Bench Guard): run again what it paused — the
+ * attack (executeAttack / executeMetronome with the same coins and options), the Bench damage
+ * the attacker chose, or the attack choice — with every answer so far. It may ask the next power.
+ */
+function resumeAfterReaction(
+  state: GameState,
+  reaction: NonNullable<PendingAttackChoice["reaction"]>,
+  selection: string[],
+  options: PendingResolutionOptions
+): GameState {
+  const resume = reaction.resume;
+  switch (resume.kind) {
+    case "attack": {
+      const opts = { ...resume.options, reactions: withAnswer(reaction, selection, resume.options.reactions), skipEndTurn: !!options.skipEndTurn };
+      return resume.copiedAttack ? executeMetronome(state, resume.copiedAttack, opts) : executeAttack(state, resume.attackIndex, opts);
+    }
+    case "benchDamage":
+      return executeBenchDamage({ ...state, pendingBenchDamageSelection: resume.pending }, resume.selection, {
+        skipEndTurn: options.skipEndTurn,
+        reactions: withAnswer(reaction, selection, resume.reactions),
+      });
+    case "attackChoice":
+      return resolveAttackChoice({ ...state, pendingAttackChoice: resume.pending }, resume.selection, {
+        ...options,
+        reactions: withAnswer(reaction, selection, resume.reactions),
+      });
+  }
 }

@@ -23,7 +23,15 @@ import {
 } from "@/domain/constants";
 import { decks, findCardBySetAndNumber, type Deck, type DeckEntry } from "@/domain/decks";
 import {
+  applyAttackDamageReductions,
   applyDamageHalving,
+  applyDamagePowers,
+  asleepDamageReaction,
+  getBenchGuard,
+  getDamagedStatusFlip,
+  getEnergyTypeOverride,
+  getFleePower,
+  getRebirthPower,
   getConfusedDamageBonus,
   getKnockOutRetaliation,
   getRetreatCostIncrease,
@@ -168,10 +176,40 @@ export type GameModifier = {
 
 export type GameResult = "victory" | "defeat" | null;
 
+/**
+ * Answers of the Pokémon Powers a player may use in the middle of an attack (Gym Heroes), given
+ * back to the attack when it is resumed (ExecuteAttackOptions.reactions):
+ * - `flee`: Flee (Misty's Tentacruel, the Defending Pokémon): id of the Benched Pokémon it
+ *   switched with, or null when not used.
+ * - `benchGuard`: Bench Guard (Brock's Rhydon) of each side ("player" = the attacker's side):
+ *   ids of the Benched Pokémon whose damage it took 10 of (empty = not used).
+ */
+export type AttackReactions = {
+  flee?: string | null;
+  benchGuard?: Partial<Record<"player" | "opponent", string[]>>;
+};
+
+/**
+ * What to run again once a reaction is answered (see PendingAttackChoice.reaction): the attack
+ * itself (`attackIndex`, or `copiedAttack` through Metronome, with its coins and options), the
+ * Bench damage chosen by the attacker (pendingBenchDamageSelection), or an attack choice whose
+ * damage went to a Benched Pokémon (ChooseTargetDamage).
+ */
+export type AttackResume =
+  | { kind: "attack"; attackIndex: number; copiedAttack?: Attack; options: ExecuteAttackOptions }
+  | { kind: "benchDamage"; pending: NonNullable<GameState["pendingBenchDamageSelection"]>; selection: string[]; reactions: AttackReactions }
+  | { kind: "attackChoice"; pending: PendingAttackChoice; selection: string[]; reactions: AttackReactions };
+
 /** A pending attack choice (see GameState.pendingAttackChoice and lib/attackChoices.ts). */
 export type PendingAttackChoice = {
-  /** The attack effect waiting for the answer (its type says what the answer does) */
-  effect: AttackEffect;
+  /** The attack effect waiting for the answer (its type says what the answer does); absent for a `reaction` */
+  effect?: AttackEffect;
+  /**
+   * A Pokémon Power asked in the middle of the attack (Flee, Bench Guard): nothing of the attack
+   * (or of the step in `resume`) has happened yet; answering it runs `resume` again with the
+   * answer. `side` = the power owner's side in the attacker's view.
+   */
+  reaction?: { powerType: PokemonPowerType; powerName: string; pokemonId: string; side: "player" | "opponent"; resume: AttackResume };
   /** The question; `chooser` = "self" (the attacker) or "opponent" (the defending side) */
   step: SelectionStep;
   /** What the attack left behind (attacker / defender ids, Knock Out, prevention...) */
@@ -692,8 +730,14 @@ export function getEnergyValue(card: GameCard): number {
  * Energy card its printed type. Use it for every "<type> Energy card attached" check (costs,
  * discard costs, Water Gun-style bonuses, Continuous Fireball, Energy Trans, Gather Fire...).
  * In the hand or the discard pile a Rainbow Energy is not a basic Energy card (isBasicEnergy).
+ *
+ * @param holder - the Pokémon the card is attached to, when known: Photosynthesis (Erika's
+ *   Oddish, getEnergyTypeOverride) makes every Energy card attached to it provide Grass only.
+ *   Pass the state with it (Toxic Gas stops the power).
  */
-export function energyProvidesType(card: GameCard, type: EnergyType): boolean {
+export function energyProvidesType(card: GameCard, type: EnergyType, holder?: PokemonInPlay | null, state?: GameState): boolean {
+  const override = holder ? getEnergyTypeOverride(state, holder) : undefined;
+  if (override && (isEnergyCard(card) || card.buzzapEnergyType)) return type === override;
   if (card.buzzapEnergyType) return card.buzzapEnergyType === type;
   if (!isEnergyCard(card)) return false;
   if (card.providesAllTypes) return type !== EnergyTypeEnum.Colorless;
@@ -900,7 +944,113 @@ export function executeRetreat(
 export type PendingResolutionOptions = {
   /** Don't call endTurn once resolved (callers that swap perspective end the turn themselves). */
   skipEndTurn?: boolean;
+  /** Answers of the powers asked while resolving it (Bench Guard), set when resolveAttackChoice resumes it */
+  reactions?: AttackReactions;
 };
+
+// ============================================================================
+// POWERS ASKED IN THE MIDDLE OF AN ATTACK (Gym Heroes: Flee, Bench Guard)
+// ============================================================================
+
+/** One Benched Pokémon an attack damaged and the damage done to it. */
+export type BenchHit = { id: string; damage: number };
+
+/**
+ * Bench Guard (Brock's Rhydon) on the Bench of `side` (attacker's view) for the Benched Pokémon an
+ * attack damaged (`hits`): the working guard and the hits it may take `amount` (10) of — another
+ * Benched Pokémon that took at least that much. null when there's nothing to ask.
+ */
+export function benchGuardFor(
+  state: GameState,
+  side: "player" | "opponent",
+  hits: BenchHit[]
+): { guard: PokemonInPlay; powerName: string; amount: number; eligible: BenchHit[] } | null {
+  const guard = getBenchGuard(state, side === "player" ? state.playerBench : state.opponentBench);
+  if (!guard || !isPokemonCard(guard.pokemon) || !guard.pokemon.power) return null;
+  const amount = guard.pokemon.power.amount ?? 10;
+  const eligible = hits.filter((h) => h.id !== guard.pokemon.id && h.damage >= amount);
+  return eligible.length > 0 ? { guard, powerName: guard.pokemon.power.name, amount, eligible } : null;
+}
+
+/** Bench Guard's question for the guard's owner (`side` in the attacker's view, who also built it). */
+export function benchGuardStep(
+  state: GameState,
+  side: "player" | "opponent",
+  found: NonNullable<ReturnType<typeof benchGuardFor>>
+): SelectionStep {
+  const bench = side === "player" ? state.playerBench : state.opponentBench;
+  const hit = found.eligible.map((h) => ({ hit: h, pokemon: bench.find((p) => p.pokemon.id === h.id)! })).filter((x) => !!x.pokemon);
+  const guardName = found.guard.pokemon.name;
+  const ask = `Elige los Pokémon de tu Banca de los que ${guardName} recibe ${found.amount} de daño en su lugar`;
+  return {
+    title: found.powerName,
+    description: side === "player" ? `Puedes usar ${found.powerName}. ${ask}` : `Tu rival puede usar ${found.powerName} de ${guardName}`,
+    ...(side === "opponent" && { answererDescription: `Puedes usar ${found.powerName}. ${ask}` }),
+    options: hit.map(({ hit: h, pokemon }) => ({ id: h.id, label: `${pokemon.pokemon.name} (${h.damage} de daño)` })),
+    maxSelections: hit.length,
+    minSelections: 0,
+    thumbnails: hit.map(({ pokemon }) => pokemon.pokemon),
+    disableAutoSelect: true,
+    chooser: side === "player" ? "self" : "opponent",
+  };
+}
+
+/**
+ * Bench Guard's answer on a Bench (pure): each chosen Benched Pokémon gives `amount` of the damage
+ * it just took to the guard. Returns the Bench and the names of the Pokémon it helped.
+ */
+export function applyBenchGuard(bench: PokemonInPlay[], guardId: string, amount: number, chosen: string[]): { bench: PokemonInPlay[]; helped: string[] } {
+  const helped: string[] = [];
+  const moved = bench.map((p) => {
+    if (p.pokemon.id === guardId || !chosen.includes(p.pokemon.id)) return p;
+    helped.push(p.pokemon.name);
+    const left = (p.lastDamageReceived ?? amount) - amount;
+    return { ...p, currentDamage: Math.max(0, (p.currentDamage ?? 0) - amount), lastDamageReceived: left > 0 ? left : undefined };
+  });
+  const total = amount * helped.length;
+  return {
+    bench: total === 0 ? moved : moved.map((p) => (p.pokemon.id === guardId ? { ...p, currentDamage: (p.currentDamage ?? 0) + total } : p)),
+    helped,
+  };
+}
+
+/** The context of a power asked mid-attack (nothing of the attack has happened yet). */
+export function reactionContext(attacker: PokemonInPlay, defender: PokemonInPlay, attackName: string, state: GameState): AttackChoiceContext {
+  return {
+    attackName,
+    attackerId: attacker.pokemon.id,
+    defenderId: defender.pokemon.id,
+    defenderKnockedOut: false,
+    defenderBlocksEffects: false,
+    discardIdsBefore: state.playerDiscard.map((c) => c.id),
+  };
+}
+
+const STATUS_NAMES_ES: Partial<Record<string, string>> = {
+  [StatusCondition.Asleep]: "Dormido",
+  [StatusCondition.Confused]: "Confundido",
+  [StatusCondition.Paralyzed]: "Paralizado",
+  [StatusCondition.Poisoned]: "Envenenado",
+};
+
+/**
+ * Stop before an attack (or the step in `resume`) does anything: `state` is returned as it was
+ * given, with the power's question as the pending attack choice. resolveAttackChoice runs
+ * `resume` again with the answer.
+ */
+export function pauseForReaction(
+  state: GameState,
+  reaction: NonNullable<PendingAttackChoice["reaction"]>,
+  step: SelectionStep,
+  context: AttackChoiceContext
+): GameState {
+  const who = step.chooser === "opponent" ? "el defensor" : "el atacante";
+  return {
+    ...state,
+    pendingAttackChoice: { step, context, queue: [], reaction },
+    events: [...state.events, createGameEvent(`${reaction.powerName}: ${who} debe elegir`, "info")],
+  };
+}
 
 /** The attack is complete once its pending choice is resolved: end the turn unless told not to. */
 function finishPendingStep(state: GameState, options: PendingResolutionOptions): GameState {
@@ -1209,12 +1359,15 @@ export function executeBenchDamage(
   let newOpponentBench = [...gameState.opponentBench];
   // Strikes Back (Machamp) of a chosen Benched Pokémon: damage to the attacker (no W/R)
   let strikesBack = 0;
+  const hits: BenchHit[] = [];
+  const attackerNow = gameState.playerActivePokemon;
 
   if (targetSide === "opponent") {
     newOpponentBench = newOpponentBench.map((p) => {
       if (!p || !selectedPokemonIds.includes(p.pokemon.id)) return p;
 
-      const dealt = applyDamageHalving(p, Math.max(0, damageAmount - attachedDefenderReduction(gameState, p)), gameState);
+      const dealt = applyAttackDamageReductions(p, Math.max(0, damageAmount - attachedDefenderReduction(gameState, p)), gameState, attackerNow);
+      hits.push({ id: p.pokemon.id, damage: dealt });
       const newDamage = (p.currentDamage || 0) + dealt;
       events.push(
         createGameEvent(
@@ -1237,7 +1390,8 @@ export function executeBenchDamage(
     newPlayerBench = newPlayerBench.map((p) => {
       if (!p || !selectedPokemonIds.includes(p.pokemon.id)) return p;
 
-      const dealt = applyDamageHalving(p, Math.max(0, damageAmount - attachedDefenderReduction(gameState, p)), gameState);
+      const dealt = applyAttackDamageReductions(p, Math.max(0, damageAmount - attachedDefenderReduction(gameState, p)), gameState, attackerNow);
+      hits.push({ id: p.pokemon.id, damage: dealt });
       const newDamage = (p.currentDamage || 0) + dealt;
       events.push(
         createGameEvent(
@@ -1251,6 +1405,36 @@ export function executeBenchDamage(
         currentDamage: newDamage,
       };
     });
+  }
+
+  // Bench Guard (Brock's Rhydon) on the damaged Bench: asked before the damage is done
+  const damagedBench = targetSide === "opponent" ? newOpponentBench : newPlayerBench;
+  const guard = benchGuardFor(targetSide === "opponent" ? { ...gameState, opponentBench: damagedBench } : { ...gameState, playerBench: damagedBench }, targetSide, hits);
+  if (guard) {
+    const chosen = options.reactions?.benchGuard?.[targetSide];
+    if (chosen === undefined) {
+      const viewWithHits = targetSide === "opponent" ? { ...gameState, opponentBench: damagedBench } : { ...gameState, playerBench: damagedBench };
+      const active = gameState.playerActivePokemon ?? damagedBench[0];
+      const defending = gameState.opponentActivePokemon ?? active;
+      return pauseForReaction(
+        { ...gameState, pendingBenchDamageSelection: undefined },
+        {
+          powerType: PokemonPowerType.RedirectBenchDamage,
+          powerName: guard.powerName,
+          pokemonId: guard.guard.pokemon.id,
+          side: targetSide,
+          resume: { kind: "benchDamage", pending, selection: selectedPokemonIds, reactions: options.reactions ?? {} },
+        },
+        benchGuardStep(viewWithHits, targetSide, guard),
+        reactionContext(active, defending, guard.powerName, gameState)
+      );
+    }
+    const guarded = applyBenchGuard(damagedBench, guard.guard.pokemon.id, guard.amount, chosen.filter((id) => guard.eligible.some((h) => h.id === id)));
+    if (targetSide === "opponent") newOpponentBench = guarded.bench;
+    else newPlayerBench = guarded.bench;
+    if (guarded.helped.length > 0) {
+      events.push(createGameEvent(`${guard.powerName}: ${guard.guard.pokemon.name} recibió ${guard.amount * guarded.helped.length} del daño de ${guarded.helped.join(", ")}`, "action"));
+    }
   }
 
   // The attack may already have knocked out an Active: a bench KO can leave a side with
@@ -1276,6 +1460,24 @@ export function executeBenchDamage(
 }
 
 /**
+ * The cards a Knocked Out Pokémon leaves: everything goes to its owner's discard pile, except
+ * the card Rebirth (Rocket's Moltres, getRebirthPower) returns to the hand "after discarding
+ * it" — its power must work at the moment of the Knock Out (`knockedOut` as it was then). The
+ * Prize is taken as usual. Every Knock Out path uses it.
+ */
+function knockedOutCards(state: GameState | undefined, knockedOut: PokemonInPlay): { discard: GameCard[]; hand: GameCard[]; events: GameEvent[] } {
+  const cards = cardsLeavingPlay(knockedOut);
+  const power = getRebirthPower(state, knockedOut);
+  if (!power) return { discard: cards, hand: [], events: [] };
+  const id = knockedOut.pokemon.id;
+  return {
+    discard: cards.filter((c) => c.id !== id),
+    hand: cards.filter((c) => c.id === id),
+    events: [createGameEvent(`${power.name}: ${knockedOut.pokemon.name} volvió a la mano tras quedar Fuera de Combate`, "action")],
+  };
+}
+
+/**
  * The acting side's ("player") active Pokémon is knocked out during its own turn
  * (self damage, Strikes Back, Destiny Bond, confusion). Shared by executeAttack and
  * resolveConfusionFlip. Pure: returns new piles, never mutates the inputs.
@@ -1287,18 +1489,22 @@ export function executeBenchDamage(
  */
 function knockOutActingActive(
   knockedOut: PokemonInPlay,
-  piles: { bench: PokemonInPlay[]; discard: GameCard[]; opponentPrizes: GameCard[]; opponentHand: GameCard[] },
-  prizeMessage: string
+  piles: { bench: PokemonInPlay[]; discard: GameCard[]; hand: GameCard[]; opponentPrizes: GameCard[]; opponentHand: GameCard[] },
+  prizeMessage: string,
+  state: GameState
 ): {
   discard: GameCard[];
+  hand: GameCard[];
   opponentPrizes: GameCard[];
   opponentHand: GameCard[];
   needsToPromote: boolean;
   prizedOut: boolean;
   events: GameEvent[];
 } {
-  const events: GameEvent[] = [];
-  const discard = [...piles.discard, ...cardsLeavingPlay(knockedOut)];
+  const leaving = knockedOutCards(state, knockedOut);
+  const events: GameEvent[] = [...leaving.events];
+  const discard = [...piles.discard, ...leaving.discard];
+  const hand = [...piles.hand, ...leaving.hand];
 
   let opponentPrizes = piles.opponentPrizes;
   let opponentHand = piles.opponentHand;
@@ -1323,7 +1529,7 @@ function knockOutActingActive(
     events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
   }
 
-  return { discard, opponentPrizes, opponentHand, needsToPromote: needsToPromote && !prizedOut, prizedOut, events };
+  return { discard, hand, opponentPrizes, opponentHand, needsToPromote: needsToPromote && !prizedOut, prizedOut, events };
 }
 
 /**
@@ -1337,14 +1543,16 @@ export function knockOutPlayerActive(state: GameState, prizeMessage: string = "E
   if (!active) return state;
   const ko = knockOutActingActive(
     active,
-    { bench: state.playerBench, discard: state.playerDiscard, opponentPrizes: state.opponentPrizes, opponentHand: state.opponentHand },
-    prizeMessage
+    { bench: state.playerBench, discard: state.playerDiscard, hand: state.playerHand, opponentPrizes: state.opponentPrizes, opponentHand: state.opponentHand },
+    prizeMessage,
+    state
   );
   const defeated = ko.prizedOut || !ko.needsToPromote;
   return {
     ...state,
     playerActivePokemon: null,
     playerDiscard: ko.discard,
+    playerHand: ko.hand,
     opponentPrizes: ko.opponentPrizes,
     opponentHand: ko.opponentHand,
     playerNeedsToPromote: ko.needsToPromote,
@@ -1363,7 +1571,8 @@ export function knockOutPlayerActive(state: GameState, prizeMessage: string = "E
 export function knockOutOpponentActive(state: GameState): GameState {
   const active = state.opponentActivePokemon;
   if (!active) return state;
-  const events: GameEvent[] = [...state.events, createGameEvent(`¡${active.pokemon.name} fue noqueado!`, "action")];
+  const leaving = knockedOutCards(state, active);
+  const events: GameEvent[] = [...state.events, createGameEvent(`¡${active.pokemon.name} fue noqueado!`, "action"), ...leaving.events];
   let playerPrizes = state.playerPrizes;
   let playerHand = state.playerHand;
   let tookPrize = false;
@@ -1376,7 +1585,8 @@ export function knockOutOpponentActive(state: GameState): GameState {
   const next: GameState = {
     ...state,
     opponentActivePokemon: null,
-    opponentDiscard: [...state.opponentDiscard, ...cardsLeavingPlay(active)],
+    opponentDiscard: [...state.opponentDiscard, ...leaving.discard],
+    opponentHand: [...state.opponentHand, ...leaving.hand],
     playerPrizes,
     playerHand,
     opponentNeedsToPromote: state.opponentBench.length > 0,
@@ -1476,7 +1686,13 @@ export function processBenchKnockouts(state: GameState): GameState {
   }
 
   const events = [...state.events];
-  const cardsOf = (p: PokemonInPlay): GameCard[] => cardsLeavingPlay(p);
+  // Rebirth (Rocket's Moltres): the card goes back to its owner's hand after being discarded
+  const leavingOf = (kos: PokemonInPlay[]) => {
+    const all = kos.map((p) => knockedOutCards(state, p));
+    return { discard: all.flatMap((l) => l.discard), hand: all.flatMap((l) => l.hand), events: all.flatMap((l) => l.events) };
+  };
+  const playerLeaving = leavingOf(playerKOs);
+  const opponentLeaving = leavingOf(opponentKOs);
 
   // Takes one prize per KO for the given side (not for a Mysterious Fossil / Clefairy Doll)
   const takePrizes = (prizes: GameCard[], hand: GameCard[], allKnockedOut: PokemonInPlay[]) => {
@@ -1491,6 +1707,7 @@ export function processBenchKnockouts(state: GameState): GameState {
   for (const ko of [...opponentKOs, ...playerKOs]) {
     events.push(createGameEvent(`¡${ko.pokemon.name} fue noqueado en la banca!`, "action"));
   }
+  events.push(...opponentLeaving.events, ...playerLeaving.events);
 
   // Opponent's benched Pokémon knocked out -> player takes prizes, and vice versa
   const player = takePrizes(state.playerPrizes, state.playerHand, opponentKOs);
@@ -1517,12 +1734,12 @@ export function processBenchKnockouts(state: GameState): GameState {
     ...state,
     playerBench: state.playerBench.filter((p) => !playerKOs.includes(p)),
     opponentBench: state.opponentBench.filter((p) => !opponentKOs.includes(p)),
-    playerDiscard: [...state.playerDiscard, ...playerKOs.flatMap(cardsOf)],
-    opponentDiscard: [...state.opponentDiscard, ...opponentKOs.flatMap(cardsOf)],
+    playerDiscard: [...state.playerDiscard, ...playerLeaving.discard],
+    opponentDiscard: [...state.opponentDiscard, ...opponentLeaving.discard],
     playerPrizes: player.prizes,
-    playerHand: player.hand,
+    playerHand: [...player.hand, ...playerLeaving.hand],
     opponentPrizes: opponent.prizes,
-    opponentHand: opponent.hand,
+    opponentHand: [...opponent.hand, ...opponentLeaving.hand],
     gameResult,
     gamePhase,
     ...(gameOver && { playerCanTakePrize: false, opponentCanTakePrize: false }),
@@ -1965,7 +2182,10 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   ) => {
     // Mover al descarte
     if (isPlayerPokemon) {
-      updatedState.playerDiscard = [...updatedState.playerDiscard, ...cardsLeavingPlay(knockedOut)];
+      const leaving = knockedOutCards(updatedState, knockedOut);
+      updatedState.playerDiscard = [...updatedState.playerDiscard, ...leaving.discard];
+      updatedState.playerHand = [...updatedState.playerHand, ...leaving.hand];
+      events.push(...leaving.events);
 
       // El oponente puede tomar premio
       if (updatedState.opponentPrizes.length > 0 && givesPrizeWhenKnockedOut(knockedOut)) {
@@ -1989,7 +2209,10 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
         events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
       }
     } else {
-      updatedState.opponentDiscard = [...updatedState.opponentDiscard, ...cardsLeavingPlay(knockedOut)];
+      const leaving = knockedOutCards(updatedState, knockedOut);
+      updatedState.opponentDiscard = [...updatedState.opponentDiscard, ...leaving.discard];
+      updatedState.opponentHand = [...updatedState.opponentHand, ...leaving.hand];
+      events.push(...leaving.events);
 
       // El jugador puede tomar premio
       if (updatedState.playerPrizes.length > 0 && givesPrizeWhenKnockedOut(knockedOut)) {
@@ -2570,7 +2793,7 @@ export function getAttackRequirementFailure(
     }
     // Fireball / Playing with Fire: an Energy card of that type attached (Rainbow Energy counts)
     if (effect.type === AttackEffectType.RequireAttachedEnergy && effect.energyType && attacker &&
-        !attacker.attachedEnergy.some((e) => energyProvidesType(e, effect.energyType!))) {
+        !attacker.attachedEnergy.some((e) => energyProvidesType(e, effect.energyType!, attacker))) {
       return `No puedes usar ${attack.name}: ${attacker.pokemon.name} no tiene Energía ${getEnergyTypeInSpanish(effect.energyType)} unida`;
     }
     if (effect.type === AttackEffectType.RequireOpponentBench && defenderBench && defenderBench.length === 0) {
@@ -2644,6 +2867,8 @@ export function canUseAttack(
       }
     }
   }
+  // Photosynthesis (Erika's Oddish): every Energy card attached provides Grass (works while statused)
+  if (!energyConversionType) energyConversionType = getEnergyTypeOverride(state, pokemonInPlay);
 
   // Contar energías por tipo (Double Colorless cuenta como 2 para costos de ataque)
   const energyValueCount: Record<string, number> = {};
@@ -2878,12 +3103,12 @@ export function calculateBaseDamage(
         // Count total energy of this type attached (a transformed Ditto's Energy is any type)
         const anyType = isPokemonCard(attacker.pokemon) && !!attacker.pokemon.transformedFrom;
         const totalOfType = attacker.attachedEnergy.filter(
-          e => e.kind === CardKind.Energy && (anyType || energyProvidesType(e, energyType))
+          e => e.kind === CardKind.Energy && (anyType || energyProvidesType(e, energyType, attacker))
         ).length;
         // Count how many are required by the attack cost: its symbols of that type, plus the
         // Colorless part that the other Energy can't pay (Poliwrath W W W for W W C: no extra)
         const otherValue = getTotalEnergyValue(attacker.attachedEnergy.filter(
-          e => e.kind === CardKind.Energy && !(anyType || energyProvidesType(e, energyType))
+          e => e.kind === CardKind.Energy && !(anyType || energyProvidesType(e, energyType, attacker))
         ));
         const colorlessCost = attack.cost.filter(c => c === EnergyTypeEnum.Colorless).length;
         const requiredOfType = attack.cost.filter(c => c === energyType).length + Math.max(0, colorlessCost - otherValue);
@@ -2927,6 +3152,13 @@ export type ExecuteAttackOptions = {
    * (IllegalActionError) when the Stadium doesn't offer it.
    */
   vermilionCoin?: boolean;
+  /**
+   * Answers of the powers asked in the middle of this attack (Flee, Bench Guard): set by
+   * resolveAttackChoice when it resumes a paused attack. Without them the attack stops at the
+   * first power to ask (`pendingAttackChoice.reaction`) and returns the state it was given.
+   * The legacy positional form never asks (the powers aren't used).
+   */
+  reactions?: AttackReactions;
 };
 
 /** Options of getAttackCoinPlan / getAttackCoinFlipCount: the attacker's optional coins. */
@@ -2949,7 +3181,7 @@ export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?
     // Thunderstorm: one coin per opponent's Benched Pokémon
     // Continuous Fireball: one coin per Energy card providing that type (Rainbow Energy counts)
     const n = effect.coinCountFromEnergyType
-      ? attacker.attachedEnergy.filter((e) => energyProvidesType(e, effect.coinCountFromEnergyType!)).length
+      ? attacker.attachedEnergy.filter((e) => energyProvidesType(e, effect.coinCountFromEnergyType!, attacker, state)).length
       : effect.coinCountFromEnergy
       ? getTotalEnergyValue(attacker.attachedEnergy)
       : effect.coinCountSource === "opponentBench"
@@ -2976,8 +3208,9 @@ export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?
  *    for the defending player; heads = everything the attack does to Haunter is prevented). Only
  *    counted when the attack can do something to the Defending Pokémon (damage or an effect on
  *    it); it is ignored when the attack ended up doing nothing to it. The same slot is Dark
- *    Gyarados' Final Beam and Rocket's Hitmonchan's Crosscounter (heads = double the damage
- *    back), both only when the attack can damage it.
+ *    Gyarados' Final Beam, Rocket's Hitmonchan's Crosscounter (heads = double the damage
+ *    back) and Erika's Vileplume's Pollen Defense (heads = the attacker is Confused; flipped by
+ *    Vileplume's owner, used only if the attack damaged it), all only when the attack can damage it.
  *
  * In multiplayer the server flips all of them. Use flipAttackCoins to build the list.
  */
@@ -3065,7 +3298,7 @@ export function knockOutRetaliationDamage(
   const knockedOutCard = getEffectivePokemonCard(state, knockedOut);
   const attackerCard = getEffectivePokemonCard(state, attacker);
   if (!power || !knockedOutCard || !attackerCard) return 0;
-  const waterCards = knockedOut.attachedEnergy.filter((e) => energyProvidesType(e, EnergyTypeEnum.Water)).length;
+  const waterCards = knockedOut.attachedEnergy.filter((e) => energyProvidesType(e, EnergyTypeEnum.Water, knockedOut, state)).length;
   let damage = (power.amount ?? 20) * waterCards;
   const type = knockedOut.shiftedType ?? knockedOutCard.types[0];
   const weaknesses = attacker.modifiedWeakness ? [attacker.modifiedWeakness] : attackerCard.weaknesses ?? [];
@@ -3113,13 +3346,13 @@ export function counterAttackDamage(
 /**
  * What the attack's defender coin (one at most) is for, or null when there is none:
  * Transparency (whenever the attack can affect the Defending Pokémon), then Final Beam, Shadow
- * Images (flipped by the attacker) and Crosscounter (whenever the attack can damage it).
+ * Images (flipped by the attacker), Crosscounter and Pollen Defense (whenever the attack can damage it).
  */
 function defenderCoinKind(
   state: GameState,
   defender: PokemonInPlay | null,
   attack: Attack
-): "transparency" | "finalBeam" | "evade" | "counterAttack" | null {
+): "transparency" | "finalBeam" | "evade" | "counterAttack" | "damagedStatus" | null {
   if (!defender) return null;
   // Swift: nothing on the Defending Pokémon changes its damage (Transparency, Shadow Images)
   const unaffected = (attack.effects ?? []).some((e) => e.type === AttackEffectType.IgnoreDefenderEffects);
@@ -3128,6 +3361,8 @@ function defenderCoinKind(
   if (getKnockOutRetaliation(state, defender)) return "finalBeam";
   if (!unaffected && defender.evadeOnFlip) return "evade";
   if (activeCounterAttack(state, defender)?.retaliationCoin) return "counterAttack";
+  // Pollen Defense (Erika's Vileplume): it isn't a change to the damage, so Swift doesn't skip it
+  if (getDamagedStatusFlip(state, defender)) return "damagedStatus";
   return null;
 }
 
@@ -3238,8 +3473,8 @@ export function energyToMove(attacker: PokemonInPlay, effect: AttackEffect, move
   const type = effect.energyType;
   const cards = type
     ? [
-        ...attacker.attachedEnergy.filter((e) => energyProvidesType(e, type) && !(isEnergyCard(e) && e.providesAllTypes)),
-        ...attacker.attachedEnergy.filter((e) => energyProvidesType(e, type) && isEnergyCard(e) && e.providesAllTypes),
+        ...attacker.attachedEnergy.filter((e) => energyProvidesType(e, type, attacker) && !(isEnergyCard(e) && e.providesAllTypes)),
+        ...attacker.attachedEnergy.filter((e) => energyProvidesType(e, type, attacker) && isEnergyCard(e) && e.providesAllTypes),
       ]
     : attacker.attachedEnergy;
   return cards.slice(0, Math.max(0, (effect.amount ?? Infinity) - moved));
@@ -3489,11 +3724,15 @@ function executeAttackUnchecked(
   attackIndex: number,
   skipEndTurnOrOptions: boolean | ExecuteAttackOptions,
   skipDefenderPromotionArg: boolean,
-  selectedEnergyIdsArg?: string[]
+  selectedEnergyIdsArg?: string[],
+  copiedAttack?: Attack
 ): GameState {
   const options = typeof skipEndTurnOrOptions === "object" && skipEndTurnOrOptions !== null
     ? skipEndTurnOrOptions
     : undefined;
+  // A power asked mid-attack (Flee, Bench Guard) returns this state untouched with the question
+  const inputState = gameState;
+  const reactions: AttackReactions = options?.reactions ?? {};
   const skipEndTurn = options ? !!options.skipEndTurn : !!skipEndTurnOrOptions;
   const skipDefenderPromotion = options ? !!options.skipDefenderPromotion : skipDefenderPromotionArg;
   const selectedEnergyIds = options ? options.selectedEnergyIds : selectedEnergyIdsArg;
@@ -3576,6 +3815,8 @@ function executeAttackUnchecked(
   const finalBeamCoin = defenderPowerType === PokemonPowerType.KnockOutRetaliation ? defenderCoin : undefined;
   const defenderCoinFor = defenderCoinKind(gameState, defender, printedAttack);
   const counterAttackCoin = defenderCoinFor === "counterAttack" ? defenderCoin : undefined;
+  // Pollen Defense (Erika's Vileplume): heads = the attacker is Confused if this attack damages it
+  const damagedStatusCoin = defenderCoinFor === "damagedStatus" ? defenderCoin : undefined;
   // Shadow Images: tails = this attack does no damage to the Defending Pokémon
   const evadeCoin = defenderCoinFor === "evade" ? defenderCoin : undefined;
 
@@ -3742,13 +3983,19 @@ function executeAttackUnchecked(
   const damageBeforeArmor = damage;
   if (!ignoresDefenderEffects) damage = applyDamageHalving(defender, damage, gameState);
   const halvedByArmor = damage < damageBeforeArmor;
+  // Shell Armor / Strange Barrier (Gym Heroes): Swift's damage ignores them too
+  const damagePower = ignoresDefenderEffects ? { damage } : applyDamagePowers(defender, damage, gameState, attacker);
+  const reducedByPower = damagePower.damage < damage ? damagePower.power : undefined;
+  damage = damagePower.damage;
 
   // Verificar si el defensor está protegido o tiene barrera de daño
   const defenderIsProtected = !ignoresDefenderEffects && protectionBlocksDamage(defender, damage);
   // Transparency (Haunter) heads: every effect of this attack done to it, damage included, is prevented
   const transparencyPrevents = transparencyCoin === "heads";
   // DamageAndEffects protection (Agility, Barrier, Tail Wag) also blocks status, ForceSwitch, PreventRetreat
-  const defenderBlocksEffects = (defender.protection?.type === "damageAndEffects" && defenderIsProtected) || transparencyPrevents;
+  // Flee (Misty's Tentacruel) used: the attack's damage is done, its other effects on it are prevented
+  const fleeTo = reactions.flee ? gameState.opponentBench.find((p) => p.pokemon.id === reactions.flee) : undefined;
+  const defenderBlocksEffects = (defender.protection?.type === "damageAndEffects" && defenderIsProtected) || transparencyPrevents || !!fleeTo;
   let effectiveDamage = damage;
   let damageBarrierBlocked = false;
   if (transparencyPrevents) {
@@ -3768,7 +4015,7 @@ function executeAttackUnchecked(
   const namedDamage = attack.effects?.find((e) => e.type === AttackEffectType.DamageNamedInPlay && !e.coinFlip);
   const namedDefenderDamage =
     namedDamage?.names?.includes(defender.pokemon.name) && !transparencyPrevents && !(defenderIsProtected && damage > 0)
-      ? applyDamageHalving(defender, namedDamage.amount ?? 0, gameState)
+      ? applyAttackDamageReductions(defender, namedDamage.amount ?? 0, gameState, attacker)
       : 0;
 
   // Pain Amplifier: a damage counter on the Defending Pokémon if it already had any (not damage:
@@ -3780,6 +4027,40 @@ function executeAttackUnchecked(
   // Aplicar daño al defensor
   const newDamage = (defender.currentDamage || 0) + effectiveDamage + namedDefenderDamage + defenderCounters;
   const defenderHP = defenderCard.hp;
+
+  // Flee (Misty's Tentacruel): damaged as the Active and not Knocked Out → its owner may switch it
+  // with a Benched Pokémon before the attack's other effects; the attack waits for the answer
+  const fleePower = getFleePower(gameState, defender);
+  if (
+    options && reactions.flee === undefined && fleePower && effectiveDamage + namedDefenderDamage > 0 &&
+    newDamage < defenderHP && gameState.opponentBench.length > 0
+  ) {
+    const bench = gameState.opponentBench;
+    const damageDone = effectiveDamage + namedDefenderDamage;
+    const ask = `${defender.pokemon.name} recibe ${damageDone} de daño de ${printedAttack.name}: puedes cambiarlo por 1 de tus Pokémon en la Banca (evita los demás efectos del ataque sobre él)`;
+    return pauseForReaction(
+      inputState,
+      {
+        powerType: PokemonPowerType.SwitchWhenDamaged,
+        powerName: fleePower.name,
+        pokemonId: defender.pokemon.id,
+        side: "opponent",
+        resume: { kind: "attack", attackIndex, ...(copiedAttack && { copiedAttack }), options: { ...options, reactions } },
+      },
+      {
+        title: fleePower.name,
+        description: `Tu rival puede usar ${fleePower.name}: ${defender.pokemon.name} recibe ${damageDone} de daño`,
+        answererDescription: `Puedes usar ${fleePower.name}. ${ask}`,
+        options: bench.map((p) => ({ id: p.pokemon.id, label: p.pokemon.name })),
+        maxSelections: 1,
+        minSelections: 0,
+        thumbnails: bench.map((p) => p.pokemon),
+        disableAutoSelect: true,
+        chooser: "opponent",
+      },
+      reactionContext(attacker, defender, printedAttack.name, gameState)
+    );
+  }
 
   // Crear eventos
   const events: GameEvent[] = [...gameState.events];
@@ -3849,6 +4130,8 @@ function executeAttackUnchecked(
     const armorNote = !halvedByArmor ? "" : defender.halveDamage?.onTurn === gameState.turnNumber ? ` (la mitad por ${defender.halveDamage.attackName})` : " (la mitad por Armadura Kabuto)";
     if (halvedByArmor) {
       damageMessage = ` e hizo ${effectiveDamage} de daño${damageMultiplierDescription}${armorNote}`;
+    } else if (reducedByPower) {
+      damageMessage = ` e hizo ${effectiveDamage} de daño${damageMultiplierDescription} (${reducedByPower.name} de ${defender.pokemon.name})`;
     } else if (hasWeakness) {
       damageMessage = ` e hizo ${effectiveDamage} de daño${damageMultiplierDescription} (x2 debilidad)`;
     } else if (hasResistance) {
@@ -3870,6 +4153,8 @@ function executeAttackUnchecked(
     damageMessage = ` e hizo 0 de daño (bloqueado por Defender)`;
   } else if (halvedByArmor) {
     damageMessage = ` e hizo 0 de daño (la mitad por Armadura Kabuto)`;
+  } else if (reducedByPower) {
+    damageMessage = ` e hizo 0 de daño (${reducedByPower.name} de ${defender.pokemon.name})`;
   }
 
   events.push(
@@ -3898,6 +4183,7 @@ function executeAttackUnchecked(
   let newOpponentBench = [...gameState.opponentBench];
   let newPlayerPrizes = [...gameState.playerPrizes];
   let newPlayerHand = [...gameState.playerHand];
+  let newOpponentHand = [...gameState.opponentHand];
 
   // Variable para trackear si el jugador puede tomar premio
   let playerCanTakePrize = false;
@@ -3906,7 +4192,11 @@ function executeAttackUnchecked(
 
   if (isKnockedOut) {
     // Mover Pokémon noqueado y sus cartas al descarte
-    newOpponentDiscard.push(...cardsLeavingPlay(defender));
+    // (Rebirth: Rocket's Moltres goes back to the hand after being discarded)
+    const leaving = knockedOutCards(gameState, defender);
+    newOpponentDiscard.push(...leaving.discard);
+    newOpponentHand = [...newOpponentHand, ...leaving.hand];
+    events.push(...leaving.events);
 
     // Marcar que el jugador puede tomar un premio (si hay; un Fósil Misterioso no da premio)
     if (newPlayerPrizes.length > 0 && givesPrizeWhenKnockedOut(defender)) {
@@ -3947,7 +4237,6 @@ function executeAttackUnchecked(
   let newPlayerDiscard = [...gameState.playerDiscard];
   let newPlayerDeck = [...gameState.playerDeck];
   let newOpponentPrizes = [...gameState.opponentPrizes];
-  let newOpponentHand = [...gameState.opponentHand];
   let newOpponentDeck = [...gameState.opponentDeck];
   let attackerKnockedOut = false;
   // Vanish: the attacker left play without a Knock Out
@@ -3959,10 +4248,12 @@ function executeAttackUnchecked(
   const applyAttackerKnockout = (knockedOut: PokemonInPlay, prizeMessage: string) => {
     const ko = knockOutActingActive(
       knockedOut,
-      { bench: newPlayerBench, discard: newPlayerDiscard, opponentPrizes: newOpponentPrizes, opponentHand: newOpponentHand },
-      prizeMessage
+      { bench: newPlayerBench, discard: newPlayerDiscard, hand: newPlayerHand, opponentPrizes: newOpponentPrizes, opponentHand: newOpponentHand },
+      prizeMessage,
+      gameState
     );
     events.push(...ko.events);
+    newPlayerHand = ko.hand;
     return {
       newPlayerDiscard: ko.discard,
       newOpponentPrizes: ko.opponentPrizes,
@@ -4017,7 +4308,7 @@ function executeAttackUnchecked(
         }
 
         // Kabuto Armor also halves damage an attack does to its own user ("even your own")
-        selfDamage = applyDamageHalving(newPlayerActive, selfDamage, gameState);
+        selfDamage = applyAttackDamageReductions(newPlayerActive, selfDamage, gameState, attacker);
         const newSelfDamage: number = (newPlayerActive.currentDamage || 0) + selfDamage;
 
         if (selfDamage > 0) {
@@ -4114,6 +4405,7 @@ function executeAttackUnchecked(
             } else {
               // Automatic damage (maxTargets >= available targets OR no targets available)
               let opponentHitsRemaining = maxTargets;
+              const opponentHits: BenchHit[] = [];
               newOpponentBench = newOpponentBench.map((benchPokemon, benchIndex) => {
                 if (!benchPokemon || opponentHitsRemaining <= 0) return benchPokemon;
                 if (coinIndexes && !coinIndexes.includes(benchIndex)) return benchPokemon;
@@ -4126,8 +4418,9 @@ function executeAttackUnchecked(
                 }
 
                 opponentHitsRemaining--;
-                const dealt = applyDamageHalving(benchPokemon, Math.max(0, benchDamageAmount - attachedDefenderReduction(gameState, benchPokemon)), gameState);
+                const dealt = applyAttackDamageReductions(benchPokemon, Math.max(0, benchDamageAmount - attachedDefenderReduction(gameState, benchPokemon)), gameState, attacker);
                 if (dealt > 0) damagedOpponentBenchIds.add(benchPokemon.pokemon.id);
+                opponentHits.push({ id: benchPokemon.pokemon.id, damage: dealt });
                 const newBenchDamage = (benchPokemon.currentDamage || 0) + dealt;
                 events.push(
                   createGameEvent(
@@ -4143,6 +4436,31 @@ function executeAttackUnchecked(
                   lastDamageReceived: dealt > 0 ? dealt : undefined,
                 };
               });
+              // Bench Guard (Brock's Rhydon) of the defending side: asked before anything happens
+              const guard = benchGuardFor({ ...gameState, opponentBench: newOpponentBench }, "opponent", opponentHits);
+              if (guard && options) {
+                const chosen = reactions.benchGuard?.opponent;
+                if (chosen === undefined) {
+                  return pauseForReaction(
+                    inputState,
+                    {
+                      powerType: PokemonPowerType.RedirectBenchDamage,
+                      powerName: guard.powerName,
+                      pokemonId: guard.guard.pokemon.id,
+                      side: "opponent",
+                      resume: { kind: "attack", attackIndex, ...(copiedAttack && { copiedAttack }), options: { ...options, reactions } },
+                    },
+                    benchGuardStep({ ...gameState, opponentBench: newOpponentBench }, "opponent", guard),
+                    reactionContext(attacker, defender, printedAttack.name, gameState)
+                  );
+                }
+                const guarded = applyBenchGuard(newOpponentBench, guard.guard.pokemon.id, guard.amount, chosen.filter((id) => guard.eligible.some((h) => h.id === id)));
+                newOpponentBench = guarded.bench;
+                if (guarded.helped.length > 0) {
+                  for (const p of newOpponentBench) if ((p.currentDamage ?? 0) <= (gameState.opponentBench.find((b) => b.pokemon.id === p.pokemon.id)?.currentDamage ?? 0)) damagedOpponentBenchIds.delete(p.pokemon.id);
+                  events.push(createGameEvent(`${guard.powerName}: ${guard.guard.pokemon.name} recibió ${guard.amount * guarded.helped.length} del daño de ${guarded.helped.join(", ")}`, "action"));
+                }
+              }
             }
           }
 
@@ -4169,6 +4487,7 @@ function executeAttackUnchecked(
             } else {
               // Automatic damage
               let ownHitsRemaining = maxTargets;
+              const ownHits: BenchHit[] = [];
               newPlayerBench = newPlayerBench.map((benchPokemon) => {
                 if (!benchPokemon || ownHitsRemaining <= 0) return benchPokemon;
                 if (!named(benchPokemon)) return benchPokemon;
@@ -4180,7 +4499,8 @@ function executeAttackUnchecked(
                 }
 
                 ownHitsRemaining--;
-                const dealt = applyDamageHalving(benchPokemon, Math.max(0, benchDamageAmount - attachedDefenderReduction(gameState, benchPokemon)), gameState);
+                const dealt = applyAttackDamageReductions(benchPokemon, Math.max(0, benchDamageAmount - attachedDefenderReduction(gameState, benchPokemon)), gameState, attacker);
+                ownHits.push({ id: benchPokemon.pokemon.id, damage: dealt });
                 const newBenchDamage = (benchPokemon.currentDamage || 0) + dealt;
                 events.push(
                   createGameEvent(
@@ -4196,6 +4516,30 @@ function executeAttackUnchecked(
                   lastDamageReceived: dealt > 0 ? dealt : undefined,
                 };
               });
+              // Bench Guard (Brock's Rhydon) on the attacker's own Bench: its owner (the attacker) chooses
+              const guard = benchGuardFor({ ...gameState, playerBench: newPlayerBench }, "player", ownHits);
+              if (guard && options) {
+                const chosen = reactions.benchGuard?.player;
+                if (chosen === undefined) {
+                  return pauseForReaction(
+                    inputState,
+                    {
+                      powerType: PokemonPowerType.RedirectBenchDamage,
+                      powerName: guard.powerName,
+                      pokemonId: guard.guard.pokemon.id,
+                      side: "player",
+                      resume: { kind: "attack", attackIndex, ...(copiedAttack && { copiedAttack }), options: { ...options, reactions } },
+                    },
+                    benchGuardStep({ ...gameState, playerBench: newPlayerBench }, "player", guard),
+                    reactionContext(attacker, defender, printedAttack.name, gameState)
+                  );
+                }
+                const guarded = applyBenchGuard(newPlayerBench, guard.guard.pokemon.id, guard.amount, chosen.filter((id) => guard.eligible.some((h) => h.id === id)));
+                newPlayerBench = guarded.bench;
+                if (guarded.helped.length > 0) {
+                  events.push(createGameEvent(`${guard.powerName}: ${guard.guard.pokemon.name} recibió ${guard.amount * guarded.helped.length} del daño de ${guarded.helped.join(", ")}`, "action"));
+                }
+              }
             }
           }
         }
@@ -4326,7 +4670,7 @@ function executeAttackUnchecked(
 
           for (const reqType of discardReq) {
             const idx = remainingEnergy.findIndex(
-              (e) => e.kind === CardKind.Energy && energyProvidesType(e, reqType)
+              (e) => e.kind === CardKind.Energy && energyProvidesType(e, reqType, newPlayerActive, gameState)
             );
             if (idx !== -1) {
               discardedEnergy.push(...remainingEnergy.splice(idx, 1));
@@ -4472,7 +4816,7 @@ function executeAttackUnchecked(
           // (cards printed with the type first, Rainbow Energy last)
           const type = effect.energyType;
           const candidates = [
-            ...newPlayerActive.attachedEnergy.filter((e) => energyProvidesType(e, type) && !(isEnergyCard(e) && e.providesAllTypes)),
+            ...newPlayerActive.attachedEnergy.filter((e) => energyProvidesType(e, type, newPlayerActive, gameState) && !(isEnergyCard(e) && e.providesAllTypes)),
             ...newPlayerActive.attachedEnergy.filter((e) => isEnergyCard(e) && e.providesAllTypes),
           ].slice(0, effect.amount);
           if (candidates.length > 0) {
@@ -4484,7 +4828,7 @@ function executeAttackUnchecked(
         } else if (effect.discardAll && effect.energyType) {
           // Discharge: every Energy card of that type (Rainbow Energy included)
           const type = effect.energyType;
-          const discarded: GameCard[] = newPlayerActive.attachedEnergy.filter((e) => energyProvidesType(e, type));
+          const discarded: GameCard[] = newPlayerActive.attachedEnergy.filter((e) => energyProvidesType(e, type, newPlayerActive, gameState));
           if (discarded.length > 0) {
             newPlayerDiscard.push(...discarded);
             newPlayerActive = { ...newPlayerActive, attachedEnergy: newPlayerActive.attachedEnergy.filter((e: GameCard) => !discarded.includes(e)) };
@@ -4538,7 +4882,7 @@ function executeAttackUnchecked(
                 // With Energy Burn, all energy counts as the converted type
                 if (energyConversionType || reqType === EnergyTypeEnum.Colorless) return true;
                 // Buzzap energy uses its chosen type; Rainbow Energy any basic type
-                return energyProvidesType(e, reqType);
+                return energyProvidesType(e, reqType, newPlayerActive, gameState);
               };
               // A card printed with that type first, Rainbow Energy last
               const exact = remainingEnergy.findIndex((e) => matches(e) && !(isEnergyCard(e) && e.providesAllTypes));
@@ -5086,6 +5430,22 @@ function executeAttackUnchecked(
     }
   }
 
+  // RESTLESS SLEEP (Rocket's Snorlax): damaged while already Asleep (even if Knocked Out) → damage to the attacker
+  const restless = effectiveDamage > 0 ? asleepDamageReaction(gameState, defender) : null;
+  if (restless && newPlayerActive && !attackerKnockedOut) {
+    const newAttackerDamage = (newPlayerActive.currentDamage || 0) + restless.damage;
+    events.push(createGameEvent(`¡${restless.power.name}! ${defender.pokemon.name} le hizo ${restless.damage} de daño a ${newPlayerActive.pokemon.name}`, "action"));
+    if (newAttackerDamage >= attackerCard.hp) {
+      attackerKnockedOut = true;
+      events.push(createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por ${restless.power.name}!`, "action"));
+      ({ newPlayerDiscard, newOpponentPrizes, newOpponentHand, attackerNeedsToPromote } =
+        applyAttackerKnockout(newPlayerActive, `El rival tomó un premio por ${restless.power.name}`));
+      newPlayerActive = null;
+    } else {
+      newPlayerActive = { ...newPlayerActive, currentDamage: newAttackerDamage };
+    }
+  }
+
   // FINAL BEAM (Dark Gyarados): Knocked Out by this attack → its owner flips (the attack's defender
   // coin); heads = 20 × Water Energy attached to it, to the attacker, with Weakness/Resistance
   if (isKnockedOut && finalBeamCoin && effectiveDamage > 0 && newPlayerActive && !attackerKnockedOut && getKnockOutRetaliation(gameState, defender)) {
@@ -5145,6 +5505,24 @@ function executeAttackUnchecked(
     }
   }
 
+  // POLLEN DEFENSE (Erika's Vileplume): damaged by this attack (even if Knocked Out) → its owner's
+  // coin (the attack's defender coin); heads = the attacking Pokémon is now Confused
+  if (damagedStatusCoin && effectiveDamage + namedDefenderDamage > 0) {
+    const power = getDamagedStatusFlip(gameState, defender);
+    if (power) {
+      events.push(createGameEvent(`${power.name} de ${defender.pokemon.name} - Moneda: [coin:${damagedStatusCoin}]`, "info"));
+      if (damagedStatusCoin === "heads" && newPlayerActive && !attackerKnockedOut) {
+        const status = power.status ?? StatusCondition.Confused;
+        if (hasStatusImmunity(newPlayerActive, gameState)) {
+          events.push(createGameEvent(`${newPlayerActive.pokemon.name} no puede verse afectado por estados especiales`, "action"));
+        } else {
+          newPlayerActive = applyStatusCondition(newPlayerActive, status, gameState.turnNumber);
+          events.push(createGameEvent(`¡${power.name}! ${newPlayerActive.pokemon.name} pasa a estar ${STATUS_NAMES_ES[status] ?? status}`, "action"));
+        }
+      }
+    }
+  }
+
   // Marcar ataques de uso único como utilizados
   const hasUseOnceEffect = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (hasUseOnceEffect && newPlayerActive && !attackerKnockedOut) {
@@ -5174,6 +5552,19 @@ function executeAttackUnchecked(
       nextTurnDamageReduction: undefined,
       nextTurnEffectAppliedOnTurn: stillHasBonus ? newOpponentActive.nextTurnEffectAppliedOnTurn : undefined,
     };
+  }
+
+  // FLEE (Misty's Tentacruel) used: after the attack, it switches with the chosen Benched Pokémon
+  if (fleeTo && newOpponentActive && !isKnockedOut && newOpponentActive.pokemon.id === defender.pokemon.id) {
+    const index = newOpponentBench.findIndex((p) => p.pokemon.id === fleeTo.pokemon.id);
+    if (index !== -1) {
+      const incoming = newOpponentBench[index];
+      const toBench: PokemonInPlay = { ...clearStatusConditionsOnRetreat(newOpponentActive), modifiedWeakness: undefined, modifiedResistance: undefined };
+      newOpponentBench = [...newOpponentBench.filter((_, i) => i !== index), toBench];
+      newOpponentActive = incoming;
+      const fleeName = getFleePower(gameState, defender)?.name ?? "Huida";
+      events.push(createGameEvent(`${fleeName}: ${defender.pokemon.name} se cambió con ${incoming.pokemon.name}`, "action"));
+    }
   }
 
   // Construir el estado después del ataque
@@ -5308,6 +5699,7 @@ function executeAttackUnchecked(
       finalBeamCoin,
       counterAttackCoin,
       evadeCoin,
+      damagedStatusCoin,
     });
   }
 
@@ -5401,10 +5793,12 @@ export function resolveConfusionFlip(
     {
       bench: state.playerBench,
       discard: state.playerDiscard,
+      hand: state.playerHand,
       opponentPrizes: state.opponentPrizes,
       opponentHand: state.opponentHand,
     },
-    "El rival tomó un premio"
+    "El rival tomó un premio",
+    state
   );
   events.push(...ko.events);
 
@@ -5414,6 +5808,7 @@ export function resolveConfusionFlip(
       ...state,
       playerActivePokemon: null,
       playerDiscard: ko.discard,
+      playerHand: ko.hand,
       opponentPrizes: ko.opponentPrizes,
       opponentHand: ko.opponentHand,
       opponentCanTakePrize: false,
@@ -5511,8 +5906,17 @@ export function executeMetronome(
   // Ejecutar el ataque copiado usando executeAttack
   // Metronome never discards Energy, so selectedEnergyIds is dropped
   const resultState = typeof skipEndTurnOrOptions === "object" && skipEndTurnOrOptions !== null
-    ? executeAttackUnchecked(tempState, 0, { ...skipEndTurnOrOptions, selectedEnergyIds: undefined }, false)
+    ? executeAttackUnchecked(tempState, 0, { ...skipEndTurnOrOptions, selectedEnergyIds: undefined }, false, undefined, copiedAttack)
     : executeAttackUnchecked(tempState, 0, !!skipEndTurnOrOptions, skipDefenderPromotion, undefined);
+
+  // A power asked mid-attack (Flee, Bench Guard): nothing happened, Metronome is used again with the answer
+  if (resultState.pendingAttackChoice?.reaction?.resume.kind === "attack") {
+    return {
+      ...gameState,
+      pendingAttackChoice: resultState.pendingAttackChoice,
+      events: [...gameState.events, ...resultState.events.slice(tempState.events.length)],
+    };
+  }
 
   // Restaurar el Pokémon original (con sus ataques reales) después de ejecutar; also the card
   // itself when the copied attack moved it out of play (Selfdestruct, Strikes Back, Vanish...)

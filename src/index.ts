@@ -27,6 +27,8 @@ export type {
   PendingResolutionOptions,
   PendingAttackChoice,
   AttackChoiceContext,
+  AttackReactions,
+  AttackResume,
   AttackCoinPlan,
   AttackCoinOptions,
   PendingPowerChoice,

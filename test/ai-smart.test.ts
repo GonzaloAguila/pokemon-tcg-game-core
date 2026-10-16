@@ -88,6 +88,16 @@ describe("smart AI: attacks", () => {
     expect(after.opponentActivePokemon!.attachedEnergy).toHaveLength(3);
   });
 
+  it("still attacks a Pokémon whose owner may answer mid-attack (Flee): the attack waits for the human's answer", () => {
+    const machop = inPlay("Machop", { set: "base", energy: [EnergyType.Fighting] });
+    const state = aiTurn({ ai: machop, human: inPlay("Misty's Tentacruel", { set: "gym-heroes" }), humanBench: [inPlay("Abra", { set: "base" })] });
+    const plan = decideOpponentTurn(state);
+    expect(attackOf(plan)?.attackIndex).toBe(attackIndex(machop, "Patada baja"));
+    const after = run(state, plan);
+    expect(after.pendingAttackChoice?.reaction).toBeDefined();
+    expect(after.pendingAttackChoice?.step.chooser).toBe("opponent");
+  });
+
   it("doesn't hand over the last Prize: no Selfdestruct when its own Knock Out loses the game", () => {
     const magneton = inPlay("Magneton", { set: "base", energy: [EnergyType.Lightning, EnergyType.Lightning, EnergyType.Lightning, EnergyType.Lightning] });
     const state = aiTurn({ ai: magneton, human: inPlay("Machop", { set: "base" }), humanBench: [inPlay("Rattata", { set: "base" })], humanPrizes: 1, aiPrizes: 3 });

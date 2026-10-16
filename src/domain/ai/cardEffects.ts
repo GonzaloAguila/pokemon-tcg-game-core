@@ -22,6 +22,8 @@
  * | Step In (power) | the Active can't attack and the Benched Dragonite can |
  * | Gather Fire (power) | Charmander is the Active and can't attack yet |
  * | Strange Behavior (power) | moves the Active's damage to a Benched Slowbro, leaving it ≥ 20 HP |
+ * | Energy Charge (power) | Lt. Surge's Magneton is the Active and can't attack yet (one Lightning Energy card per use, from the Pokémon with the most Energy) |
+ * | Natural Healing (power) | Blaine's Vulpix has damage counters |
  * | Recycle | the discard pile has an Energy or a Pokémon card |
  * | Nightly Garbage Run | deck ≤ 8 |
  * | Mr. Fuji | a Benched Pokémon without Energy has lost half its HP (2+ Benched) |
@@ -34,7 +36,7 @@
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
-import { canUseAttack, getEnergyValue, hasStatusCondition } from "@/lib/gameState";
+import { canUseAttack, energyProvidesType, getEnergyValue, hasStatusCondition } from "@/lib/gameState";
 import { isBenchFull } from "@/domain/board";
 import { isBasicEnergy, isEnergyCard, isPokemonCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
 import { EnergyType, PokemonStage, StatusCondition } from "@/domain/constants";
@@ -288,6 +290,9 @@ export function planSupportPowers(view: GameState): AIAction[] {
   const active = view.playerActivePokemon;
   if (!active) return actions;
 
+  // Natural Healing: whenever Vulpix has damage counters
+  for (const vulpix of withUsablePower(view, "Curación Natural")) actions.push(usePower(vulpix));
+
   // Gather Fire: only onto an Active that can't attack yet
   const gatherer = withUsablePower(view, "Reunir Fuego").find((p) => p.pokemon.id === active.pokemon.id);
   if (gatherer && !activeCanAttack(view)) actions.push(usePower(gatherer));
@@ -298,6 +303,16 @@ export function planSupportPowers(view: GameState): AIAction[] {
     const room = Math.max(0, Math.floor((remainingHp(slowbro) - 20) / 10));
     const moves = Math.min((active.currentDamage ?? 0) / 10, room);
     for (let i = 0; i < moves; i++) actions.push(usePower(slowbro));
+  }
+
+  // Energy Charge: Lightning Energy onto an Active Magneton that can't attack yet (repeatable; last:
+  // a use the engine refuses ends the list)
+  const charger = withUsablePower(view, "Carga de Energía").find((p) => p.pokemon.id === active.pokemon.id);
+  if (charger && !activeCanAttack(view)) {
+    const lightning = ownPokemon(view)
+      .filter((p) => p.pokemon.id !== active.pokemon.id)
+      .reduce((n, p) => n + p.attachedEnergy.filter((e) => energyProvidesType(e, EnergyType.Lightning, p, view)).length, 0);
+    for (let i = 0; i < Math.min(lightning, 3); i++) actions.push(usePower(charger));
   }
   return actions;
 }
@@ -448,7 +463,8 @@ export function answerPowerStepForAI(view: GameState, name: string, step: Select
     }
     case "Comportamiento Extraño":
       return prefer(view, step, [(_c, id) => id === view.playerActivePokemon?.pokemon.id]);
-    case "Reunir Fuego": {
+    case "Reunir Fuego":
+    case "Carga de Energía": {
       // From the holder with the most Energy attached
       const holderSize = (energyId: string) => ownPokemon(view).find((p) => p.attachedEnergy.some((e) => e.id === energyId))?.attachedEnergy.length ?? 0;
       const ids = enabledIds(step).sort((a, b) => holderSize(b) - holderSize(a));

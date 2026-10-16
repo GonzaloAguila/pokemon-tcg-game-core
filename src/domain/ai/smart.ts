@@ -75,7 +75,7 @@ import {
 } from "./evaluate";
 import { canAffordDraws, planHandChange, planStadiumAction, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
 import { canUseVermilionCoin } from "@/domain/stadiums/rules";
-import { resolveOwnAttackPendings } from "./pending";
+import { resolveAttackForEvaluation, resolveOwnAttackPendings } from "./pending";
 import { choosePromotion } from "./choices";
 import { basicHp, getBasicPokemonInHand } from "./actions";
 import type { AIAction } from "./types";
@@ -878,7 +878,8 @@ function attackValue(v: GameState, choice: AttackChoice): number | null {
             ...(choice.chosenType && { chosenType: choice.chosenType }),
             ...(choice.vermilionCoin && { vermilionCoin: true }),
           });
-      value += scenario.p * evaluateBoard(resolveOwnAttackPendings(after));
+      // (Flee / Bench Guard of the other side: judged with a guess at its answer)
+      value += scenario.p * evaluateBoard(resolveAttackForEvaluation(after));
     }
   } catch {
     return null;

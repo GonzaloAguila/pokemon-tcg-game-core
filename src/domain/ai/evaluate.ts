@@ -25,7 +25,7 @@ import { AttackEffectType, EnergyType, PokemonPowerType, StatusCondition, type C
 import { swapSides } from "@/domain/board";
 import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
 import {
-  applyDamageHalving,
+  applyAttackDamageReductions,
   getConfusedDamageBonus,
   getEffectiveHp,
   getEffectivePokemonCard,
@@ -200,6 +200,7 @@ function computeAttackDamage(
   if (doesSomething < 1) add(1 - doesSomething, 0);
 
   const mirrorMove = hasEffect(attack, AttackEffectType.MirrorMove);
+  const ignoresDefender = hasEffect(attack, AttackEffectType.IgnoreDefenderEffects);
   const ignoresWR = mirrorMove || (attack.effects ?? []).some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance && !e.resistanceOnly);
   // Hook Shot: no Resistance
   const ignoresResistance = stadiumIgnoresResistance(w, attacker) || hasEffect(attack, AttackEffectType.IgnoreWeaknessResistance);
@@ -240,7 +241,8 @@ function computeAttackDamage(
     if (plusPower > 0 && damage > 0) damage += plusPower;
     if (defenderMinus > 0) damage = Math.max(0, damage - defenderMinus);
     if (defender.nextTurnDamageReduction && damage > 0) damage = Math.max(0, damage - defender.nextTurnDamageReduction);
-    damage = applyDamageHalving(defender, damage, w);
+    // Kabuto Armor / Deflector, Shell Armor, Strange Barrier (Swift ignores them all)
+    if (!ignoresDefender) damage = applyAttackDamageReductions(defender, damage, w, attacker);
     if (protectionBlocksDamage(defender, damage) || isDamageBlocked(defender, damage, w)) damage = 0;
     add(outcome.p * doesSomething, damage);
   }

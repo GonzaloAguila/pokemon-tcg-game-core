@@ -22,8 +22,12 @@
  * | Intercambio de Materia / Matter Exchange (Dark Kadabra, once per turn) | – | [[handCardId]] |
  * | Reunir Fuego / Gather Fire (Charmander, once per turn) | – | [[fireEnergyIdOnAnotherOwnPokemon]] |
  * | Hipnosis a Distancia / Long-Distance Hypnosis (Drowzee), Hedor de Polen / Pollen Stench (Dark Gloom), once per turn | 1 | [] |
+ * | Carga de Energía / Energy Charge (Lt. Surge's Magneton, while Active, repeatable) | – | [[lightningEnergyIdOnAnotherOwnPokemon]] |
+ * | Trampa Aromática / Fragrance Trap (Erika's Victreebel, once per turn) | 1 | heads: [[opponentBenchedPokemonId]]; tails: [] |
+ * | Curación Natural / Natural Healing (Blaine's Vulpix, once per turn) | – | [] |
  *
- * Passive powers (Strikes Back, Invisible Wall, Thick Skinned, Retreat Aid, Toxic Gas,
+ * Passive powers (Shell Armor, Strange Barrier, Pollen Defense, Restless Sleep, Rebirth, Flee,
+ * Bench Guard, Photosynthesis, Strikes Back, Invisible Wall, Thick Skinned, Retreat Aid, Toxic Gas,
  * Prehistoric Power, Transform, Transparency, Kabuto Armor, Clairvoyance) have no entry: the
  * engine applies them (see isPowerActive).
  */
@@ -120,7 +124,7 @@ function rainDanceTargets(state: GameState, pokemonId: string, energy: GameCard 
 function energyTransEnergies(state: GameState, pokemonId: string, source: PokemonInPlay | undefined): GameCard[] {
   const power = powerOf(state, pokemonId);
   // In play, Rainbow Energy counts as a Grass Energy card too
-  return (source?.attachedEnergy ?? []).filter((e) => isEnergyCard(e) && (!power?.energyType || energyProvidesType(e, power.energyType)));
+  return (source?.attachedEnergy ?? []).filter((e) => isEnergyCard(e) && (!power?.energyType || energyProvidesType(e, power.energyType, source, state)));
 }
 
 // ---------------------------------------------------------------------------- Damage Swap
@@ -610,7 +614,7 @@ function gatherableEnergies(state: GameState, pokemonId: string): { energy: Game
   const type = power?.energyType ?? EnergyType.Fire;
   return allOwnPokemon(state)
     .filter((p) => p.pokemon.id !== pokemonId)
-    .flatMap((holder) => holder.attachedEnergy.filter((e) => energyProvidesType(e, type)).map((energy) => ({ energy, holder })));
+    .flatMap((holder) => holder.attachedEnergy.filter((e) => energyProvidesType(e, type, holder, state)).map((energy) => ({ energy, holder })));
 }
 
 const STATUS_NAMES: Record<string, string> = {
@@ -772,6 +776,95 @@ const TEAM_ROCKET_POWER_EFFECTS: Record<string, CardEffectDef> = {
 
 Object.assign(POWER_EFFECTS, TEAM_ROCKET_POWER_EFFECTS);
 
+// ============================================================================
+// Gym Heroes
+// ============================================================================
+
+const GYM_HEROES_POWER_EFFECTS: Record<string, CardEffectDef> = {
+  // "As often as you like ... if it is your Active Pokémon" (worksFromBench: false): not once per turn
+  "Carga de Energía": {
+    canUse: (state, pokemonId) => {
+      const type = powerOf(state, pokemonId)?.energyType ?? EnergyType.Lightning;
+      return gatherableEnergies(state, pokemonId).length > 0 ? null : `Tus otros Pokémon no tienen cartas de Energía ${getEnergyTypeInSpanish(type)}`;
+    },
+    getSteps: (state, pokemonId, selections) => {
+      if (selections.length > 0) return null;
+      const options = gatherableEnergies(state, pokemonId);
+      const type = powerOf(state, pokemonId)?.energyType ?? EnergyType.Lightning;
+      return {
+        title: powerOf(state, pokemonId)?.name ?? "Carga de Energía",
+        description: `Elige una carta de Energía ${getEnergyTypeInSpanish(type)} de otro de tus Pokémon para unirla a este Pokémon`,
+        options: options.map(({ energy, holder }) => ({ id: energy.id, label: `${energyCardLabel(energy)} (${holder.pokemon.name})` })),
+        maxSelections: 1,
+        thumbnails: options.map(({ energy }) => energy),
+      };
+    },
+    resolve: (state, pokemonId, selections) => {
+      const power = powerOf(state, pokemonId)!;
+      const { energy, holder } = gatherableEnergies(state, pokemonId).find((g) => g.energy.id === selections[0][0])!;
+      const withoutEnergy = replaceOwn(state, holder.pokemon.id, { ...holder, attachedEnergy: holder.attachedEnergy.filter((e) => e.id !== energy.id) });
+      const receiver = ownPokemonById(withoutEnergy, pokemonId)!;
+      const moved = replaceOwn(withoutEnergy, pokemonId, { ...receiver, attachedEnergy: [...receiver.attachedEnergy, energy] });
+      return {
+        ...moved,
+        events: [...state.events, createGameEvent(`${power.name}: movió ${energyCardLabel(energy)} de ${holder.pokemon.name} a ${receiver.pokemon.name}`, "action")],
+      };
+    },
+  },
+
+  "Trampa Aromática": {
+    // "You may flip a coin. If heads, and if your opponent has any Benched Pokémon..."
+    canUse: (state) => (state.opponentActivePokemon && state.opponentBench.length > 0 ? null : "Tu rival no tiene Pokémon en la Banca"),
+    coinFlips: () => 1,
+    getSteps: (state, pokemonId, selections, coinResults) => {
+      if (coinResults?.[0] !== "heads" || selections.length > 0 || state.opponentBench.length === 0) return null;
+      return {
+        title: powerOf(state, pokemonId)?.name ?? "Trampa Aromática",
+        description: "Elige el Pokémon de la Banca de tu rival que cambia por su Pokémon Activo",
+        options: state.opponentBench.map((p) => opponentOption(state, p)),
+        maxSelections: 1,
+        thumbnails: state.opponentBench.map((p) => p.pokemon),
+      };
+    },
+    resolve: (state, pokemonId, selections, { coinResults }) => {
+      const power = powerOf(state, pokemonId)!;
+      const heads = coinResults?.[0] === "heads";
+      const events = [...state.events, createGameEvent(`${power.name} - Moneda: [coin:${heads ? "heads" : "tails"}]`, "info")];
+      const index = state.opponentBench.findIndex((p) => p.pokemon.id === selections[0]?.[0]);
+      if (!heads || index === -1 || !state.opponentActivePokemon) return markPowerAsUsed({ ...state, events }, pokemonId);
+      const oldActive = state.opponentActivePokemon;
+      const incoming = state.opponentBench[index];
+      const toBench: PokemonInPlay = { ...clearStatusConditionsOnRetreat(oldActive), modifiedWeakness: undefined, modifiedResistance: undefined };
+      const switched: GameState = {
+        ...state,
+        opponentActivePokemon: incoming,
+        opponentBench: state.opponentBench.map((p, i) => (i === index ? toBench : p)),
+        events: [...events, createGameEvent(`${power.name}: ${incoming.pokemon.name} pasa a ser el Pokémon Activo en lugar de ${oldActive.pokemon.name}`, "action")],
+      };
+      return markPowerAsUsed(switched, pokemonId);
+    },
+  },
+
+  "Curación Natural": {
+    canUse: (state, pokemonId) => {
+      const self = ownPokemonById(state, pokemonId);
+      return self && isDamaged(self) ? null : `${self?.pokemon.name ?? "Este Pokémon"} no tiene contadores de daño`;
+    },
+    getSteps: () => null,
+    resolve: (state, pokemonId) => {
+      const power = powerOf(state, pokemonId)!;
+      const self = ownPokemonById(state, pokemonId)!;
+      const healed = replaceOwn(state, pokemonId, { ...self, currentDamage: Math.max(0, (self.currentDamage ?? 0) - 10) });
+      return markPowerAsUsed(
+        { ...healed, events: [...state.events, createGameEvent(`${power.name}: ${self.pokemon.name} se curó 10 de daño`, "action")] },
+        pokemonId
+      );
+    },
+  },
+};
+
+Object.assign(POWER_EFFECTS, GYM_HEROES_POWER_EFFECTS);
+
 /** Power types whose effect the player activates (each must have a POWER_EFFECTS entry). */
 export const ACTIVATED_POWER_TYPES: readonly PokemonPowerType[] = [
   PokemonPowerType.UnlimitedEnergyAttach,
@@ -791,5 +884,8 @@ export const ACTIVATED_POWER_TYPES: readonly PokemonPowerType[] = [
   PokemonPowerType.DiscardToDraw,
   PokemonPowerType.GatherEnergy,
   PokemonPowerType.StatusFlip,
+  PokemonPowerType.TakeEnergyToActive,
+  PokemonPowerType.SwitchOpponentOnFlip,
+  PokemonPowerType.SelfHeal,
 ];
 

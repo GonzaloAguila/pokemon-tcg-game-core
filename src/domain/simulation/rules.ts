@@ -6,7 +6,9 @@
  *   that was Knocked Out (capped by the Prizes it had), whenever no Prize is waiting.
  *   A Knock Out = a Pokémon leaves play with the bottom card of its stack (its Basic or
  *   Mysterious Fossil) in its owner's discard pile — a Knocked Out devolved Pokémon's top card
- *   is in the hand — or as Buzzap Energy (Electrode Knocks itself Out). Scoop Up (Basic to the
+ *   is in the hand — or as Buzzap Energy (Electrode Knocks itself Out), or back in the hand by
+ *   Rebirth (Rocket's Moltres: its "volvió a la mano tras quedar Fuera de Combate" line in this
+ *   action's events). Scoop Up (Basic to the
  *   hand), Mr. Fuji, Vanish... are not Knock Outs. Trainers played as Basics give no Prize.
  * - The between-turns checkup changes no damage but Poison's on Poisoned Active Pokémon
  *   (10, or poisonDamage: 20 for Toxic), for both players.
@@ -33,6 +35,7 @@ const inPlayOf = (state: GameState, side: Side): PokemonInPlay[] =>
 const discardOf = (state: GameState, side: Side): GameCard[] => (side === "player" ? state.playerDiscard : state.opponentDiscard);
 const prizesOf = (state: GameState, side: Side): number => (side === "player" ? state.playerPrizes : state.opponentPrizes).length;
 const other = (side: Side): Side => (side === "player" ? "opponent" : "player");
+const powerNameOf = (p: PokemonInPlay): string | undefined => (isPokemonCard(p.pokemon) ? p.pokemon.power?.name : undefined);
 
 function hasWorkingRainDance(state: GameState, side: Side): boolean {
   return inPlayOf(state, side).some(
@@ -128,6 +131,8 @@ export class GameRules {
     }
 
     // Knock Outs: Pokémon (top cards) that left play this action
+    const seen = new Set(before.events.map((e) => e.id));
+    const newLines = after.events.filter((e) => !seen.has(e.id)).map((e) => e.message);
     for (const side of ["player", "opponent"] as const) {
       const nowInPlay = new Set(inPlayOf(after, side).map((p) => p.pokemon.id));
       const discard = new Set(discardOf(after, side).map((c) => c.id));
@@ -140,7 +145,10 @@ export class GameRules {
         // Evolved this action: the old top card is now under the new one
         if (inPlayOf(after, side).some((q) => q.previousEvolutions?.some((c) => c.id === id))) continue;
         const bottom = p.previousEvolutions?.[0]?.id ?? id;
-        const knockedOut = buzzapped.has(id) || discard.has(bottom);
+        // Rebirth: the Knocked Out card went back to the hand after being discarded
+        const handNow = side === "player" ? after.playerHand : after.opponentHand;
+        const reborn = handNow.some((c) => c.id === id) && newLines.some((m) => m === `${powerNameOf(p)}: ${p.pokemon.name} volvió a la mano tras quedar Fuera de Combate`);
+        const knockedOut = buzzapped.has(id) || discard.has(bottom) || reborn;
         // Devolved, then Knocked Out: the Knocked Out Pokémon is the stage under the top card
         // (back in the hand); a Mysterious Fossil / Clefairy Doll gives no Prize
         const hand = side === "player" ? after.playerHand : after.opponentHand;

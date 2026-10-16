@@ -78,6 +78,22 @@ export function resolveBenchTrimForAI(state: GameState, aiSide: "player" | "oppo
   return next;
 }
 
+/**
+ * The AI judging its own attack (view: AI = "player"): its own choices resolved as
+ * resolveOwnAttackPendings does, and the other player's powers asked mid-attack (Flee, Bench
+ * Guard: `pendingAttackChoice.reaction`, which leave the board untouched until answered) answered
+ * with answerStepForAI — a guess at the other player's answer, so the attack is judged by what it does.
+ */
+export function resolveAttackForEvaluation(view: GameState): GameState {
+  let state = resolveOwnAttackPendings(view);
+  for (let guard = 0; guard < 6 && state.gameResult === null; guard++) {
+    const pending = state.pendingAttackChoice;
+    if (!pending?.reaction || pending.step.chooser !== "opponent") break;
+    state = resolveOwnAttackPendings(resolveAttackChoice(state, answerStepForAI(pending.step), NO_END));
+  }
+  return state;
+}
+
 function remainingHp(pokemon: PokemonInPlay): number {
   return isPokemonCard(pokemon.pokemon) ? pokemon.pokemon.hp - (pokemon.currentDamage ?? 0) : 0;
 }

@@ -13,7 +13,7 @@
 
 import type { GameState, PokemonInPlay, GameCard } from "@/domain/match/types";
 import type { PokemonPower, EnergyType, PokemonCard } from "@/domain/cards/types";
-import { PokemonPowerType, StatusCondition } from "@/domain/constants";
+import { PokemonPowerType, PokemonStage, StatusCondition } from "@/domain/constants";
 import { createGameEvent, energyProvidesType } from "@/lib/gameState";
 import { isPokemonCard, isEnergyCard, isTrainerInPlay, cardOutOfPlay } from "@/domain/cards";
 
@@ -244,6 +244,100 @@ export function applyDamageHalving(pokemon: PokemonInPlay, damage: number, state
   const halves = !!activePowerOfType(state, pokemon, PokemonPowerType.HalveAttackDamage) ||
     (!!state && pokemon.halveDamage?.onTurn === state.turnNumber);
   return halves ? Math.floor(damage / 2 / 10) * 10 : damage;
+}
+
+/**
+ * Gym Heroes powers that change the damage an attack does to `pokemon` (Active or Benched, after
+ * Weakness / Resistance and the modifiers): Shell Armor (ReduceAttackDamage: `amount` less) and
+ * Strange Barrier (BasicAttackDamageCap: 20 or more from an attack by a Basic Pokémon — its
+ * printed stage, "including your own" — becomes `amount`). `attacker` is the Pokémon whose attack
+ * it is. Swift's damage never comes here (executeAttack skips every effect on the defender).
+ * Returns the damage and the power that changed it (for the log), if any.
+ */
+export function applyDamagePowers(
+  pokemon: PokemonInPlay,
+  damage: number,
+  state: GameState | undefined,
+  attacker: PokemonInPlay | null | undefined
+): { damage: number; power?: PokemonPower } {
+  if (damage <= 0) return { damage };
+  const armor = activePowerOfType(state, pokemon, PokemonPowerType.ReduceAttackDamage);
+  if (armor) return { damage: Math.max(0, damage - (armor.amount ?? 10)), power: armor };
+  const barrier = activePowerOfType(state, pokemon, PokemonPowerType.BasicAttackDamageCap);
+  const byBasic = !!attacker && isPokemonCard(attacker.pokemon) && attacker.pokemon.stage === PokemonStage.Basic;
+  if (barrier && byBasic && damage >= 20) return { damage: Math.min(damage, barrier.amount ?? 10), power: barrier };
+  return { damage };
+}
+
+/**
+ * Every damage-changing effect on `pokemon` for damage done by an attack (Kabuto Armor /
+ * Deflector, then Shell Armor / Strange Barrier): the damage actually done.
+ */
+export function applyAttackDamageReductions(
+  pokemon: PokemonInPlay,
+  damage: number,
+  state: GameState | undefined,
+  attacker: PokemonInPlay | null | undefined
+): number {
+  return applyDamagePowers(pokemon, applyDamageHalving(pokemon, damage, state), state, attacker).damage;
+}
+
+/**
+ * Pollen Defense (Erika's Vileplume): its DamagedStatusFlip power when it works now — Asleep,
+ * Confused or Paralyzed don't stop it ("this power works even while..."), Toxic Gas / Goop Gas
+ * Attack do. Only the Defending Pokémon's counts (the caller checks the position).
+ */
+export function getDamagedStatusFlip(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonPower | undefined {
+  if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.DamagedStatusFlip) return undefined;
+  return isPowerActive(state, pokemon, { ignoreBlockingStatus: true }) ? pokemon.pokemon.power : undefined;
+}
+
+/**
+ * Restless Sleep (Rocket's Snorlax): damage its AsleepDamageReaction power does to the attacking
+ * Pokémon when the opponent's attack damaged it while it was already Asleep (`pokemon` as it was
+ * before the attack), or 0. Being Asleep is the condition, so the status doesn't stop it; Toxic
+ * Gas does.
+ */
+export function asleepDamageReaction(state: GameState | null | undefined, pokemon: PokemonInPlay): { damage: number; power: PokemonPower } | null {
+  if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.AsleepDamageReaction) return null;
+  if (!(pokemon.statusConditions ?? []).includes(StatusCondition.Asleep)) return null;
+  if (!isPowerActive(state, pokemon, { ignoreBlockingStatus: true })) return null;
+  return { damage: pokemon.pokemon.power.amount ?? 20, power: pokemon.pokemon.power };
+}
+
+/**
+ * Rebirth (Rocket's Moltres): its ReturnToHandOnKnockOut power if it works at the moment it is
+ * Knocked Out (`pokemon` as it was then: not Asleep, Confused or Paralyzed, no Toxic Gas).
+ */
+export function getRebirthPower(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonPower | undefined {
+  return activePowerOfType(state, pokemon, PokemonPowerType.ReturnToHandOnKnockOut);
+}
+
+/**
+ * Flee (Misty's Tentacruel): its SwitchWhenDamaged power if it works now (it "can't be used if
+ * it is already Asleep, Confused or Paralyzed": checked before the attack).
+ */
+export function getFleePower(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonPower | undefined {
+  return activePowerOfType(state, pokemon, PokemonPowerType.SwitchWhenDamaged);
+}
+
+/**
+ * Bench Guard (Brock's Rhydon): the first Benched Pokémon of `bench` whose RedirectBenchDamage
+ * power works ("as long as it is Benched"), or undefined.
+ */
+export function getBenchGuard(state: GameState | null | undefined, bench: PokemonInPlay[]): PokemonInPlay | undefined {
+  return bench.find((p) => !!activePowerOfType(state, p, PokemonPowerType.RedirectBenchDamage));
+}
+
+/**
+ * Photosynthesis (Erika's Oddish): the Energy type every Energy card attached to `pokemon`
+ * provides instead of its own (EnergyTypeOverride; works while Asleep, Confused or Paralyzed,
+ * not under Toxic Gas), or undefined. Without a state only the power is checked.
+ */
+export function getEnergyTypeOverride(state: GameState | null | undefined, pokemon: PokemonInPlay): EnergyType | undefined {
+  if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.EnergyTypeOverride) return undefined;
+  if (!isPowerActive(state, pokemon, { ignoreBlockingStatus: true })) return undefined;
+  return pokemon.pokemon.power.energyType;
 }
 
 /**
