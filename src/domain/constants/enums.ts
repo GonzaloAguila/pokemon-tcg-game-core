@@ -212,6 +212,8 @@ export const AttackEffectType = {
   BlockEnergyAttach: "blockEnergyAttach",
   /** Good Morning: if the Defending Pokémon has `status`, it no longer does */
   RemoveStatus: "removeStatus",
+  /** Swift: the damage isn't affected by Weakness, Resistance, Pokémon Powers or any other effect on the Defending Pokémon */
+  IgnoreDefenderEffects: "ignoreDefenderEffects",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

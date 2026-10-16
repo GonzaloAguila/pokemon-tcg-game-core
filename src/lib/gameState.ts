@@ -3120,10 +3120,12 @@ function defenderCoinKind(
   attack: Attack
 ): "transparency" | "finalBeam" | "evade" | "counterAttack" | null {
   if (!defender) return null;
-  if (defenderFlipsToPrevent(state, defender) && attackCanAffectDefender(attack)) return "transparency";
+  // Swift: nothing on the Defending Pokémon changes its damage (Transparency, Shadow Images)
+  const unaffected = (attack.effects ?? []).some((e) => e.type === AttackEffectType.IgnoreDefenderEffects);
+  if (!unaffected && defenderFlipsToPrevent(state, defender) && attackCanAffectDefender(attack)) return "transparency";
   if (!attackCanDamageDefender(attack)) return null;
   if (getKnockOutRetaliation(state, defender)) return "finalBeam";
-  if (defender.evadeOnFlip) return "evade";
+  if (!unaffected && defender.evadeOnFlip) return "evade";
   if (activeCounterAttack(state, defender)?.retaliationCoin) return "counterAttack";
   return null;
 }
@@ -3676,10 +3678,13 @@ function executeAttackUnchecked(
 
   // Use shiftedType (Venomoth Shift) if available, otherwise use original type
   const attackerType = attacker.shiftedType || attackerCard.types[0];
+  // Swift: its damage isn't affected by Weakness, Resistance, Pokémon Powers or any other effect on the Defending Pokémon
+  const ignoresDefenderEffects = attack.effects?.some((e) => e.type === AttackEffectType.IgnoreDefenderEffects) ?? false;
   // Sonicboom: "Don't apply Weakness and Resistance for this attack"
-  const ignoresWeaknessResistance = attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance && !e.resistanceOnly) ?? false;
+  const ignoresWeaknessResistance = ignoresDefenderEffects ||
+    (attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance && !e.resistanceOnly) ?? false);
   // Hook Shot: "Don't apply Resistance for this attack"
-  const ignoresResistance = attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance) ?? false;
+  const ignoresResistance = ignoresWeaknessResistance || (attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance) ?? false);
   const hasWeakness = !isMirrorMove && !ignoresWeaknessResistance && defenderWeaknesses.includes(attackerType);
   // The Stadium in play may cancel Resistance for this attacker (stadiums/rules.ts)
   const hasResistance = !isMirrorMove && !ignoresResistance && !stadiumIgnoresResistance(gameState, attacker) &&
@@ -3713,7 +3718,7 @@ function executeAttackUnchecked(
   }
 
   // Aplicar reducción de Defender (después de debilidad/resistencia)
-  const defenderModifiers = gameState.activeModifiers.filter(
+  const defenderModifiers = ignoresDefenderEffects ? [] : gameState.activeModifiers.filter(
     (m) => m.source === "defender" && modifierAppliesTo(m, defender)
   );
   const defenderReduction = defenderModifiers.reduce((sum, m) => sum + Math.abs(m.amount), 0);
@@ -3725,7 +3730,7 @@ function executeAttackUnchecked(
   // The reduction is consumed and cleared later when assembling the final state
   let consumedDamageReduction = false;
   let damageReductionMessage = "";
-  if (defender.nextTurnDamageReduction && defender.nextTurnDamageReduction > 0 && damage > 0) {
+  if (defender.nextTurnDamageReduction && defender.nextTurnDamageReduction > 0 && damage > 0 && !ignoresDefenderEffects) {
     const reduction = defender.nextTurnDamageReduction;
     damage = Math.max(0, damage - reduction);
     consumedDamageReduction = true;
@@ -3734,11 +3739,11 @@ function executeAttackUnchecked(
 
   // Kabuto Armor: half the damage (after Weakness/Resistance and the modifiers above), rounded down
   const damageBeforeArmor = damage;
-  damage = applyDamageHalving(defender, damage, gameState);
+  if (!ignoresDefenderEffects) damage = applyDamageHalving(defender, damage, gameState);
   const halvedByArmor = damage < damageBeforeArmor;
 
   // Verificar si el defensor está protegido o tiene barrera de daño
-  const defenderIsProtected = protectionBlocksDamage(defender, damage);
+  const defenderIsProtected = !ignoresDefenderEffects && protectionBlocksDamage(defender, damage);
   // Transparency (Haunter) heads: every effect of this attack done to it, damage included, is prevented
   const transparencyPrevents = transparencyCoin === "heads";
   // DamageAndEffects protection (Agility, Barrier, Tail Wag) also blocks status, ForceSwitch, PreventRetreat
@@ -3751,7 +3756,7 @@ function executeAttackUnchecked(
     effectiveDamage = 0;
   } else if (evadeCoin === "tails") {
     effectiveDamage = 0;
-  } else if (isDamageBlocked(defender, damage, gameState)) {
+  } else if (!ignoresDefenderEffects && isDamageBlocked(defender, damage, gameState)) {
     effectiveDamage = 0;
     damageBarrierBlocked = true;
   }

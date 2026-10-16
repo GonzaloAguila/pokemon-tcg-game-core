@@ -526,6 +526,24 @@ describe("new effect kinds", () => {
     expect(use(vs(psychic, inPlay("Machop"))).opponentActivePokemon!.currentDamage).toBe(10);
   });
 
+  it("IgnoreDefenderEffects (Swift): no Weakness/Resistance, powers or effects on the Defending Pokémon change its damage", () => {
+    const swift = withAttack(inPlay("Staryu"), { damage: 20, effects: [{ type: AttackEffectType.IgnoreDefenderEffects, target: null }] });
+    const hit = (defender: PokemonInPlay, extra: Parameters<typeof makeState>[0] = {}) => use(vs(swift, defender, extra)).opponentActivePokemon!.currentDamage;
+    expect(hit(inPlay("Charmander"))).toBe(20); // weak to Water
+    expect(hit(inPlay("Kabuto", { set: "fossil" }))).toBe(20); // Kabuto Armor
+    expect(hit(inPlay("Onix", { protection: { type: "damageAndEffects", expiresAfterTurn: 3 } }))).toBe(20); // Agility
+    expect(hit(inPlay("Onix", { nextTurnDamageReduction: 20, nextTurnEffectAppliedOnTurn: 2 }))).toBe(20); // Minimize
+    expect(hit(inPlay("Onix", { halveDamage: { onTurn: 3, attackName: "Deflector" } }))).toBe(20);
+    const onix = inPlay("Onix");
+    const shield = { id: "df", source: "defender" as const, card: gameCard("Defender", "base"), targetPokemonId: onix.pokemon.id, amount: -20, expiresAfterTurn: 4, playerId: "opponent" as const };
+    expect(hit(onix, { activeModifiers: [shield] })).toBe(20);
+    // Transparency and Shadow Images don't get a coin
+    const haunter = inPlay("Haunter", { set: "fossil" });
+    expect(getAttackCoinPlan(vs(swift, haunter), 0).defender).toBe(0);
+    expect(hit(haunter)).toBe(20);
+    expect(getAttackCoinPlan(vs(swift, inPlay("Scyther", { set: "jungle", evadeOnFlip: { attackName: "Imágenes Sombra" } })), 0).defender).toBe(0);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {
