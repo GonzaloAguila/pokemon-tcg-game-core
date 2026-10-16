@@ -16,6 +16,8 @@ import {
   endTurn,
   executeBenchDamage,
   executeDeckSearch,
+  flipAttackCoins,
+  getAttackChoiceCoinPlan,
   hasBasicPokemon,
   initializeMultiplayerGame,
   promoteActivePokemon,
@@ -280,9 +282,12 @@ class GameRunner {
       const step = view.pendingAttackChoice.step;
       const chooser = step.chooser === "opponent" ? other : actor;
       const chosen = this.answer(chooser, step);
+      // An answer that needs new coins (Sabrina's ESP's re-flip): flipped here, like the attack's
+      const plan = getAttackChoiceCoinPlan(view, chosen);
+      const coinResults = plan ? flipAttackCoins(plan, () => flipCoin(rng)) : undefined;
       this.apply(actor, {
         label: `attack choice ${step.title} (${step.chooser ?? "self"})`,
-        run: (v) => resolveAttackChoice(v, chosen, { skipEndTurn: true }),
+        run: (v) => resolveAttackChoice(v, chosen, { skipEndTurn: true, ...(coinResults && { coinResults }) }),
       });
       return true;
     }

@@ -1473,10 +1473,11 @@ export function executeBuzzap(
 
   // Remove Electrode from play
   if (isElectrodeActive) {
-    // Add attached energy and previous evolutions to discard
+    // Add attached energy, attached Trainers (Charity) and previous evolutions to discard
     if (pokemon.attachedEnergy.length > 0) {
       discard.push(...pokemon.attachedEnergy);
     }
+    discard.push(...(pokemon.attachedTrainers ?? []).map(cardOutOfPlay));
     if (pokemon.previousEvolutions && pokemon.previousEvolutions.length > 0) {
       discard.push(...pokemon.previousEvolutions.map(cardOutOfPlay));
     }
@@ -1492,6 +1493,7 @@ export function executeBuzzap(
       if (benchPokemon.attachedEnergy.length > 0) {
         discard.push(...benchPokemon.attachedEnergy);
       }
+      discard.push(...(benchPokemon.attachedTrainers ?? []).map(cardOutOfPlay));
       if (benchPokemon.previousEvolutions && benchPokemon.previousEvolutions.length > 0) {
         discard.push(...benchPokemon.previousEvolutions.map(cardOutOfPlay));
       }

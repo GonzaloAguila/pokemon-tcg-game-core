@@ -310,8 +310,9 @@ export function finishAIAttackAfterReaction(state: GameState, eventsBefore?: num
  * finishAIAttackAfterReaction.
  */
 function completeAIAttack(attacked: GameState, eventsBefore: number): GameState {
-  // The AI answers its own attack's choices (switch, deck search, bench damage) in its view.
-  const resultState = resolveOwnAttackPendings(attacked);
+  // The AI answers its own attack's choices (switch, deck search, bench damage) in its view;
+  // it flips the coins an answer needs (Sabrina's ESP's re-flip)
+  const resultState = resolveOwnAttackPendings(attacked, { flip: () => (Math.random() < 0.5 ? "heads" : "tails") });
 
   // Swap de vuelta
   // En resultState, "opponent" = jugador real. Si opponentActivePokemon es null y hay bench,

@@ -76,6 +76,8 @@ import {
 } from "./evaluate";
 import { canAffordDraws, planHandChange, planMinion, planStadiumAction, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
 import { canUseVermilionCoin } from "@/domain/stadiums/rules";
+import { hasOwner } from "@/domain/cards/owner";
+import { attachedTrainerNamed, SABRINAS_ESP } from "@/domain/trainers/attached";
 import { resolveAttackForEvaluation, resolveOwnAttackPendings } from "./pending";
 import { choosePromotion } from "./choices";
 import { basicHp, getBasicPokemonInHand } from "./actions";
@@ -1006,6 +1008,11 @@ function finishWithAttack(plan: Plan): AIAction[] {
       }
     }
     for (const card of pluses.slice(0, used)) plan.tryAdd(trainerAction(card));
+    // Sabrina's ESP: a second chance for the coins of an attack that flips its own
+    const esp = playableTrainer(v, SABRINAS_ESP);
+    if (esp && hasOwner(active.pokemon, "Sabrina") && !attachedTrainerNamed(active, SABRINAS_ESP) && getAttackCoinPlan(v, choice.copied ?? choice.index).attack !== 0) {
+      plan.tryAdd(trainerAction(esp, [[active.pokemon.id]]));
+    }
   }
   return [
     {

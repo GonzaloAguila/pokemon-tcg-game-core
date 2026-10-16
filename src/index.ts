@@ -173,6 +173,8 @@ export {
   getAttackCoinPlan,
   flipAttackCoins,
   resolveAttackChoice,
+  getAttackChoiceCoinPlan,
+  ESP_REFLIP_OPTION,
   isAttackChoiceEffect,
   resolvePowerChoice,
   triggerOnPlayPower,

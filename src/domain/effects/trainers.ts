@@ -44,6 +44,8 @@
  * | Secret Mission (GH) | [[] (looks at the opponent's hand, `reveals`; no step when it is empty), [0+ handCardIds to discard]] |
  * | Blaine's Gamble (GH) | [[0+ handCardIds to discard]]; then 1 coin (asked with the selections: getTrainerCoinFlips(state, id, selections)) |
  * | Energy Flow (GH) | [[0+ Energy card ids attached to own Pokémon]] |
+ * | Charity (GH) | [] (attached to the Active) |
+ * | Sabrina's ESP (GH) | [[ownSabrinasPokemonId]] (attached to it) |
  *
  * Mysterious Fossil and Clefairy Doll have no entry: they are played as Basic Pokémon
  * (playBasicPokemon; see isPlayedAsBasic).
@@ -56,6 +58,7 @@ import { modifiersAttachedTo } from "@/lib/modifiers";
 import { ALL_CARDS } from "@/domain/catalog";
 import { cardOutOfPlay, cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
+import { attachTrainer, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
 import { CardKind, PokemonStage, StatusCondition } from "@/domain/constants";
 import { isBenchFull, maxBenchSize, findInPlay, getEvolutionBlocker } from "@/domain/board";
 import {
@@ -692,8 +695,6 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  */
 export const UNSUPPORTED_TRAINERS: readonly string[] = [
   // Gym Heroes Trainers that need new machinery, each removed by the task that implements it
-  "Charity", // Task 10 (attached Trainer)
-  "Sabrina's ESP", // Task 10 (attached Trainer)
   "Recall", // Task 11
   "Tickling Machine", // Task 12
   "Erika", // Task 13
@@ -1658,6 +1659,55 @@ Object.assign(TRAINER_EFFECTS, {
       ],
     };
   }),
+} satisfies Record<string, CardEffectDef>);
+
+// ============================================================================
+// Gym Heroes: attached Trainers (domain/trainers/attached.ts; the engine asks their questions
+// in the middle of the attack and handles the end of the turn)
+// ============================================================================
+
+/** The played Trainer leaves the hand attached to the player's Pokémon `pokemonId` (not discarded). */
+function attachPlayed(state: GameState, cardId: string, pokemonId: string): GameState {
+  const card = state.playerHand.find((c) => c.id === cardId)!;
+  const attach = (p: PokemonInPlay): PokemonInPlay => (p.pokemon.id === pokemonId ? attachTrainer(p, card, "endOfTurn") : p);
+  const target = findInPlay(state, "player", pokemonId)!.pokemon;
+  return {
+    ...state,
+    playerHand: state.playerHand.filter((c) => c.id !== cardId),
+    playerActivePokemon: state.playerActivePokemon && attach(state.playerActivePokemon),
+    playerBench: state.playerBench.map(attach),
+    events: [
+      ...state.events,
+      createGameEvent(`Jugaste ${card.name}`, "action"),
+      createGameEvent(`${card.name} se unió a ${target.pokemon.name}`, "info"),
+    ],
+  };
+}
+
+const isSabrinasPokemon = (p: PokemonInPlay) => hasOwner(p.pokemon, "Sabrina");
+
+Object.assign(TRAINER_EFFECTS, {
+  // Attached to the Active: may reduce its attack's damage; back to the hand at the end of the turn
+  [CHARITY]: immediate(
+    (state, cardId) => attachPlayed(state, cardId, state.playerActivePokemon!.pokemon.id),
+    (state) => (state.playerActivePokemon ? null : "No tienes Pokémon activo")
+  ),
+
+  // Attached to a Pokémon with Sabrina in its name: one re-flip of its attack's coins; discarded at the end of the turn
+  [SABRINAS_ESP]: singleStep(
+    (state) => {
+      const { options, thumbnails } = ownPokemonChoices(state, isSabrinasPokemon);
+      return {
+        title: SABRINAS_ESP,
+        description: "Elige 1 de tus Pokémon con Sabrina en su nombre para unirle esta carta",
+        options,
+        thumbnails,
+        maxSelections: 1,
+      };
+    },
+    (state) => (ownPokemonChoices(state, isSabrinasPokemon).options.length > 0 ? null : "Necesitas un Pokémon con Sabrina en su nombre en juego"),
+    (state, cardId, [pokemonId]) => attachPlayed(state, cardId, pokemonId)
+  ),
 } satisfies Record<string, CardEffectDef>);
 
 // Gym Heroes: Stadiums with an on-play effect (every other Stadium falls back to playStadium)

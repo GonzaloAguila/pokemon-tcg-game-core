@@ -19,6 +19,8 @@ import { GamePhase, CardKind, PokemonStage } from "@/domain/constants";
 import { evolvePokemonInPlay, clearEffectsAsIfEvolved, isBenchFull } from "@/domain/board";
 import { modifiersAttachedTo } from "@/lib/modifiers";
 
+// Gym Heroes attached Trainers (Charity, Sabrina's ESP): PokemonInPlay.attachedTrainers helpers
+export { attachTrainer, attachedTrainerNamed, CHARITY, SABRINAS_ESP, type AttachedTrainerExpiry } from "./attached";
 
 // ============================================================================
 // VALIDATION

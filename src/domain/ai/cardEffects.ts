@@ -31,7 +31,8 @@
  * | Rocket's Sneak Attack | the opponent holds 3+ cards |
  * | Goop Gas Attack | it will attack and an opposing Pokémon has a working passive power |
  * | Sleep! | the Defending Pokémon isn't Asleep / Paralyzed and can be affected |
- * | Challenge!, Digger, Here Comes Team Rocket! | never (`AI_NEVER_PLAYS`) |
+ * | Challenge!, Digger, Here Comes Team Rocket!, Charity (GH) | never (`AI_NEVER_PLAYS`) |
+ * | Sabrina's ESP (GH) | on its Active with Sabrina in its name, right before an attack that flips its own coins (smart.ts finishWithAttack); re-flips when fewer than half are heads (pending.ts wantsEspReflip) |
  * | Blaine's Last Resort (GH) | its hand holds nothing else, deck > 7 and 5 draws can't lose the deck-out race (hand change) |
  * | Misty's Wrath (GH) | hand of 4 or fewer, deck ≥ 15 (hand change) |
  * | Brock's Training Method, Erika's Maids (GH) | the deck has that owner's Pokémon that evolves one in play or a Basic with room on the Bench (Maids: 2 cards it can spare) (hand change) |
@@ -75,8 +76,9 @@ import type { AIAction } from "./types";
  * Trainers the AI never plays. Challenge!: its questions go to the human, and consumers only
  * relay a Trainer's opponent steps when the human plays it (no flow answers a Trainer step the
  * AI created). Digger: either Active may take the damage. Here Comes Team Rocket!: no gain.
+ * Charity (Gym Heroes): its only effect is a damage reduction the AI never wants.
  */
-export const AI_NEVER_PLAYS: ReadonlySet<string> = new Set(["Challenge!", "Digger", "Here Comes Team Rocket!"]);
+export const AI_NEVER_PLAYS: ReadonlySet<string> = new Set(["Challenge!", "Digger", "Here Comes Team Rocket!", "Charity"]);
 
 
 // ============================================================================

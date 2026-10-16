@@ -49,8 +49,10 @@ import {
 import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
 import { stadiumIgnoresResistance, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
 import type { SelectionStep } from "@/domain/effects/types";
+import { checkCoins } from "@/domain/effects/validate";
+import { attachedTrainerNamed, expireAttachedTrainers, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
 import { isAttackChoiceEffect, matchesDeckCardFilter, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
-export { resolveAttackChoice, isAttackChoiceEffect, matchesDeckCardFilter } from "./attackChoices";
+export { resolveAttackChoice, getAttackChoiceCoinPlan, isAttackChoiceEffect, matchesDeckCardFilter } from "./attackChoices";
 export type { AttackChoiceContext } from "./attackChoices";
 import type { PendingPowerChoice } from "./powerChoices";
 import { attackBonusFromModifiers, defenderReduction as attachedDefenderReduction, modifierAppliesTo, modifierHoldsCard, releaseOrphanModifiers } from "./modifiers";
@@ -193,6 +195,13 @@ export type GameResult = "victory" | "defeat" | null;
 export type AttackReactions = {
   flee?: string | null;
   benchGuard?: Partial<Record<"player" | "opponent", string[]>>;
+  /**
+   * Sabrina's ESP (attached to the attacker): the attack's own coins flipped again by the caller
+   * (laid out by getAttackChoiceCoinPlan), or null when the attacker kept its coins.
+   */
+  espReflip?: CoinFlipResult[] | null;
+  /** Charity (attached to the attacker): how much the attacker reduced its damage to the Defending Pokémon (0 = none). */
+  charityReduction?: number;
 };
 
 /**
@@ -211,11 +220,27 @@ export type PendingAttackChoice = {
   /** The attack effect waiting for the answer (its type says what the answer does); absent for a `reaction` */
   effect?: AttackEffect;
   /**
-   * A Pokémon Power asked in the middle of the attack (Flee, Bench Guard): nothing of the attack
-   * (or of the step in `resume`) has happened yet; answering it runs `resume` again with the
-   * answer. `side` = the power owner's side in the attacker's view.
+   * A question asked in the middle of the attack — a Pokémon Power (Flee, Bench Guard) or a
+   * Trainer attached to the attacker (Sabrina's ESP, Charity): nothing of the attack (or of the
+   * step in `resume`) has happened yet; answering it runs `resume` again with the answer.
+   * `answers` = the AttackReactions entry the answer fills; `powerType` = the power asked (absent
+   * for a Trainer); `powerName` = the power's or the Trainer's name; `pokemonId` / `side` = the
+   * Pokémon it belongs to and its side in the attacker's view.
    */
-  reaction?: { powerType: PokemonPowerType; powerName: string; pokemonId: string; side: "player" | "opponent"; resume: AttackResume };
+  reaction?: {
+    answers: keyof AttackReactions;
+    powerType?: PokemonPowerType;
+    powerName: string;
+    pokemonId: string;
+    side: "player" | "opponent";
+    resume: AttackResume;
+  };
+  /**
+   * Sabrina's ESP's question: the answer `option` re-flips `coins` (the attack's own coins) and
+   * needs new coins from the caller, laid out as `plan` (getAttackChoiceCoinPlan →
+   * flipAttackCoins → resolveAttackChoice's `coinResults`).
+   */
+  reflip?: { option: string; coins: CoinFlipResult[]; plan: AttackCoinPlan };
   /** The question; `chooser` = "self" (the attacker) or "opponent" (the defending side) */
   step: SelectionStep;
   /** What the attack left behind (attacker / defender ids, Knock Out, prevention...) */
@@ -952,6 +977,12 @@ export type PendingResolutionOptions = {
   skipEndTurn?: boolean;
   /** Answers of the powers asked while resolving it (Bench Guard), set when resolveAttackChoice resumes it */
   reactions?: AttackReactions;
+  /**
+   * resolveAttackChoice only: the coins the answer needs, flipped by the caller (the server in
+   * multiplayer) as getAttackChoiceCoinPlan(state, selection) lays them out — Sabrina's ESP's
+   * re-flip. Ignored for answers that need none.
+   */
+  coinResults?: CoinFlipResult[];
 };
 
 // ============================================================================
@@ -1048,13 +1079,55 @@ export function pauseForReaction(
   state: GameState,
   reaction: NonNullable<PendingAttackChoice["reaction"]>,
   step: SelectionStep,
-  context: AttackChoiceContext
+  context: AttackChoiceContext,
+  reflip?: PendingAttackChoice["reflip"]
 ): GameState {
   const who = step.chooser === "opponent" ? "el defensor" : "el atacante";
   return {
     ...state,
-    pendingAttackChoice: { step, context, queue: [], reaction },
+    pendingAttackChoice: { step, context, queue: [], reaction, ...(reflip && { reflip }) },
     events: [...state.events, createGameEvent(`${reaction.powerName}: ${who} debe elegir`, "info")],
+  };
+}
+
+/** Sabrina's ESP's answer that re-flips the coins (its other answer, "keep", keeps them). */
+export const ESP_REFLIP_OPTION = "reflip";
+
+/** Sabrina's ESP's question to the attacker, with the attack's own coins (`coins`). */
+function espReflipStep(attackName: string, coins: CoinFlipResult[]): SelectionStep {
+  const heads = coins.filter((c) => c === "heads").length;
+  const tails = coins.length - heads;
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  return {
+    title: "¿Volver a lanzar las monedas?",
+    description: `${SABRINAS_ESP}: en ${attackName} salieron ${count(heads, "cara", "caras")} y ${count(tails, "cruz", "cruces")}. Puedes volver a lanzar todas las monedas una vez`,
+    options: [
+      { id: "keep", label: "Quedarse con estas monedas" },
+      { id: ESP_REFLIP_OPTION, label: "Volver a lanzarlas todas" },
+    ],
+    maxSelections: 1,
+    disableAutoSelect: true,
+    chooser: "self",
+  };
+}
+
+/**
+ * Charity's question to the attacker: by how much to reduce the `damage` it does to the Defending
+ * Pokémon — any amount "rounded to the nearest 10": 0, 10, … up to the whole damage (option id =
+ * the amount).
+ */
+function charityStep(attackerName: string, defenderName: string, damage: number): SelectionStep {
+  const amounts = Array.from({ length: Math.ceil(damage / 10) + 1 }, (_, i) => i * 10);
+  return {
+    title: CHARITY,
+    description: `${attackerName} hace ${damage} de daño a ${defenderName}. Puedes reducir ese daño en la cantidad que quieras (de 10 en 10)`,
+    options: amounts.map((amount) => ({
+      id: String(amount),
+      label: amount === 0 ? `No reducir (${damage} de daño)` : `Reducir ${amount} (${Math.max(0, damage - amount)} de daño)`,
+    })),
+    maxSelections: 1,
+    disableAutoSelect: true,
+    chooser: "self",
   };
 }
 
@@ -1425,6 +1498,7 @@ export function executeBenchDamage(
       return pauseForReaction(
         { ...gameState, pendingBenchDamageSelection: undefined },
         {
+          answers: "benchGuard",
           powerType: PokemonPowerType.RedirectBenchDamage,
           powerName: guard.powerName,
           pokemonId: guard.guard.pokemon.id,
@@ -2145,6 +2219,25 @@ function processStatusEffectsForPokemon(
   return { pokemon: updated, events, isKnockedOut };
 }
 
+/**
+ * The end of `side`'s turn for its attached Trainers (domain/trainers/attached.ts): Charity goes
+ * back to the hand, Sabrina's ESP to the discard pile. Pure (log lines pushed to `events`).
+ */
+function expireEndOfTurnTrainers(state: GameState, side: "player" | "opponent", events: GameEvent[]): GameState {
+  const active = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
+  const bench = side === "player" ? state.playerBench : state.opponentBench;
+  const { pokemon, toHand, toDiscard, expired } = expireAttachedTrainers(active ? [active, ...bench] : bench);
+  if (expired.length === 0) return state;
+  for (const e of expired) {
+    events.push(createGameEvent(`${e.card.name} (unida a ${e.pokemonName}) ${e.to === "hand" ? "vuelve a la mano" : "se descarta"}`, "info"));
+  }
+  const newActive = active ? pokemon[0] : null;
+  const newBench = active ? pokemon.slice(1) : pokemon;
+  return side === "player"
+    ? { ...state, playerActivePokemon: newActive, playerBench: newBench, playerHand: [...state.playerHand, ...toHand], playerDiscard: [...state.playerDiscard, ...toDiscard] }
+    : { ...state, opponentActivePokemon: newActive, opponentBench: newBench, opponentHand: [...state.opponentHand, ...toHand], opponentDiscard: [...state.opponentDiscard, ...toDiscard] };
+}
+
 export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = false): GameState {
   // Block turn end while an ATTACK is still resolving (switch, deck search, bench damage selection).
   // pendingTypeShift / pendingPeek are optional Pokémon Power prompts opened during the turn:
@@ -2169,6 +2262,10 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   const events: GameEvent[] = [...gameState.events];
 
   let updatedState: GameState = { ...gameState, pendingTypeShift: undefined, pendingPeek: undefined };
+
+  // The end of the turn, before the between-turns checkup: the ending side's attached Trainers
+  // leave (Charity back to the hand, Sabrina's ESP to the discard pile)
+  updatedState = expireEndOfTurnTrainers(updatedState, isPlayerEndingTurn ? "player" : "opponent", events);
 
   // Variables para trackear KO y premios
   let gameResult: GameResult = null;
@@ -3796,7 +3893,39 @@ function executeAttackUnchecked(
     }
     gameState = { ...gameState, events: [...events, createGameEvent("[coin:heads] El ataque procede normalmente", "info")] };
   }
-  const coinResults = splitCoins?.attack;
+  // What to run again once a question asked mid-attack is answered (ESP, Charity, Flee)
+  const resumeAttack = (): AttackResume => ({ kind: "attack", attackIndex, ...(copiedAttack && { copiedAttack }), options: { ...options!, reactions } });
+
+  // Sabrina's ESP (Gym Heroes) attached to the attacker: it may re-flip all of the attack's own
+  // coins once (not Smokescreen's, the Stadium's or the defender's coin) — asked as soon as they
+  // are known, before anything they decide; the new coins come from the caller with the answer
+  const ownCoins = splitCoins?.attack;
+  const esp = options && ownCoins && ownCoins.length > 0 ? attachedTrainerNamed(attacker, SABRINAS_ESP) : undefined;
+  if (esp && ownCoins && reactions.espReflip === undefined) {
+    const plan: AttackCoinPlan = {
+      smokescreen: 0,
+      attack: coinPlan.attack,
+      defender: 0,
+      ...(coinPlan.attackFlipper && { attackFlipper: coinPlan.attackFlipper }),
+    };
+    return pauseForReaction(
+      inputState,
+      { answers: "espReflip", powerName: SABRINAS_ESP, pokemonId: attacker.pokemon.id, side: "player", resume: resumeAttack() },
+      espReflipStep(printedAttack.name, ownCoins),
+      reactionContext(attacker, defender, printedAttack.name, gameState),
+      { option: ESP_REFLIP_OPTION, coins: ownCoins, plan }
+    );
+  }
+  const reflipped = esp && reactions.espReflip ? reactions.espReflip : undefined;
+  if (reflipped) checkCoins(coinPlan.attack, reflipped);
+  const coinResults = reflipped ?? ownCoins;
+  // The log keeps the coins ESP replaced
+  const espEvents: GameEvent[] = reflipped && ownCoins
+    ? [
+        createGameEvent(`${ownCoins.length === 1 ? "Moneda" : "Monedas"}: ${ownCoins.map((r) => `[coin:${r}]`).join(" ")}`, "info"),
+        createGameEvent(`${SABRINAS_ESP}: se vuelven a lanzar todas las monedas de ${printedAttack.name}`, "action"),
+      ]
+    : [];
   const coinResolution = coinResults && coinResults.length > 0
     ? resolveCoinFlipEffects(printedAttack.effects ?? [], coinResults)
     : null;
@@ -3836,6 +3965,7 @@ function executeAttackUnchecked(
       attackedThisTurn: true,
       events: [
         ...gameState.events,
+        ...espEvents,
         ...(tokens ? [createGameEvent(`Moneda: ${tokens}`, "info")] : []),
         createGameEvent(`${attacker.pokemon.name} usó ${attack.name} pero el ataque no hizo nada`, "action"),
       ],
@@ -4016,6 +4146,21 @@ function executeAttackUnchecked(
   }
   const evaded = evadeCoin === "tails" && !transparencyPrevents && !(defenderIsProtected && damage > 0);
 
+  // Charity (Gym Heroes) attached to the attacker: it may reduce the damage it does to the
+  // Defending Pokémon by any amount in 10s — asked once that damage is known (after Weakness /
+  // Resistance, PlusPower, Defender, reductions, powers and protection), before anything happens
+  const charity = options && effectiveDamage > 0 ? attachedTrainerNamed(attacker, CHARITY) : undefined;
+  if (charity && reactions.charityReduction === undefined) {
+    return pauseForReaction(
+      inputState,
+      { answers: "charityReduction", powerName: CHARITY, pokemonId: attacker.pokemon.id, side: "player", resume: resumeAttack() },
+      charityStep(attacker.pokemon.name, defender.pokemon.name, effectiveDamage),
+      reactionContext(attacker, defender, printedAttack.name, gameState)
+    );
+  }
+  const charityReduction = charity ? Math.min(reactions.charityReduction ?? 0, effectiveDamage) : 0;
+  effectiveDamage -= charityReduction;
+
   // Mass Explosion: its second part also hits the Defending Pokémon when it is named (no W/R),
   // unless everything was prevented
   const namedDamage = attack.effects?.find((e) => e.type === AttackEffectType.DamageNamedInPlay && !e.coinFlip);
@@ -4047,6 +4192,7 @@ function executeAttackUnchecked(
     return pauseForReaction(
       inputState,
       {
+        answers: "flee",
         powerType: PokemonPowerType.SwitchWhenDamaged,
         powerName: fleePower.name,
         pokemonId: defender.pokemon.id,
@@ -4071,7 +4217,8 @@ function executeAttackUnchecked(
   // Crear eventos
   const events: GameEvent[] = [...gameState.events];
 
-  // Coin results first, so the log reads: coins → attack → effects
+  // Coin results first, so the log reads: coins → attack → effects (the ones Sabrina's ESP replaced before)
+  events.push(...espEvents);
   if (coinResolution && coinResults) {
     const tokens = coinResults.map((r) => `[coin:${r}]`).join(" ");
     events.push(createGameEvent(coinResults.length === 1 ? `Moneda: ${tokens}` : `Monedas: ${tokens}`, "info"));
@@ -4088,6 +4235,9 @@ function executeAttackUnchecked(
   }
   if (damageReductionMessage) {
     events.push(createGameEvent(damageReductionMessage, "action"));
+  }
+  if (charityReduction > 0) {
+    events.push(createGameEvent(`${CHARITY}: el atacante redujo el daño en ${charityReduction}`, "action"));
   }
 
   // Mirror Move result message
@@ -4132,6 +4282,8 @@ function executeAttackUnchecked(
   } else if (damageBarrierBlocked) {
     const barrierPowerName = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.name || "Muro Invisible" : "Muro Invisible";
     damageMessage = ` pero ${defender.pokemon.name} bloqueó el daño con ${barrierPowerName}`;
+  } else if (effectiveDamage === 0 && charityReduction > 0) {
+    damageMessage = ` e hizo 0 de daño (${CHARITY})`;
   } else if (effectiveDamage > 0) {
     const armorNote = !halvedByArmor ? "" : defender.halveDamage?.onTurn === gameState.turnNumber ? ` (la mitad por ${defender.halveDamage.attackName})` : " (la mitad por Armadura Kabuto)";
     if (halvedByArmor) {
@@ -4450,6 +4602,7 @@ function executeAttackUnchecked(
                   return pauseForReaction(
                     inputState,
                     {
+                      answers: "benchGuard",
                       powerType: PokemonPowerType.RedirectBenchDamage,
                       powerName: guard.powerName,
                       pokemonId: guard.guard.pokemon.id,
@@ -4530,6 +4683,7 @@ function executeAttackUnchecked(
                   return pauseForReaction(
                     inputState,
                     {
+                      answers: "benchGuard",
                       powerType: PokemonPowerType.RedirectBenchDamage,
                       powerName: guard.powerName,
                       pokemonId: guard.guard.pokemon.id,

@@ -39,7 +39,7 @@
 import type { AttackEffect } from "@/domain/cards";
 import { cardsLeavingPlay, isEnergyCard, isPokemonCard, type DeckCardFilter } from "@/domain/cards";
 import type { SelectionStep } from "@/domain/effects/types";
-import { checkSelection } from "@/domain/effects/validate";
+import { checkCoins, checkSelection } from "@/domain/effects/validate";
 import { AttackEffectType, AttackTarget, CardKind, GamePhase, PokemonPowerType, PokemonStage, StatusCondition, type CoinFlipResult } from "@/domain/constants";
 import {
   applyAttackDamageReductions,
@@ -56,7 +56,7 @@ import { evolvePokemonInPlay, getEvolutionBlocker, maxBenchSize } from "@/domain
 import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
 import { IllegalActionError } from "@/shared/errors";
 import { attackBonusFromModifiers, modifierAppliesTo } from "./modifiers";
-import type { AttackReactions, GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
+import type { AttackCoinPlan, AttackReactions, GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
 import {
   activeCounterAttack,
   applyBenchGuard,
@@ -67,6 +67,7 @@ import {
   executeBenchDamage,
   executeMetronome,
   pauseForReaction,
+  ESP_REFLIP_OPTION,
   checkKnockouts,
   clearStatusConditionsOnRetreat,
   counterAttackDamage,
@@ -887,6 +888,7 @@ export function dealChosenTargetDamage(
         return pauseForReaction(
           { ...input, pendingAttackChoice: undefined },
           {
+            answers: "benchGuard",
             powerType: PokemonPowerType.RedirectBenchDamage,
             powerName: found.powerName,
             pokemonId: found.guard.pokemon.id,
@@ -1009,6 +1011,9 @@ export function resolveAttackChoice(state: GameState, selection: string[], optio
   const pending = state.pendingAttackChoice;
   if (!pending) throw new IllegalActionError("No hay ninguna elección de ataque pendiente");
   checkSelection(pending.step, selection);
+  // Sabrina's ESP's re-flip: the caller's new coins must fit the attack's coins
+  const coinPlan = getAttackChoiceCoinPlan(state, selection);
+  if (coinPlan) checkCoins(coinPlan.attack, options.coinResults ?? []);
   const cleared: GameState = { ...state, pendingAttackChoice: undefined };
   if (pending.reaction) return resumeAfterReaction(cleared, pending.reaction, selection, options);
   const applied = applyChoice(cleared, pending, selection, options.reactions);
@@ -1020,10 +1025,37 @@ export function resolveAttackChoice(state: GameState, selection: string[], optio
   return options.skipEndTurn || done.gameResult !== null ? done : endTurn(done);
 }
 
-/** The reactions answered so far plus this answer (Flee: the Benched Pokémon or null; Bench Guard: the chosen ones). */
-function withAnswer(reaction: NonNullable<PendingAttackChoice["reaction"]>, selection: string[], previous: AttackReactions = {}): AttackReactions {
-  if (reaction.powerType === PokemonPowerType.SwitchWhenDamaged) return { ...previous, flee: selection[0] ?? null };
-  return { ...previous, benchGuard: { ...previous.benchGuard, [reaction.side]: selection } };
+/**
+ * The coins the answer `selection` to the pending attack choice needs, flipped by the caller and
+ * passed to resolveAttackChoice as `coinResults` (build them with flipAttackCoins), or null when
+ * it needs none. Only Sabrina's ESP's "reflip" needs coins: the attack's own coins again
+ * (`attack`: their number, or "untilTails"; `attackFlipper` when the defending player flips them).
+ */
+export function getAttackChoiceCoinPlan(state: GameState, selection: string[]): AttackCoinPlan | null {
+  const reflip = state.pendingAttackChoice?.reflip;
+  return reflip && selection.includes(reflip.option) ? reflip.plan : null;
+}
+
+/**
+ * The reactions answered so far plus this answer (Flee: the Benched Pokémon or null; Bench Guard:
+ * the chosen ones; Sabrina's ESP: the caller's new coins or null; Charity: the amount).
+ */
+function withAnswer(
+  reaction: NonNullable<PendingAttackChoice["reaction"]>,
+  selection: string[],
+  previous: AttackReactions = {},
+  coins?: CoinFlipResult[]
+): AttackReactions {
+  switch (reaction.answers) {
+    case "flee":
+      return { ...previous, flee: selection[0] ?? null };
+    case "espReflip":
+      return { ...previous, espReflip: coins ?? null };
+    case "charityReduction":
+      return { ...previous, charityReduction: Number(selection[0] ?? 0) };
+    case "benchGuard":
+      return { ...previous, benchGuard: { ...previous.benchGuard, [reaction.side]: selection } };
+  }
 }
 
 /**
@@ -1038,9 +1070,11 @@ function resumeAfterReaction(
   options: PendingResolutionOptions
 ): GameState {
   const resume = reaction.resume;
+  // Sabrina's ESP: the new coins go with the answer "reflip" (getAttackChoiceCoinPlan), none with "keep"
+  const coins = reaction.answers === "espReflip" && selection.includes(ESP_REFLIP_OPTION) ? options.coinResults : undefined;
   switch (resume.kind) {
     case "attack": {
-      const opts = { ...resume.options, reactions: withAnswer(reaction, selection, resume.options.reactions), skipEndTurn: !!options.skipEndTurn };
+      const opts = { ...resume.options, reactions: withAnswer(reaction, selection, resume.options.reactions, coins), skipEndTurn: !!options.skipEndTurn };
       return resume.copiedAttack ? executeMetronome(state, resume.copiedAttack, opts) : executeAttack(state, resume.attackIndex, opts);
     }
     case "benchDamage":
@@ -1051,6 +1085,7 @@ function resumeAfterReaction(
     case "attackChoice":
       return resolveAttackChoice({ ...state, pendingAttackChoice: resume.pending }, resume.selection, {
         ...options,
+        coinResults: undefined,
         reactions: withAnswer(reaction, selection, resume.reactions),
       });
   }

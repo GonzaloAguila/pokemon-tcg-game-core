@@ -12,8 +12,10 @@ import {
   resolveAttackChoice,
   executeBenchDamage,
   executeDeckSearch,
+  flipAttackCoins,
   skipPendingSwitch,
 } from "@/lib/gameState";
+import type { CoinFlipResult } from "@/domain/constants";
 import { isPokemonCard } from "@/domain/cards";
 import { resolveBenchTrim, swapSides } from "@/domain/board";
 import { PokemonStage } from "@/domain/constants";
@@ -99,10 +101,20 @@ function remainingHp(pokemon: PokemonInPlay): number {
 }
 
 /**
+ * Sabrina's ESP: the AI re-flips its attack's own coins when fewer than half came up heads (heads
+ * is what every coin attack of a Pokémon with Sabrina in its name wants).
+ */
+export function wantsEspReflip(coins: CoinFlipResult[]): boolean {
+  return coins.filter((c) => c === "heads").length * 2 < coins.length;
+}
+
+/**
  * Resolve every pending choice of the AI's own attack (view: AI = "player"). Choices that
  * belong to the other side (an attack choice with `chooser: "opponent"`) are left pending.
+ * `flip`: the AI's coin, for an answer that needs new coins (Sabrina's ESP's re-flip, see
+ * wantsEspReflip); without it (judging an attack) the AI keeps its coins. Charity: never reduces.
  */
-export function resolveOwnAttackPendings(view: GameState): GameState {
+export function resolveOwnAttackPendings(view: GameState, options: { flip?: () => CoinFlipResult } = {}): GameState {
   let state = view;
   for (let guard = 0; guard < 10; guard++) {
     if (state.gameResult !== null) return state;
@@ -138,6 +150,13 @@ export function resolveOwnAttackPendings(view: GameState): GameState {
       const step = state.pendingAttackChoice.step;
       // The other player's choice (Terror Strike) stays pending: the consumer asks them
       if (step.chooser === "opponent") return state;
+      // Sabrina's ESP: re-flip bad coins with its own flips; otherwise the first answer ("keep";
+      // Charity: "0", no reduction)
+      const reflip = state.pendingAttackChoice.reflip;
+      if (reflip && options.flip && wantsEspReflip(reflip.coins)) {
+        state = resolveAttackChoice(state, [reflip.option], { ...NO_END, coinResults: flipAttackCoins(reflip.plan, options.flip) });
+        continue;
+      }
       state = resolveAttackChoice(state, answerStepForAI(step), NO_END);
       continue;
     }

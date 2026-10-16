@@ -32,7 +32,7 @@ describe("registry coverage", () => {
     expect(missing).toEqual([]);
     // Gym Heroes Trainers waiting for their own machinery (Tasks 10–14 remove them)
     expect([...UNSUPPORTED_TRAINERS].sort()).toEqual(
-      ["Blaine's Quiz #1", "Charity", "Erika", "Lt. Surge's Treaty", "Misty's Duel", "Recall", "Sabrina's ESP", "Tickling Machine"].sort()
+      ["Blaine's Quiz #1", "Erika", "Lt. Surge's Treaty", "Misty's Duel", "Recall", "Tickling Machine"].sort()
     );
     expect(isPlayedAsBasic("Mysterious Fossil") && isPlayedAsBasic("Clefairy Doll")).toBe(true);
   });
