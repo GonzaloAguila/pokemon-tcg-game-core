@@ -251,13 +251,53 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
     getAttackCoinPlan(swappedState, copied ?? attackIndex, { vermilionCoin }),
     () => (Math.random() < 0.5 ? "heads" : "tails")
   );
-  // The AI answers its own attack's choices (switch, deck search, bench damage) in its view.
   const options = { coinResults, skipEndTurn: true, skipDefenderPromotion: true, ...(vermilionCoin && { vermilionCoin }) };
-  const resultState = resolveOwnAttackPendings(
-    copied
-      ? executeMetronome(swappedState, copied, options)
-      : executeAttack(swappedState, attackIndex, { ...options, ...(action.chosenType && { chosenType: action.chosenType }) })
-  );
+  const attacked = copied
+    ? executeMetronome(swappedState, copied, options)
+    : executeAttack(swappedState, attackIndex, { ...options, ...(action.chosenType && { chosenType: action.chosenType }) });
+  return completeAIAttack(attacked, state.events.length);
+}
+
+/** Event that marks a choice of the AI's attack left to the human (Flee, Bench Guard, Terror Strike): "<name>: el defensor debe elegir". */
+const DEFENDER_CHOOSES = /: el defensor debe elegir$/;
+
+/**
+ * Single-player: finish the AI's turn after the human answered a choice of the AI's attack —
+ * a power asked mid-attack (Flee, Bench Guard: `pendingAttackChoice.reaction`) or a choice left
+ * to the defender (Terror Strike). `state` is the human's view ("player" = human, the AI's turn)
+ * right after `resolveAttackChoice` ran on the AI's view with `{ skipEndTurn: true }` and was
+ * swapped back. It runs the executor's own post-attack step: the AI answers its own choices that
+ * came up after the resume (its Bench Guard on its own Bench, a later attack choice), promotes if
+ * its Active was Knocked Out, the log lines written in the AI's view since `eventsBefore` (default:
+ * after the last "…: el defensor debe elegir" line) are reworded for the human, and the turn ends
+ * unless a Prize, a promotion or another answer of the human is pending. Returns `state` unchanged
+ * when it isn't the AI's turn or the human still has to answer.
+ */
+export function finishAIAttackAfterReaction(state: GameState, eventsBefore?: number): GameState {
+  if (state.isPlayerTurn || state.gameResult !== null) return state;
+  if (state.pendingAttackChoice?.step.chooser === "opponent") return state;
+  let start = eventsBefore;
+  if (start === undefined) {
+    let marker = -1;
+    state.events.forEach((e, i) => {
+      if (DEFENDER_CHOOSES.test(e.message)) marker = i;
+    });
+    start = marker === -1 ? state.events.length : marker + 1;
+  }
+  return completeAIAttack(swapSides(state), start);
+}
+
+/**
+ * The AI's attack after the engine ran it (`resultState`: the AI's view, "player" = AI, turn not
+ * ended): the AI answers its own pending choices (switch, deck search, bench damage, its own
+ * powers), the state is swapped back to the human's view, the log lines from `eventsBefore` on
+ * (written for the AI) are reworded, the AI promotes after its own Knock Out, and the turn ends
+ * unless a Prize, a promotion or a choice of the human is pending. Shared by the AI's attack and
+ * finishAIAttackAfterReaction.
+ */
+function completeAIAttack(attacked: GameState, eventsBefore: number): GameState {
+  // The AI answers its own attack's choices (switch, deck search, bench damage) in its view.
+  const resultState = resolveOwnAttackPendings(attacked);
 
   // Swap de vuelta
   // En resultState, "opponent" = jugador real. Si opponentActivePokemon es null y hay bench,
@@ -278,12 +318,10 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
   // Durante el swap: "player" = AI, "opponent" = human
   // Los mensajes están desde la perspectiva del "player" atacando al "opponent"
   // Necesitamos invertirlos para que reflejen la realidad: AI atacó al human
-  const correctedEvents = resultState.events.map((event, idx, allEvents) => {
+  // Only the lines written by this attack (earlier ones are already in the human's perspective)
+  const newEvents = resultState.events.slice(eventsBefore);
+  const correctedEvents = [...resultState.events.slice(0, eventsBefore), ...newEvents.map((event, idx, allEvents) => {
     let message = event.message;
-
-    // Detectar si hubo self-KO del atacante (AI)
-    // Buscamos el mensaje de self-KO que precede a los mensajes de premio
-    const hasSelfKO = allEvents.some(e => e.message.includes("se noqueó a sí mismo"));
 
     // "El rival tomó un premio" durante self-KO → el humano toma el premio
     if (message === "El rival tomó un premio") {
@@ -320,7 +358,7 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
     }
 
     return { ...event, message };
-  });
+  })];
 
   let finalState: GameState = {
     ...resultState,
