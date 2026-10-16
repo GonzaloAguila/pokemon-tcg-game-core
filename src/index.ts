@@ -24,6 +24,7 @@ export type {
   PowerSuppression,
   StadiumInPlay,
   BenchTrim,
+  SetAsideHand,
   PendingResolutionOptions,
   PendingAttackChoice,
   AttackChoiceContext,
@@ -152,6 +153,9 @@ export {
   canUseVermilionCoin,
   VERMILION_COIN_DAMAGE,
 } from "./domain/stadiums/rules";
+
+// Tickling Machine: hands set aside face down (state.setAsideHands; consumers mask them for BOTH players)
+export { setAsideCards, swapSetAsideHands } from "./domain/trainers/set-aside";
 
 // =============================================================================
 // Game Engine (lib/gameState.ts)

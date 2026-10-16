@@ -47,6 +47,7 @@
  * | Charity (GH) | [] (attached to the Active) |
  * | Sabrina's ESP (GH) | [[ownSabrinasPokemonId]] (attached to it) |
  * | Recall (GH) | [] (state.recallActiveOnTurn: this turn's Active may use the attacks under it, getAvailableAttacks) |
+ * | Tickling Machine (GH) | 1 coin; [] (heads: the opponent's hand is set aside until the end of their next turn, state.setAsideHands; a tails ends the turn, `skipEndTurn` as Minion of Team Rocket) |
  *
  * Mysterious Fossil and Clefairy Doll have no entry: they are played as Basic Pokémon
  * (playBasicPokemon; see isPlayedAsBasic).
@@ -60,6 +61,7 @@ import { ALL_CARDS } from "@/domain/catalog";
 import { cardOutOfPlay, cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { attachTrainer, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
+import { setAsideHand, TICKLING_MACHINE } from "@/domain/trainers/set-aside";
 import { CardKind, PokemonStage, StatusCondition } from "@/domain/constants";
 import { isBenchFull, maxBenchSize, findInPlay, getEvolutionBlocker } from "@/domain/board";
 import {
@@ -696,7 +698,6 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  */
 export const UNSUPPORTED_TRAINERS: readonly string[] = [
   // Gym Heroes Trainers that need new machinery, each removed by the task that implements it
-  "Tickling Machine", // Task 12
   "Erika", // Task 13
   "Lt. Surge's Treaty", // Task 13
   "Blaine's Quiz #1", // Task 13
@@ -1462,6 +1463,35 @@ Object.assign(TRAINER_EFFECTS, {
         opponentBench: state.opponentBench.filter((p) => p.pokemon.id !== target.pokemon.id),
         opponentHand: [...state.opponentHand, ...cardsLeavingPlay(target).map(backToHand), ...attached.map((m) => m.card)],
         events: [...played.events, createGameEvent(`Minion of Team Rocket: ${target.pokemon.name} y sus cartas vuelven a la mano del otro jugador`, "action")],
+      };
+    },
+  },
+
+  [TICKLING_MACHINE]: {
+    canUse: () => null,
+    coinFlips: () => 1,
+    getSteps: () => null,
+    resolve: (state, cardId, _selections, { coinResults, skipEndTurn }) => {
+      const heads = coinResults?.[0] === "heads";
+      const played = discardPlayed(state, cardId, `Jugaste Tickling Machine - Moneda: [coin:${heads ? "heads" : "tails"}]`);
+      if (!heads) {
+        // "your turn ends immediately (you can't attack this turn)": as Minion of Team Rocket's tails
+        const over: GameState = {
+          ...played,
+          attackedThisTurn: true,
+          events: [...played.events, createGameEvent("Tickling Machine: el turno de quien lo jugó termina", "action")],
+        };
+        return skipEndTurn ? over : endTurn(over);
+      }
+      // "Nobody may look at those cards": the log only counts them. Back at the end of the
+      // opponent's next turn (endTurn)
+      const aside = setAsideHand(played, "opponent", state.turnNumber + 1);
+      return {
+        ...aside,
+        events: [
+          ...aside.events,
+          createGameEvent(`Tickling Machine: el otro jugador aparta boca abajo ${cardsCount(played.opponentHand.length)} de la mano hasta el final de su próximo turno`, "action"),
+        ],
       };
     },
   },

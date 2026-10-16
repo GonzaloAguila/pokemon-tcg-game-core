@@ -20,6 +20,7 @@ export type {
   PowerSuppression,
   StadiumInPlay,
   BenchTrim,
+  SetAsideHand,
   GameState,
 } from "@/lib/gameState";
 

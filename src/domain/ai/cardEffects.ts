@@ -48,6 +48,7 @@
  * | Lt. Surge (GH) | the Active can't attack and is Asleep / Confused / Paralyzed or has ≤ 20 HP left: the Basic in hand with the most HP takes its place (played alone, before benching) |
  * | Trash Exchange (GH) | the discard pile holds more useful cards (needed Energy, evolutions of Pokémon in play) than the deck, proportionally |
  * | Minion of Team Rocket (GH) | last action of a turn without an attack (a tails ends the turn): the opponent has an evolved Benched Pokémon or one with 2+ Energy |
+ * | Tickling Machine (GH) | last action of a turn without an attack, when Minion isn't played (a tails ends the turn): the opponent holds 3+ cards |
  * | Celadon City Gym (Stadium action) | its Active is Asleep / Confused / Paralyzed and keeps an attack it can pay after discarding the Energy card |
  */
 
@@ -368,6 +369,16 @@ function minionTarget(view: GameState): PokemonInPlay | undefined {
 export function planMinion(view: GameState): AIAction | null {
   const minion = playable(view, "Minion of Team Rocket");
   return minion && minionTarget(view) ? playTrainer(minion) : null;
+}
+
+/**
+ * Tickling Machine, as the LAST action of a turn without an attack (a tails ends the turn; the
+ * executor ends it): the human holds 3+ cards, so setting them aside costs them a turn of
+ * options (heads: no endTurn, the turn is planned again).
+ */
+export function planTicklingMachine(view: GameState): AIAction | null {
+  const machine = playable(view, "Tickling Machine");
+  return machine && view.opponentHand.length >= 3 ? playTrainer(machine) : null;
 }
 
 /** Step In: the Benched Dragonite takes the place of an Active that can't attack. */

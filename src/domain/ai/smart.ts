@@ -22,7 +22,8 @@
  *    Super Energy Removal, Revive and the Fossil / Team Rocket ones) when the evaluation of the
  *    position after the planned attack improves.
  * 7. Professor Oak / Imposter Professor Oak at the end when worth it (hand change: no attack).
- *    Minion of Team Rocket last in a turn without an attack (cardEffects.planMinion).
+ *    Minion of Team Rocket, else Tickling Machine, last in a turn without an attack
+ *    (cardEffects.planMinion / planTicklingMachine: a tails ends the turn).
  * 8. Attack: the attack with the best expected evaluation, simulated with the engine for every
  *    coin outcome (confusion included; Vermilion City Gym's optional coin is one more way to
  *    attack, taken only when its expectation is better); PlusPower only when it raises the Knock Out chance; no
@@ -75,7 +76,7 @@ import {
   prizesFor,
   type Threat,
 } from "./evaluate";
-import { canAffordDraws, planHandChange, planMinion, planStadiumAction, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
+import { canAffordDraws, planHandChange, planMinion, planTicklingMachine, planStadiumAction, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
 import { canUseVermilionCoin } from "@/domain/stadiums/rules";
 import { hasOwner } from "@/domain/cards/owner";
 import { attachedTrainerNamed, SABRINAS_ESP } from "@/domain/trainers/attached";
@@ -181,10 +182,10 @@ function planTurn(state: GameState): AIAction[] {
   }
 
   const tail = finishWithAttack(plan);
-  // Minion of Team Rocket: last, in a turn without an attack (a tails ends the turn; two heads:
+  // Minion of Team Rocket, else Tickling Machine: last, in a turn without an attack (a tails ends the turn; heads:
   // no endTurn, the turn is planned again)
   if (tail.every((a) => a.type === "endTurn")) {
-    const minion = planMinion(plan.view);
+    const minion = planMinion(plan.view) ?? planTicklingMachine(plan.view);
     if (minion) return [...plan.actions, minion];
   }
   return [...plan.actions, ...tail];

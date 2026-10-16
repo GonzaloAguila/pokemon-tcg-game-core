@@ -6,11 +6,12 @@
 import type { GameState } from "@/lib/gameState";
 import { swapStadium } from "./stadium";
 import { swapBenchTrim } from "./bench";
+import { swapSetAsideHands } from "@/domain/trainers/set-aside";
 
 /**
  * Swap the "player"/"opponent" sides of a state: zones, ready/prize/promotion flags, turn
  * ownership, PlusPower/Defender owner, starting player, who played the Stadium, whose Bench
- * must be trimmed (pendingBenchTrim) and the game result. Swapping twice
+ * must be trimmed (pendingBenchTrim), whose hand is set aside (setAsideHands) and the game result. Swapping twice
  * returns an equal state. Pending attack flags (pendingForceSwitch...) and power prompts are
  * NOT swapped: they belong to the acting side and must be resolved in that perspective.
  */
@@ -44,5 +45,6 @@ export function swapSides(state: GameState): GameState {
     gameResult: state.gameResult === "victory" ? "defeat" : state.gameResult === "defeat" ? "victory" : state.gameResult,
     ...(state.stadium !== undefined && { stadium: swapStadium(state.stadium) }),
     ...(state.pendingBenchTrim !== undefined && { pendingBenchTrim: swapBenchTrim(state.pendingBenchTrim) }),
+    ...(state.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(state.setAsideHands) }),
   };
 }

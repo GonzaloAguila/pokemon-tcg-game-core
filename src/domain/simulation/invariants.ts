@@ -9,6 +9,7 @@ import { modifierHoldsCard } from "@/lib/modifiers";
 import { GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
 import { isPokemonCard, isTrainerInPlay } from "@/domain/cards";
 import { getEffectiveHp, isAwaitingTransformTarget } from "@/domain/powers";
+import { setAsideCards } from "@/domain/trainers/set-aside";
 
 /** Ids of every card a side owns, wherever it is (Buzzap energy counts as its Electrode). */
 export function ownedCardIds(state: GameState, side: "player" | "opponent"): string[] {
@@ -26,6 +27,8 @@ export function ownedCardIds(state: GameState, side: "player" | "opponent"): str
   (isPlayer ? state.playerHand : state.opponentHand).forEach(addCard);
   (isPlayer ? state.playerDiscard : state.opponentDiscard).forEach(addCard);
   (isPlayer ? state.playerPrizes : state.opponentPrizes).forEach(addCard);
+  // Tickling Machine: a set-aside hand is still its owner's
+  setAsideCards(state, side).forEach(addCard);
   addInPlay(isPlayer ? state.playerActivePokemon : state.opponentActivePokemon);
   (isPlayer ? state.playerBench : state.opponentBench).forEach(addInPlay);
   for (const modifier of state.activeModifiers) {
@@ -153,13 +156,22 @@ export function checkInvariants(state: GameState, context: InvariantContext): st
   }
   if (state.turnNumber < context.before.turnNumber) problems.push(`turn number went back from ${context.before.turnNumber} to ${state.turnNumber}`);
 
+  // Tickling Machine: one non-empty pile per side, back in the hand once its turn is over
+  for (const pile of state.setAsideHands ?? []) {
+    if (pile.cards.length === 0) problems.push(`${pile.side} has an empty set-aside pile`);
+    if (state.setAsideHands!.filter((p) => p.side === pile.side).length > 1) problems.push(`${pile.side} has two set-aside piles`);
+    if (pile.returnsAfterTurn < state.turnNumber && state.gamePhase === GamePhase.Playing) {
+      problems.push(`${pile.side}'s set-aside hand (due after turn ${pile.returnsAfterTurn}) is still aside on turn ${state.turnNumber}`);
+    }
+  }
+
   // Card identity: outside play every card is what it was at the start (a Mysterious Fossil
   // is the Trainer again, a Buzzap Electrode is an Electrode again); in play it keeps its name
   if (context.initialCards) {
     for (const side of ["player", "opponent"] as const) {
       const piles: [string, GameCard[]][] = side === "player"
-        ? [["deck", state.playerDeck], ["hand", state.playerHand], ["discard", state.playerDiscard], ["prizes", state.playerPrizes]]
-        : [["deck", state.opponentDeck], ["hand", state.opponentHand], ["discard", state.opponentDiscard], ["prizes", state.opponentPrizes]];
+        ? [["deck", state.playerDeck], ["hand", state.playerHand], ["discard", state.playerDiscard], ["prizes", state.playerPrizes], ["set aside", setAsideCards(state, side)]]
+        : [["deck", state.opponentDeck], ["hand", state.opponentHand], ["discard", state.opponentDiscard], ["prizes", state.opponentPrizes], ["set aside", setAsideCards(state, side)]];
       for (const [pile, cards] of piles) {
         for (const card of cards) {
           const initial = context.initialCards.get(card.id);

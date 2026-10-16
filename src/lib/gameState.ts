@@ -51,6 +51,8 @@ import { stadiumIgnoresResistance, stadiumOffersAttackCoin, stadiumRetreatModifi
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkCoins } from "@/domain/effects/validate";
 import { attachedTrainerNamed, expireAttachedTrainers, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
+import { returnSetAsideHand, type SetAsideHand } from "@/domain/trainers/set-aside";
+export type { SetAsideHand } from "@/domain/trainers/set-aside";
 import { isAttackChoiceEffect, matchesDeckCardFilter, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
 export { resolveAttackChoice, getAttackChoiceCoinPlan, isAttackChoiceEffect, matchesDeckCardFilter } from "./attackChoices";
 export type { AttackChoiceContext } from "./attackChoices";
@@ -407,6 +409,14 @@ export type GameState = {
    * (getAvailableAttacks: indices after its own attacks). Dropped by endTurn.
    */
   recallActiveOnTurn?: number;
+  /**
+   * Tickling Machine (Gym Heroes): hands set aside face down, at most one pile per side (see
+   * domain/trainers/set-aside.ts). endTurn puts a side's pile back into its hand at the end of its
+   * turn `returnsAfterTurn`, before the between-turns checkup. Swapped by swapSides. Nobody may
+   * look at these cards: consumers must mask them for BOTH players. Kept in sync with
+   * domain/match/types.ts (re-export).
+   */
+  setAsideHands?: SetAsideHand[];
   /** BenchDamage: player needs to select bench Pokemon to receive damage */
   pendingBenchDamageSelection?: {
     /** Amount of damage to deal to each selected Pokemon */
@@ -2272,6 +2282,13 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   // The end of the turn, before the between-turns checkup: the ending side's attached Trainers
   // leave (Charity back to the hand, Sabrina's ESP to the discard pile)
   updatedState = expireEndOfTurnTrainers(updatedState, isPlayerEndingTurn ? "player" : "opponent", events);
+  // Tickling Machine: the ending side's set-aside hand comes back at the end of the turn it was due
+  // (same moment, before the checkup; the line never names the cards)
+  const setAside = returnSetAsideHand(updatedState, isPlayerEndingTurn ? "player" : "opponent", currentTurn);
+  if (setAside.returned > 0) {
+    updatedState = setAside.state;
+    events.push(createGameEvent(`Tickling Machine: ${setAside.returned === 1 ? "la carta apartada vuelve" : `las ${setAside.returned} cartas apartadas vuelven`} a la mano de quien las apartó`, "info"));
+  }
 
   // Variables para trackear KO y premios
   let gameResult: GameResult = null;

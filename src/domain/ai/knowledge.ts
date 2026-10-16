@@ -6,6 +6,7 @@
  *
  * - the other player's hand (unless Clairvoyance reveals it), deck and Prize cards (unless
  *   Here Comes Team Rocket! put them face up) become placeholder cards (same counts);
+ * - hands set aside by Tickling Machine (both sides: nobody may look at them) too;
  * - the AI's own deck and Prize cards are merged and re-split in a canonical order: a player
  *   knows the decklist (deck + Prizes as a multiset) but neither the order nor which cards are
  *   Prizes;
@@ -57,6 +58,10 @@ export function knowledgeView(view: GameState): GameState {
     opponentHand: isHandRevealed(view, "opponent") ? view.opponentHand : hiddenPile("hand", view.opponentHand.length),
     opponentDeck: hiddenPile("deck", view.opponentDeck.length),
     opponentPrizes: arePrizesRevealed(view, "opponent") ? view.opponentPrizes : hiddenPile("prize", view.opponentPrizes.length),
+    // Tickling Machine: nobody may look at a set-aside hand, its owner included (counts only)
+    ...(view.setAsideHands && {
+      setAsideHands: view.setAsideHands.map((p) => ({ ...p, cards: hiddenPile(`aside-${p.side}`, p.cards.length) })),
+    }),
     events: [],
   };
 }
