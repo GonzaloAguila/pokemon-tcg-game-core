@@ -60,6 +60,10 @@ export type AttackEffect = {
   coinCountFromEnergyType?: EnergyType;
   /** BenchDamage: only the Benched Pokémon with one of these names (Mass Explosion) */
   benchNameFilter?: string[];
+  /** BenchDamage: only the Benched Pokémon of one of these types (Blaze: Grass) */
+  benchTypes?: EnergyType[];
+  /** BenchDamage: only the Benched Pokémon that aren't of these types (Water Ring: not Water) */
+  benchExcludeTypes?: EnergyType[];
   /** Names for BonusDamage "namedOnBench" / "namedInPlay" and DamageNamedInPlay (Magnetism, Mass Explosion) */
   names?: string[];
   /** SelfSwitch: "you may switch" — the attacker may decline (Teleport Blast), asked as a pending attack choice */

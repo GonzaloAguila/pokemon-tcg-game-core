@@ -4018,9 +4018,13 @@ function executeAttackUnchecked(
           // Thunderstorm: only the Benched Pokémon whose coin was heads (by bench position)
           const coinIndexes = effect.benchTargetIndexes;
 
-          // Mass Explosion: only the named Benched Pokémon
+          // Mass Explosion: only the named Benched Pokémon; Blaze / Water Ring: only (or not) these types
           const nameFilter = effect.benchNameFilter;
-          const named = (p: PokemonInPlay) => !nameFilter || nameFilter.includes(p.pokemon.name);
+          const typesOf = (p: PokemonInPlay): EnergyType[] => (p.shiftedType ? [p.shiftedType] : isPokemonCard(p.pokemon) ? p.pokemon.types : []);
+          const named = (p: PokemonInPlay) =>
+            (!nameFilter || nameFilter.includes(p.pokemon.name)) &&
+            (!effect.benchTypes || typesOf(p).some((t) => effect.benchTypes!.includes(t))) &&
+            (!effect.benchExcludeTypes || !typesOf(p).some((t) => effect.benchExcludeTypes!.includes(t)));
           // Count available targets
           const getAvailableTargets = (bench: PokemonInPlay[]): PokemonInPlay[] => {
             return bench.filter((p) => {

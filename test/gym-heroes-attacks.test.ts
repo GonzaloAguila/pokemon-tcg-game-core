@@ -331,6 +331,22 @@ describe("new effect kinds", () => {
     expect(ko.playerCanTakePrize).toBe(true);
   });
 
+  it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
+    const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
+    const blaze = withAttack(inPlay("Growlithe"), {
+      damage: 20,
+      effects: [{ type: AttackEffectType.BenchDamage, target: AttackTarget.Defender, amount: 10, benchTarget: BenchDamageTarget.Opponent, benchTypes: [Grass] }],
+    });
+    expect(use(vs(blaze, inPlay("Onix"), { opponent: { bench: bench() } })).opponentBench.map((p) => p.currentDamage)).toEqual([10, 0, 0]);
+    const waterRing = withAttack(inPlay("Poliwrath"), {
+      damage: 30,
+      effects: [{ type: AttackEffectType.BenchDamage, target: AttackTarget.Defender, amount: 10, benchTarget: BenchDamageTarget.Both, benchExcludeTypes: [Water] }],
+    });
+    const next = use(vs(waterRing, inPlay("Onix"), { player: { bench: bench() }, opponent: { bench: bench() } }));
+    expect(next.opponentBench.map((p) => p.currentDamage)).toEqual([10, 0, 10]);
+    expect(next.playerBench.map((p) => p.currentDamage)).toEqual([10, 0, 10]);
+  });
+
   it("MoveAllEnergyToBench with energyType + amount (Electric Current): 1 Lightning Energy to a Benched Pokémon, discarded without a Bench", () => {
     const current = withAttack(inPlay("Electabuzz", { energy: [Water, Lightning, Lightning] }), {
       damage: 20,
