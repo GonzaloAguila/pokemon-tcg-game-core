@@ -208,6 +208,8 @@ export const AttackEffectType = {
   ShuffleOwnDeck: "shuffleOwnDeck",
   /** Magic Pollen: the Defending Pokémon is now the Special Condition of `statusOptions` the attacker chooses (attack choice) */
   ChooseStatus: "chooseStatus",
+  /** Crystal Beam: the opponent can't attach Energy cards to the Defending Pokémon during their next turn */
+  BlockEnergyAttach: "blockEnergyAttach",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

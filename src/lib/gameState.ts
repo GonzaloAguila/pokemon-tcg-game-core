@@ -138,6 +138,8 @@ export type PokemonInPlay = {
   attackLock?: { onTurn: number; attackName?: string };
   /** Deflector (HalveDamageNextTurn): damage done to it during turn `onTurn` is halved. Cleared on bench/evolve. */
   halveDamage?: { onTurn: number; attackName: string };
+  /** Crystal Beam (BlockEnergyAttach): its owner can't attach Energy cards to it during this turn. Cleared on bench/evolve. */
+  energyAttachBlockedOnTurn?: number;
   /** Sand-Attack / SmokeScreen: opponent must flip coin to attack. Clears on bench/evolve. */
   mustFlipToAttack?: boolean;
   /** Turn number when mustFlipToAttack was set (for expiration) */
@@ -619,6 +621,7 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     evadeOnFlip: undefined,
     attackLock: undefined,
     halveDamage: undefined,
+    energyAttachBlockedOnTurn: undefined,
   };
 }
 
@@ -2991,6 +2994,7 @@ const DEFENDER_EFFECT_TYPES: ReadonlySet<string> = new Set([
   AttackEffectType.MoveDefenderEnergyToBench,
   AttackEffectType.DamageCountersOnDamaged,
   AttackEffectType.ChooseStatus,
+  AttackEffectType.BlockEnergyAttach,
 ]);
 
 /** Can the attack do anything to the Defending Pokémon (damage, or an effect on it)? */
@@ -4730,6 +4734,16 @@ function executeAttackUnchecked(
               )
             );
           }
+        }
+      }
+
+      // Crystal Beam: no Energy cards attached to the Defending Pokémon during the opponent's next turn
+      if (effect.type === AttackEffectType.BlockEnergyAttach && !effect.coinFlip && newOpponentActive && !isKnockedOut) {
+        if (defenderBlocksEffects) {
+          events.push(createGameEvent(`¡${newOpponentActive.pokemon.name} está protegido y no es afectado por ${attack.name}!`, "action"));
+        } else {
+          newOpponentActive = { ...newOpponentActive, energyAttachBlockedOnTurn: gameState.turnNumber + 1 };
+          events.push(createGameEvent(`No se podrán unir Energías a ${newOpponentActive.pokemon.name} durante el próximo turno`, "action"));
         }
       }
 

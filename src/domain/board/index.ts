@@ -238,6 +238,8 @@ export function canAttachEnergy(state: GameState, energyCardId: string, targetPo
   if (!isEnergyCard(card)) return "Solo puedes adjuntar cartas de energía";
   const target = findInPlay(state, "player", targetPokemonId);
   if (!target) return "Debes elegir uno de tus Pokémon en juego";
+  // Crystal Beam used on it during the previous turn
+  if (target.pokemon.energyAttachBlockedOnTurn === state.turnNumber) return `No puedes unir Energía a ${target.pokemon.pokemon.name} este turno`;
   if (powerAttachment(state, card, target.pokemon)) return null;
   if (state.energyAttachedThisTurn) return "Solo puedes adjuntar una energía por turno";
   return null;
@@ -314,6 +316,7 @@ export function clearEffectsAsIfEvolved(target: PokemonInPlay): PokemonInPlay {
     evadeOnFlip: undefined,
     attackLock: undefined,
     halveDamage: undefined,
+    energyAttachBlockedOnTurn: undefined,
     modifiedWeakness: undefined,
     modifiedResistance: undefined,
   };

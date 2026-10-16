@@ -130,7 +130,7 @@
  * | 96 | Sabrina's Venonat | Removal Beam | Discard Defender (attack choice, coin) | existing |
  */
 import { describe, it, expect } from "vitest";
-import { clearEffectsAsIfEvolved } from "@/domain/board";
+import { canAttachEnergy, clearEffectsAsIfEvolved, swapSides } from "@/domain/board";
 import {
   canExecuteAttack,
   clearStatusConditionsOnRetreat,
@@ -445,6 +445,24 @@ describe("new effect kinds", () => {
       expect(use(vs(magicPollen, agile), [H]).pendingAttackChoice).toBeUndefined();
       expect(use(vs(magicPollen, inPlay("Snorlax", { set: "jungle" })), [H]).pendingAttackChoice).toBeUndefined();
     });
+  });
+
+  it("BlockEnergyAttach (Crystal Beam): heads = no Energy can be attached to the Defending Pokémon during the opponent's next turn", () => {
+    const crystalBeam = withAttack(inPlay("Tentacool", { set: "fossil" }), {
+      damage: 20,
+      effects: [{ type: AttackEffectType.BlockEnergyAttach, target: AttackTarget.Defender, coinFlip: { count: 1, onHeads: "damage" } }],
+    });
+    const machop = inPlay("Machop");
+    const water = energy(Water);
+    const state = vs(crystalBeam, machop, { opponent: { hand: [water], bench: [inPlay("Abra")] } });
+    const theirTurn = endTurn(use(state, [H]));
+    // The opponent's turn, from their side: swap the views
+    const view = swapSides(theirTurn);
+    expect(canAttachEnergy(view, water.id, machop.pokemon.id)).toMatch(/Energía/);
+    expect(canAttachEnergy(view, water.id, view.playerBench[0].pokemon.id)).toBeNull();
+    const tailsView = swapSides(endTurn(use(state, [T])));
+    expect(canAttachEnergy(tailsView, water.id, machop.pokemon.id)).toBeNull();
+    expect(clearStatusConditionsOnRetreat(theirTurn.opponentActivePokemon!).energyAttachBlockedOnTurn).toBeUndefined();
   });
 
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
