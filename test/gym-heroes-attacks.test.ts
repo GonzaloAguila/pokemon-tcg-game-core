@@ -505,6 +505,16 @@ describe("new effect kinds", () => {
     expect(canUseAttack(kindle([]), 0)).toBe(false);
   });
 
+  it("IgnoreWeaknessResistance resistanceOnly (Hook Shot): Resistance isn't applied, Weakness is", () => {
+    const hookShot = withAttack(inPlay("Geodude", { set: "fossil" }), {
+      damage: 20,
+      effects: [{ type: AttackEffectType.IgnoreWeaknessResistance, target: null, resistanceOnly: true }],
+    });
+    // Pidgey resists Fighting; Pikachu is weak to it
+    expect(use(vs(hookShot, inPlay("Pidgey"))).opponentActivePokemon!.currentDamage).toBe(20);
+    expect(use(vs(hookShot, inPlay("Pikachu", { set: "jungle" }))).opponentActivePokemon!.currentDamage).toBe(40);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {

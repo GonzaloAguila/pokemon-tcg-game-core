@@ -3674,10 +3674,12 @@ function executeAttackUnchecked(
   // Use shiftedType (Venomoth Shift) if available, otherwise use original type
   const attackerType = attacker.shiftedType || attackerCard.types[0];
   // Sonicboom: "Don't apply Weakness and Resistance for this attack"
-  const ignoresWeaknessResistance = attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance) ?? false;
+  const ignoresWeaknessResistance = attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance && !e.resistanceOnly) ?? false;
+  // Hook Shot: "Don't apply Resistance for this attack"
+  const ignoresResistance = attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance) ?? false;
   const hasWeakness = !isMirrorMove && !ignoresWeaknessResistance && defenderWeaknesses.includes(attackerType);
   // The Stadium in play may cancel Resistance for this attacker (stadiums/rules.ts)
-  const hasResistance = !isMirrorMove && !ignoresWeaknessResistance && !stadiumIgnoresResistance(gameState, attacker) &&
+  const hasResistance = !isMirrorMove && !ignoresResistance && !stadiumIgnoresResistance(gameState, attacker) &&
     defenderResistances.includes(attackerType);
 
   // Aplicar debilidad (x2)

@@ -200,8 +200,9 @@ function computeAttackDamage(
   if (doesSomething < 1) add(1 - doesSomething, 0);
 
   const mirrorMove = hasEffect(attack, AttackEffectType.MirrorMove);
-  const ignoresWR = mirrorMove || hasEffect(attack, AttackEffectType.IgnoreWeaknessResistance);
-  const ignoresResistance = stadiumIgnoresResistance(w, attacker);
+  const ignoresWR = mirrorMove || (attack.effects ?? []).some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance && !e.resistanceOnly);
+  // Hook Shot: no Resistance
+  const ignoresResistance = stadiumIgnoresResistance(w, attacker) || hasEffect(attack, AttackEffectType.IgnoreWeaknessResistance);
   const attackerType = attacker.shiftedType ?? attackerCard.types[0];
   const weaknesses = defender.modifiedWeakness ? [defender.modifiedWeakness] : defenderCard.weaknesses ?? [];
   const resistances = defender.modifiedResistance ? [defender.modifiedResistance] : defenderCard.resistances ?? [];
