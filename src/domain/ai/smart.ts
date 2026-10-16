@@ -42,7 +42,7 @@ import {
 import type { Attack, PokemonCard } from "@/domain/cards";
 import { isEnergyCard, isPokemonCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
 import { AttackEffectType, EnergyType, PokemonStage, StatusCondition, type CoinFlipResult } from "@/domain/constants";
-import { canAttachEnergy, canPlayBasicPokemon, getEvolutionTargets, getTurnActionBlocker, swapSides } from "@/domain/board";
+import { canAttachEnergy, canPlayBasicPokemon, getEvolutionTargets, getTurnActionBlocker, isBenchFull, maxBenchSize, swapSides } from "@/domain/board";
 import { canPlayTrainerCard, canUsePokemonPower } from "@/domain/effects";
 import { energyProvidesType as energyProvidesTypeOf, getRetreatCoinFlips } from "@/lib/gameState";
 import { executeAIAction } from "./executor";
@@ -76,7 +76,6 @@ import { choosePromotion } from "./choices";
 import { basicHp, getBasicPokemonInHand } from "./actions";
 import type { AIAction } from "./types";
 
-const MAX_BENCH = 5;
 
 // ============================================================================
 // Plan: actions applied to the planning view (AI = "player")
@@ -185,7 +184,7 @@ export function decideOpponentSetup(state: GameState): AIAction[] {
     actions.push({ type: "playBasicToActive", cardId: starter.id, delay: 500 });
     remaining = basics.filter((c) => c.id !== starter.id);
   }
-  const room = MAX_BENCH - view.playerBench.length;
+  const room = maxBenchSize(view, "player") - view.playerBench.length;
   for (const card of [...remaining].sort((a, b) => basicValue(view, b) - basicValue(view, a)).slice(0, room)) {
     actions.push({ type: "playBasicToBench", cardId: card.id, benchIndex: 0, delay: 400 });
   }
@@ -260,7 +259,7 @@ function planProfessorOak(v: GameState): AIAction | null {
   const rest = v.playerHand.filter((c) => c.id !== oak.id);
   const useful = rest.filter(
     (c) =>
-      (isPokemonCard(c) && (c.stage === PokemonStage.Basic ? v.playerBench.length < MAX_BENCH : evolvesSomethingInPlay(v, c))) ||
+      (isPokemonCard(c) && (c.stage === PokemonStage.Basic ? !isBenchFull(v, "player") : evolvesSomethingInPlay(v, c))) ||
       (isEnergyCard(c) && rest.filter(isEnergyCard).indexOf(c) < 2) ||
       (isTrainerCard(c) && ["Gust of Wind", "Super Potion", "Switch", "PlusPower", "Energy Removal", "Super Energy Removal", "Computer Search", "Pokémon Breeder", "Defender"].includes(c.name))
   );
@@ -307,9 +306,9 @@ function starterScore(v: GameState, card: GameCard): number {
 
 function benchBasics(plan: Plan): void {
   const snipers = opponentSnipes(plan.view);
-  for (let guard = 0; guard < MAX_BENCH; guard++) {
+  for (let guard = 0; guard < maxBenchSize(plan.view, "player"); guard++) {
     const v = plan.view;
-    if (v.playerBench.length >= MAX_BENCH) return;
+    if (isBenchFull(v, "player")) return;
     const candidates = getBasicPokemonInHand(v, "player")
       .filter((c) => canPlayBasicPokemon(v, c.id, "bench") === null)
       .sort((a, b) => basicValue(v, b) - basicValue(v, a));

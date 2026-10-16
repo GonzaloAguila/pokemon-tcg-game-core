@@ -14,6 +14,7 @@
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
 import { canExecuteAttack, canUseAttack, energyProvidesType } from "@/lib/gameState";
+import { maxBenchSize } from "@/domain/board";
 import type { Attack, Card, PokemonCard } from "@/domain/cards";
 import { isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { EnergyType, PokemonPowerType, PokemonStage } from "@/domain/constants";
@@ -245,7 +246,7 @@ export function createExplorePolicy(memory: ExploreMemory): Policy {
       const basics = view.playerHand.filter((c) => canPlayBasicPokemon(view, c.id, "active") === null);
       const active = lowest(rng, shuffled(rng, basics), (c) => cardRarity(memory, c));
       if (!active) return [];
-      const rest = basics.filter((c) => c !== active).slice(0, 5);
+      const rest = basics.filter((c) => c !== active).slice(0, maxBenchSize(view, "player"));
       return [
         { label: `setup active ${active.name}`, run: (v) => playBasicPokemon(v, active.id, "active") },
         ...rest.map((card) => ({ label: `setup bench ${card.name}`, run: (v: GameState) => playBasicPokemon(v, card.id, "bench") })),

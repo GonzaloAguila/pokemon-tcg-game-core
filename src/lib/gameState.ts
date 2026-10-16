@@ -38,7 +38,7 @@ import {
   isDamageBlocked,
   isPowerActive,
 } from "@/domain/powers";
-import { getTurnActionBlocker } from "@/domain/board";
+import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
 import type { SelectionStep } from "@/domain/effects/types";
 import { isAttackChoiceEffect, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
 export { resolveAttackChoice, isAttackChoiceEffect } from "./attackChoices";
@@ -170,7 +170,7 @@ export type GameState = {
   playerPrizes: GameCard[];
   playerDiscard: GameCard[];
   playerActivePokemon: PokemonInPlay | null;
-  playerBench: PokemonInPlay[]; // Máximo 5 Pokémon en la banca
+  playerBench: PokemonInPlay[]; // Máximo maxBenchSize (5) Pokémon en la banca
   opponentDeck: GameCard[];
   opponentHand: GameCard[];
   opponentPrizes: GameCard[];
@@ -1047,7 +1047,7 @@ export function executeDeckSearch(
 
   // Check if bench is full
   const benchCount = gameState.playerBench.filter(p => p !== null).length;
-  if (benchCount >= 5) {
+  if (benchCount >= maxBenchSize(gameState, "player")) {
     return {
       ...gameState,
       pendingDeckSearch: undefined,
@@ -3121,7 +3121,7 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   if (isUseOnce && attacker.usedOnceAttacks?.includes(attack.name)) return `${attack.name} ya fue usado`;
   if (!canUseAttack(attacker, attackIndex, undefined, state)) return `${name} no tiene la energía necesaria para ${attack.name}`;
   const searchesDeck = attack.effects?.some((e) => e.type === AttackEffectType.DeckSearch);
-  if (searchesDeck && state.playerBench.filter((p) => p != null).length >= 5) {
+  if (searchesDeck && isBenchFull(state, "player")) {
     return "Tu banca está llena, no puedes usar este ataque";
   }
   return null;
@@ -3393,7 +3393,7 @@ function executeAttackUnchecked(
   const hasDeckSearchEffect = attack.effects?.some(e => e.type === AttackEffectType.DeckSearch);
   if (hasDeckSearchEffect) {
     const benchCount = gameState.playerBench.filter(p => p !== null).length;
-    if (benchCount >= 5) {
+    if (benchCount >= maxBenchSize(gameState, "player")) {
       return {
         ...gameState,
         events: [
@@ -4527,7 +4527,7 @@ function executeAttackUnchecked(
       // SearchDeck: Buscar Pokemon en el deck y ponerlo en la banca (Call for Family, Sprout)
       if (effect.type === AttackEffectType.SearchDeck && effect.searchPokemonNames && effect.searchPokemonNames.length > 0) {
         const benchCount = newPlayerBench.filter(p => p !== null).length;
-        if (benchCount >= 5) {
+        if (benchCount >= maxBenchSize(gameState, "player")) {
           events.push(createGameEvent("Tu banca está llena, no puedes buscar Pokémon", "info"));
         } else {
           // Search deck for any matching Pokemon
@@ -4595,7 +4595,7 @@ function executeAttackUnchecked(
       if (effect.type === AttackEffectType.DeckSearch && effect.deckSearchFilter) {
         // Use original gameState bench count, not newPlayerBench which may have been modified by promotion
         const benchCount = gameState.playerBench.filter(p => p !== null).length;
-        if (benchCount >= 5) {
+        if (benchCount >= maxBenchSize(gameState, "player")) {
           events.push(createGameEvent("Tu banca está llena, no puedes buscar Pokémon", "info"));
         } else {
           // Set pending deck search with filter criteria

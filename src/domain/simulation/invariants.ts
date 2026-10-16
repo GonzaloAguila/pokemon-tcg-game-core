@@ -4,6 +4,7 @@
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
+import { maxBenchSize } from "@/domain/board";
 import { GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
 import { isPokemonCard, isTrainerInPlay } from "@/domain/cards";
 import { getEffectiveHp, isAwaitingTransformTarget } from "@/domain/powers";
@@ -93,7 +94,7 @@ export function checkInvariants(state: GameState, context: InvariantContext): st
       else inPlay.push([`${side} bench ${i}`, p]);
     });
     const benchSize = (side === "player" ? state.playerBench : state.opponentBench).length;
-    if (benchSize > 5) problems.push(`${side} bench has ${benchSize} Pokémon`);
+    if (benchSize > maxBenchSize(state, side)) problems.push(`${side} bench has ${benchSize} Pokémon`);
   }
   for (const [where, p] of inPlay) {
     const damage = p.currentDamage ?? 0;

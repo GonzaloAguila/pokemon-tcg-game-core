@@ -27,6 +27,7 @@ import { getEffectivePokemonCard, isPowerActive } from "@/domain/powers";
 import { IllegalActionError } from "@/shared/errors";
 import type { GameCard, GameState, PokemonInPlay } from "./gameState";
 import { checkKnockouts, createGameEvent, shuffle } from "./gameState";
+import { maxBenchSize } from "@/domain/board";
 
 /** A choice left by a power played from the hand (see the table above). */
 export type PendingPowerChoice = {
@@ -42,8 +43,6 @@ export type OnPlayPowerDef = {
   step(state: GameState, pokemon: PokemonInPlay): SelectionStep | null;
   resolve(state: GameState, pokemon: PokemonInPlay, selection: string[]): GameState;
 };
-
-const MAX_BENCH = 5;
 
 const log = (state: GameState, message: string): GameState => ({
   ...state,
@@ -86,7 +85,7 @@ function replaceOpponent(state: GameState, pokemonId: string, updated: PokemonIn
 export const ON_PLAY_POWERS: Record<string, OnPlayPowerDef> = {
   "Invocar Secuaces": {
     step: (state, pokemon) => {
-      const room = MAX_BENCH - state.playerBench.length;
+      const room = maxBenchSize(state, "player") - state.playerBench.length;
       const basics = state.playerDeck.filter(isBasicPokemonCard);
       if (room <= 0 || basics.length === 0) return null;
       const max = Math.min(powerAmount(pokemon, 2), room, basics.length);

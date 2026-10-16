@@ -124,6 +124,8 @@ export {
   findOwnPokemon,
   allOwnPokemon,
   MAX_BENCH_SIZE,
+  maxBenchSize,
+  isBenchFull,
   swapSides,
 } from "./domain/board";
 

@@ -34,6 +34,7 @@
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { canUseAttack, hasStatusCondition } from "@/lib/gameState";
+import { isBenchFull } from "@/domain/board";
 import { isBasicEnergy, isEnergyCard, isPokemonCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
 import { EnergyType, PokemonStage, StatusCondition } from "@/domain/constants";
 import {
@@ -56,7 +57,6 @@ import type { AIAction } from "./types";
  */
 export const AI_NEVER_PLAYS: ReadonlySet<string> = new Set(["Challenge!", "Digger", "Here Comes Team Rocket!"]);
 
-const MAX_BENCH = 5;
 
 // ============================================================================
 // Board reading (AI view)
@@ -115,7 +115,7 @@ export function spareCard(view: GameState, exceptId?: string): GameCard | undefi
   if (never) return never;
   const energies = hand.filter(isEnergyCard);
   if (energies.length >= 3) return energies[energies.length - 1];
-  if (view.playerBench.length >= MAX_BENCH) {
+  if (isBenchFull(view, "player")) {
     return hand.find(
       (c) => isPokemonCard(c) && c.stage === PokemonStage.Basic && !hand.some((e) => isPokemonCard(e) && e.evolvesFrom === c.name)
     );
@@ -143,7 +143,7 @@ export function handCardValue(view: GameState, card: GameCard): number {
     return useful ? (energies >= 3 ? 20 : 50) : 12;
   }
   if (isPokemonCard(card)) {
-    if (card.stage === PokemonStage.Basic) return view.playerBench.length >= MAX_BENCH ? 8 : 38;
+    if (card.stage === PokemonStage.Basic) return isBenchFull(view, "player") ? 8 : 38;
     if (evolvesFromInPlay(view, card)) return 90;
     // An evolution of something still in the hand / deck
     const lower = card.evolvesFrom;

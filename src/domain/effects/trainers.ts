@@ -44,7 +44,7 @@ import { modifiersAttachedTo } from "@/lib/modifiers";
 import { ALL_CARDS } from "@/domain/catalog";
 import { cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { CardKind, PokemonStage, StatusCondition } from "@/domain/constants";
-import { MAX_BENCH_SIZE, findInPlay, getEvolutionBlocker } from "@/domain/board";
+import { isBenchFull, maxBenchSize, findInPlay, getEvolutionBlocker } from "@/domain/board";
 import {
   playBill,
   playSwitch,
@@ -379,7 +379,7 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
       };
     },
     (state) => {
-      if (state.playerBench.length >= MAX_BENCH_SIZE) return "Tu banca está llena";
+      if (isBenchFull(state, "player")) return "Tu banca está llena";
       return state.playerDiscard.some(isBasicPokemonCard) ? null : "No hay Pokémon Básicos en tu pila de descartes";
     },
     (state, cardId, [discardId]) => playRevive(state, cardId, discardId)
@@ -397,7 +397,7 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
       };
     },
     (state) => {
-      if (state.opponentBench.length >= MAX_BENCH_SIZE) return "La banca rival está llena";
+      if (isBenchFull(state, "opponent")) return "La banca rival está llena";
       return state.opponentDiscard.some(isBasicPokemonCard) ? null : "No hay Pokémon Básicos en la pila de descartes rival";
     },
     (state, cardId, [discardId]) => playPokemonFlute(state, cardId, discardId)
@@ -819,13 +819,14 @@ Object.assign(TRAINER_EFFECTS, {
 // Team Rocket
 // ============================================================================
 
-const MAX_BENCH = 5;
 const isBasicPokemon = (c: GameCard) => isPokemonCard(c) && c.stage === PokemonStage.Basic;
 
 /** Basic Pokémon cards of a deck as a "put any number onto your Bench" step (Challenge!). */
-function challengeStep(deck: GameCard[], benchSize: number, chooser: "self" | "opponent"): SelectionStep {
+function challengeStep(state: GameState, side: "player" | "opponent", chooser: "self" | "opponent"): SelectionStep {
+  const deck = side === "player" ? state.playerDeck : state.opponentDeck;
+  const benchSize = (side === "player" ? state.playerBench : state.opponentBench).length;
   const basics = deck.filter(isBasicPokemon);
-  const room = Math.max(0, MAX_BENCH - benchSize);
+  const room = Math.max(0, maxBenchSize(state, side) - benchSize);
   return {
     title: "Challenge!",
     description:
@@ -930,7 +931,7 @@ Object.assign(TRAINER_EFFECTS, {
   "Challenge!": {
     canUse: () => null,
     getSteps: (state, _cardId, selections) => {
-      const bothFull = state.playerBench.length >= MAX_BENCH && state.opponentBench.length >= MAX_BENCH;
+      const bothFull = isBenchFull(state, "player") && isBenchFull(state, "opponent");
       if (bothFull) return null;
       if (selections.length === 0) {
         return {
@@ -948,8 +949,8 @@ Object.assign(TRAINER_EFFECTS, {
         };
       }
       if (selections[0][0] !== "accept") return null;
-      if (selections.length === 1) return challengeStep(state.playerDeck, state.playerBench.length, "self");
-      if (selections.length === 2) return challengeStep(state.opponentDeck, state.opponentBench.length, "opponent");
+      if (selections.length === 1) return challengeStep(state, "player", "self");
+      if (selections.length === 2) return challengeStep(state, "opponent", "opponent");
       return null;
     },
     resolve: (state, cardId, selections) => {

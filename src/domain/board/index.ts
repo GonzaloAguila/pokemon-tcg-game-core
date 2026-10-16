@@ -20,10 +20,12 @@ import { cardsLeavingPlay, isEnergyCard, isPlayableAsBasic, isPokemonCard, isTra
 import { GamePhase, PokemonStage } from "@/domain/constants";
 import { attachEnergyWithRainDance, canAutoAttachEnergy, getEvolutionBlockingPokemon, getTrainerBlockingPokemon } from "@/domain/powers";
 import { assertLegal } from "@/shared/errors";
-import { allOwnPokemon, findInPlay, MAX_BENCH_SIZE } from "./locate";
+import { allOwnPokemon, findInPlay } from "./locate";
+import { isBenchFull } from "./bench";
 import { SPECIAL_ENERGY_ATTACH_EFFECTS, type OnAttachFromHand } from "./special-energy";
 
 export { findInPlay, findOwnPokemon, allOwnPokemon, MAX_BENCH_SIZE } from "./locate";
+export { maxBenchSize, isBenchFull } from "./bench";
 export type { InPlayLocation } from "./locate";
 export { swapSides } from "./swap";
 
@@ -100,7 +102,7 @@ function newPokemonInPlay(card: GameCard, playedOnTurn: number): PokemonInPlay {
  * Can the card be put into play as a Basic, as Active or on the Bench?
  * - Setup (MULLIGAN/SETUP): Active first (only if empty), then Bench.
  * - During the game: Bench only, on your turn (the Active spot is refilled by promoting).
- * - The Bench holds at most 5 Pokémon.
+ * - The Bench holds at most `maxBenchSize` Pokémon (5).
  */
 export function canPlayBasicPokemon(state: GameState, cardId: string, position: BoardPosition): string | null {
   if (isSetupPhase(state)) {
@@ -123,7 +125,7 @@ export function canPlayBasicPokemon(state: GameState, cardId: string, position: 
     return null;
   }
   if (!state.playerActivePokemon) return "Primero coloca tu Pokémon activo";
-  if (state.playerBench.filter((p) => p != null).length >= MAX_BENCH_SIZE) return "Tu banca está llena";
+  if (isBenchFull(state, "player")) return "Tu banca está llena";
   return null;
 }
 

@@ -66,7 +66,7 @@ import {
   type AIAction,
 } from "@/domain/ai";
 import { getEffectivePokemonCard } from "@/domain/powers";
-import { swapSides } from "@/domain/board";
+import { maxBenchSize, swapSides } from "@/domain/board";
 import { flipCoin, pick, pickSome, randomInt, shuffled, type Rng } from "./rng";
 
 /** One action for the acting side, applied to ITS view (actor = "player"). */
@@ -317,7 +317,7 @@ export const randomLegalPolicy: Policy = {
     const basics = shuffled(rng, view.playerHand.filter((c) => canPlayBasicPokemon(view, c.id, "active") === null));
     if (basics.length === 0) return [];
     const [active, ...rest] = basics;
-    const benched = rest.slice(0, randomInt(rng, Math.min(5, rest.length) + 1));
+    const benched = rest.slice(0, randomInt(rng, Math.min(maxBenchSize(view, "player"), rest.length) + 1));
     return [
       { label: `setup active ${active.name}`, run: (v) => playBasicPokemon(v, active.id, "active") },
       ...benched.map((card) => ({ label: `setup bench ${card.name}`, run: (v: GameState) => playBasicPokemon(v, card.id, "bench") })),

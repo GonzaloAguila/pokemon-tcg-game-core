@@ -6,6 +6,7 @@
  */
 
 import type { GameState, GameCard, PokemonInPlay } from "@/domain/match";
+import { maxBenchSize } from "@/domain/board";
 import {
   canUseAttack,
   hasEnoughEnergyToRetreat,
@@ -246,7 +247,7 @@ export function getPlayableEvolutions(
  */
 export function getFirstEmptyBenchSlot(state: GameState, side: Side): number {
   const bench = getBench(state, side);
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < maxBenchSize(state, side); i++) {
     if (!bench[i]) return i;
   }
   return -1; // Banca llena

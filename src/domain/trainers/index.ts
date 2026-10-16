@@ -16,7 +16,7 @@ import {
 import { ALL_CARDS } from "@/domain/catalog";
 import { isBasicEnergy, isPokemonCard, cardOutOfPlay } from "@/domain/cards";
 import { GamePhase, CardKind, PokemonStage } from "@/domain/constants";
-import { evolvePokemonInPlay, clearEffectsAsIfEvolved } from "@/domain/board";
+import { evolvePokemonInPlay, clearEffectsAsIfEvolved, isBenchFull } from "@/domain/board";
 import { modifiersAttachedTo } from "@/lib/modifiers";
 
 
@@ -1040,7 +1040,7 @@ export function canPlayRevive(state: GameState, cardId: string, targetCardId: st
   if (!canPlayTrainer(state, cardId)) return false;
 
   // Bench must have space
-  if (state.playerBench.length >= 5) return false;
+  if (isBenchFull(state, "player")) return false;
 
   // Target must be a basic Pokemon in discard
   const target = state.playerDiscard.find((c) => c.id === targetCardId);
@@ -1109,7 +1109,7 @@ export function canPlayPokemonFlute(state: GameState, cardId: string, targetCard
   if (!canPlayTrainer(state, cardId)) return false;
 
   // Opponent bench must have space
-  if (state.opponentBench.length >= 5) return false;
+  if (isBenchFull(state, "opponent")) return false;
 
   // Target must be a basic Pokemon in opponent's discard
   const target = state.opponentDiscard.find((c) => c.id === targetCardId);
