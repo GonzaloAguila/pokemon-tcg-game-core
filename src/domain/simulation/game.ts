@@ -92,6 +92,20 @@ export class SimulationFailure extends Error {
 const EVENTS_KEPT = 200;
 
 /**
+ * From this turn on (half the turn cap) the runner ends every turn without asking the policies.
+ * A game can be a legal stalemate the rules never end: Psychic Exchange (Erika's Exeggutor:
+ * shuffle the hand into the deck, then draw 5) gives back the turn's draw once the hand holds 6+
+ * cards, so two sides whose only attacks do no damage never Knock Out anything, and a side about
+ * to deck out refills its deck with it (the smart AI does: it avoids the deck-out loss) — forever.
+ * Without actions nothing refills a deck, so the deck-out ends the game well before the cap
+ * (60-card decks: at most ~2 × 47 more turns), while an engine bug that stops the decks from
+ * shrinking still reaches the cap.
+ */
+export function stalemateTurn(maxTurns: number): number {
+  return Math.floor(maxTurns / 2);
+}
+
+/**
  * "playTrainer Bill" / "usePower Heal" / "attack Kabutops: Absorber" keep the card (and attack);
  * other labels keep their first word(s)
  */
@@ -370,7 +384,8 @@ class GameRunner {
       if (this.actionsThisTurn > maxActionsPerTurn) this.fail(`more than ${maxActionsPerTurn} actions in one turn`);
       if (this.resolvePending()) continue;
       const actor = this.actingSide();
-      const action = this.policy(actor).nextAction(this.view(actor), rng, this.actionsThisTurn);
+      // A stalemate the rules never end (see stalemateTurn): no more actions, the deck-out ends it
+      const action = this.state.turnNumber >= stalemateTurn(maxTurns) ? null : this.policy(actor).nextAction(this.view(actor), rng, this.actionsThisTurn);
       if (action) this.apply(actor, action);
       else this.apply(actor, { label: "end turn", run: (v) => endTurn(v, true) });
     }

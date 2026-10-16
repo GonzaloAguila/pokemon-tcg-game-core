@@ -10,7 +10,13 @@ import {
   randomLegalPolicy,
   createGreedyPolicy,
   DECK_SIZE,
+  ExploreMemory,
+  createExplorePolicy,
+  stalemateTurn,
 } from "@/domain/simulation";
+import type { Deck } from "@/domain/decks";
+import { ALL_CARDS } from "@/domain/catalog";
+import { CardSet, PokemonStage } from "@/domain/constants";
 import { buildDeckFromEntries } from "@/lib/gameState";
 import { hasBasicPokemon } from "@/lib/gameState";
 import { makeState, inPlay } from "./helpers/state";
@@ -114,4 +120,39 @@ describe("headless games with Team Rocket", () => {
     }
     expect(specials).toBeGreaterThan(0);
   });
+});
+
+describe("stalemates (Psychic Exchange keeps the deck size)", () => {
+  // Erika's Exeggcute (Deflector) / Exeggutor (Psychic Exchange: shuffle the hand into the deck,
+  // draw 5) with only Psychic Energy never deal damage, and with 6+ dead cards in hand Psychic
+  // Exchange gives back the turn's draw: the deck never shrinks (the smart AI uses it to refill a
+  // deck about to run out). 48 Stage 2 cards whose Stage 1 isn't in the deck stay dead in the hand.
+  // The runner stops asking the policies at stalemateTurn: the deck-out then ends the game.
+  const stallDeck = (): Deck => {
+    const dead = ALL_CARDS.filter((c) => c.kind === "pokemon" && c.stage === PokemonStage.Stage2)
+      .filter((c, i, all) => all.findIndex((o) => o.name === c.name) === i)
+      .slice(0, 12);
+    const entry = (c: { number: number; set: CardSet }, quantity: number) => ({ cardNumber: c.number, quantity, set: c.set === CardSet.BaseSet ? undefined : c.set });
+    return {
+      id: "stall",
+      name: "Stall",
+      image: "",
+      cards: [
+        { cardNumber: 43, quantity: 4, set: CardSet.GymHeroes },
+        { cardNumber: 44, quantity: 4, set: CardSet.GymHeroes },
+        { cardNumber: 101, quantity: 4 },
+        ...dead.map((c) => entry(c, 4)),
+      ],
+    };
+  };
+
+  it.each(["random", "explore", "greedy"] as const)("%s bots still end the game (deck-out) before the turn cap", (name) => {
+    for (let seed = 1; seed <= 6; seed++) {
+      const rng = mulberry32(seed);
+      const memory = new ExploreMemory();
+      const policy = () => (name === "random" ? randomLegalPolicy : name === "explore" ? createExplorePolicy(memory) : createGreedyPolicy());
+      const outcome = playAIGame(stallDeck(), stallDeck(), { rng, policyA: policy(), policyB: policy() });
+      expect(outcome.turns).toBeLessThan(stalemateTurn(300) + 2 * DECK_SIZE);
+    }
+  }, 120_000);
 });

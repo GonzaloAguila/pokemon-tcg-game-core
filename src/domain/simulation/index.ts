@@ -10,7 +10,7 @@ import { playAIGame, SimulationFailure, type GameOutcome } from "./game";
 import { createGreedyPolicy, randomLegalPolicy, type Policy } from "./policies";
 import { mulberry32 } from "./rng";
 
-export { playAIGame, SimulationFailure, actionKind, isPassivePower } from "./game";
+export { playAIGame, SimulationFailure, actionKind, isPassivePower, stalemateTurn } from "./game";
 export type { GameOptions, GameOutcome, SideId } from "./game";
 export { randomLegalPolicy, createGreedyPolicy, legalActions, randomAnswer, firstAnswer, retreatTo } from "./policies";
 export type { Policy, ViewAction } from "./policies";
