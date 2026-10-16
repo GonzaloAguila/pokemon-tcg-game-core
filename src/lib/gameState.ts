@@ -2974,6 +2974,7 @@ const DEFENDER_EFFECT_TYPES: ReadonlySet<string> = new Set([
   AttackEffectType.ChooseTargetDamage,
   AttackEffectType.ShuffleDefenderIntoDeck,
   AttackEffectType.MoveDefenderEnergyToBench,
+  AttackEffectType.DamageCountersOnDamaged,
 ]);
 
 /** Can the attack do anything to the Defending Pokémon (damage, or an effect on it)? */
@@ -3689,8 +3690,14 @@ function executeAttackUnchecked(
       ? applyDamageHalving(defender, namedDamage.amount ?? 0, gameState)
       : 0;
 
+  // Pain Amplifier: a damage counter on the Defending Pokémon if it already had any (not damage:
+  // only what prevents every effect of the attack stops it)
+  const countersOnDamaged = attack.effects?.find((e) => e.type === AttackEffectType.DamageCountersOnDamaged && !e.coinFlip);
+  const defenderCounters =
+    countersOnDamaged && (defender.currentDamage || 0) > 0 && !defenderBlocksEffects ? countersOnDamaged.amount ?? 10 : 0;
+
   // Aplicar daño al defensor
-  const newDamage = (defender.currentDamage || 0) + effectiveDamage + namedDefenderDamage;
+  const newDamage = (defender.currentDamage || 0) + effectiveDamage + namedDefenderDamage + defenderCounters;
   const defenderHP = defenderCard.hp;
 
   // Crear eventos
@@ -4145,6 +4152,17 @@ function executeAttackUnchecked(
         }
 
         // Bench KOs are resolved by processBenchKnockouts() once all effects are applied
+      }
+
+      // Pain Amplifier on the opponent's Benched Pokémon that already have damage counters (KOs: processBenchKnockouts)
+      if (effect.type === AttackEffectType.DamageCountersOnDamaged) {
+        const amount = effect.amount ?? 10;
+        const hit = [
+          ...(defenderCounters > 0 ? [defender.pokemon.name] : []),
+          ...newOpponentBench.filter((p) => (p.currentDamage ?? 0) > 0).map((p) => p.pokemon.name),
+        ];
+        newOpponentBench = newOpponentBench.map((p) => ((p.currentDamage ?? 0) > 0 ? { ...p, currentDamage: (p.currentDamage ?? 0) + amount } : p));
+        if (hit.length > 0) events.push(createGameEvent(`${attack.name}: ${amount / 10} contador${amount > 10 ? "es" : ""} de daño en ${hit.join(", ")}`, "action"));
       }
 
       // Heal: cure damage from self (e.g., Butterfree Mega Drain, Exeggcute Leech Seed, Venonat Leech Life)

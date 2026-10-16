@@ -309,6 +309,28 @@ describe("new effect kinds", () => {
     });
   });
 
+  it("DamageCountersOnDamaged (Pain Amplifier): 1 counter on each opponent's Pokémon that has counters, no damage modifiers", () => {
+    const pain = withAttack(inPlay("Gengar", { set: "fossil" }), {
+      effects: [{ type: AttackEffectType.DamageCountersOnDamaged, target: AttackTarget.Defender, amount: 10 }],
+    });
+    // A Defender on it would reduce damage: counters aren't damage
+    const defender = inPlay("Onix", { damage: 20 });
+    const shield = { id: "df", source: "defender" as const, card: gameCard("Defender", "base"), targetPokemonId: defender.pokemon.id, amount: -20, expiresAfterTurn: 4, playerId: "opponent" as const };
+    const state = deepFreeze(vs(pain, defender, { activeModifiers: [shield], opponent: { bench: [inPlay("Abra", { damage: 20 }), inPlay("Machop")] } }));
+    const next = use(state);
+    expect(next.opponentActivePokemon!.currentDamage).toBe(30);
+    expect(next.opponentBench.map((p) => p.currentDamage)).toEqual([0]);
+    expect(names(next.opponentBench.map((p) => p.pokemon))).toEqual(["Machop"]);
+    expect(next.playerPrizes).toHaveLength(5); // Abra (30 HP) Knocked Out
+    // Agility on the Defending Pokémon stops it there
+    const agile = inPlay("Raichu", { damage: 10, protection: { type: "damageAndEffects", expiresAfterTurn: 3 } });
+    expect(use(vs(pain, agile)).opponentActivePokemon!.currentDamage).toBe(10);
+    // The Defending Pokémon Knocked Out by the counter: a Prize, the defender promotes
+    const ko = use(vs(pain, inPlay("Abra", { damage: 20 }), { opponent: { bench: [inPlay("Machop")] } }));
+    expect(ko.opponentActivePokemon!.pokemon.name).toBe("Machop");
+    expect(ko.playerCanTakePrize).toBe(true);
+  });
+
   describe("EvadeOnFlip (Shadow Images)", () => {
     const shadowImages: AttackEffect = { type: AttackEffectType.EvadeOnFlip, target: AttackTarget.Self };
     const scyther = () => inPlay("Scyther", { set: "jungle", evadeOnFlip: { attackName: "Imágenes Sombra" } });

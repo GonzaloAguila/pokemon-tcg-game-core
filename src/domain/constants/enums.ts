@@ -185,6 +185,8 @@ export const AttackEffectType = {
    * attack does no damage to it. Until it takes damage (or is Benched / evolved)
    */
   EvadeOnFlip: "evadeOnFlip",
+  /** Pain Amplifier: `amount` (a damage counter) on each of the opponent's Pokémon that already has damage counters */
+  DamageCountersOnDamaged: "damageCountersOnDamaged",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 
