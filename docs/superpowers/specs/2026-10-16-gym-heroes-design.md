@@ -1,6 +1,6 @@
 # Gym Heroes — design
 
-**Date:** 2026-10-16 · **Owner request:** code Gym Heroes and Gym Challenge (the next two sets), then a vs-AI Gym Leader mode with their themed decks. Agreed order: sets first (Gym Heroes, then Gym Challenge), then the Gym Leader mode. This spec covers **Gym Heroes only**; Gym Challenge and the Gym Leader mode get their own specs.
+**Date:** 2026-10-16 · **Status:** approved by the owner (Misty's Duel as real Rock-Paper-Scissors with buttons) · **Owner request:** code Gym Heroes and Gym Challenge (the next two sets), then a vs-AI Gym Leader mode with their themed decks. Agreed order: sets first (Gym Heroes, then Gym Challenge), then the Gym Leader mode. This spec covers **Gym Heroes only**; Gym Challenge and the Gym Leader mode get their own specs.
 
 **Approach (agreed):** the same as Fossil + Team Rocket: the engine first (catalog, new mechanics, a test per card with an effect, bot simulator), then API and frontend in parallel, card doubts logged for the owner, then publish. The whole set ships at once (no half set in the boosters).
 
@@ -41,7 +41,7 @@ Most of the 27 Trainers fit the existing `TRAINER_EFFECTS` registry (search deck
 - **Attached Trainers** (stay on a Pokémon until a trigger): Charity (returns to hand at end of turn, may reduce its attack's damage), Sabrina's ESP (re-flip that Pokémon's attack coins once; discarded at end of turn). Generalize the PlusPower/Defender attachment (`attachedTrainers` on `PokemonInPlay` with an expiry) instead of one-offs.
 - **Recall**: the Active may use an attack from any card under it (its Basic / earlier stages) this turn; the attack picker lists them. Needs evolution history on `PokemonInPlay` (the engine already keeps the cards under an evolved Pokémon — confirm and reuse).
 - **Tickling Machine**: opponent's hand set aside face down until the end of their next turn (a timed zone on the opponent's side).
-- **Misty's Duel**: Rock-Paper-Scissors. The card's own fallback is a coin flip; **default: implement it as the coin flip** (the server flips in MP), logged as a doubt — a real RPS UI is a later nicety.
+- **Misty's Duel**: a real Rock-Paper-Scissors (owner's decision). Playing it opens `pendingDuel` (state: which player played it, each side's pick or null, the round). Each player picks Piedra / Papel / Tijera with buttons; picks stay hidden until both are in; a tie replays the round. The winner shuffles their hand into their deck and draws 5. SP: the AI picks at random through the engine's injected RNG (testable). MP: the server collects both picks (`duelPick {choice}`), never echoes the opponent's pick early, resolves, and shows both picks to both players. Engine: `startMistysDuel` (via the Trainer registry), `resolveDuelRound(state, playerPick, opponentPick)` → winner | tie.
 - **Blaine's Quiz #1**: the opponent guesses the Pokémon's length among options → a `chooser: "opponent"` step (the AI answers in SP). Needs each Pokémon card's length: from `flavorText`/pokédex data in the source JSON; if missing, logged as a doubt.
 - **Lt. Surge's Treaty**: the opponent chooses between two options (existing `chooser: "opponent"` step).
 - **Minion of Team Rocket**: on tails the turn ends immediately (existing end-turn path).
@@ -56,8 +56,8 @@ Powers go into `POWER_EFFECTS` (activated: Energy Charge, Fragrance Trap, Natura
 | Stage | Repo | Output |
 |---|---|---|
 | 1 | game-core | `CardSet.GymHeroes`, `CARD_SETS` entry (code "G1", 1999-08-14), `gym-heroes.ts` catalog (128 unique cards), image URLs, owner helper, Stadium state + hooks, new Trainer machinery, powers, AI support (play Stadiums/Trainers with a simple value), tests per effect, `npm run simulate` clean, `docs/card-doubts.md` entries. Version bump to the next minor, published only with the owner's OK. |
-| 2a | API | Gym Heroes booster in the pack system and economy config (rarity weights like other sets), collection/catalog endpoints (set registry is generic), MP state carries `stadium`, socket validation allows the new Trainer selections. |
-| 2b | frontend | `SET_UI` entry + logo + booster art + catalog route, Stadium zone shows the card and its activated action, attacks picker supports Recall, Tickling Machine's set-aside hand, Misty's Duel coin, Blaine's Quiz opponent step (generic step modals already exist), deck builder works with owner names. |
+| 2a | API | Gym Heroes booster in the pack system and economy config (rarity weights like other sets), collection/catalog endpoints (set registry is generic), MP state carries `stadium`, socket validation allows the new Trainer selections, `duelPick` action with hidden picks for Misty's Duel. |
+| 2b | frontend | `SET_UI` entry + logo + booster art + catalog route, Stadium zone shows the card and its activated action, attacks picker supports Recall, Tickling Machine's set-aside hand, Misty's Duel Rock-Paper-Scissors modal (three buttons, wait for the rival, reveal both picks, replay on a tie) in SP and MP, Blaine's Quiz opponent step (generic step modals already exist), deck builder works with owner names. |
 | 3 | all | Bot simulation across all sets, SP and MP smoke tests in the browser, owner reviews `card-doubts.md`, publish game-core, deploy API, push frontend. |
 
 Branches: `feat/gym-heroes` in each repo (game-core: this branch). Nothing merged or deployed without the owner's OK.
@@ -72,7 +72,6 @@ Branches: `feat/gym-heroes` in each repo (game-core: this branch). Nothing merge
 ## Doubts to log for the owner (defaults in **bold**)
 
 - Stadium per-turn limit → **none, same-name blocked** (as printed in 2000).
-- Misty's Duel → **coin flip** (the card's own fallback) instead of a Rock-Paper-Scissors UI.
 - Blaine's Quiz #1 lengths → from the source data; cards without it listed.
 - Holo/non-holo duplicate Trainers (Brock, Erika, Lt. Surge, Misty) → **one catalog card each**.
 - Spanish names for Stadiums ("Gimnasio de Ciudad Plateada") and leader Trainers (names kept: "Brock", "Misty").
