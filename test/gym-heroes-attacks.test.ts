@@ -343,6 +343,15 @@ describe("new effect kinds", () => {
     expect(use(state, [T, T, T]).playerBench.map((p) => p.currentDamage)).toEqual([10, 40]);
   });
 
+  it("Heal ignorePrevention (Blot): heals even when the attack's damage is prevented (Leech Seed wouldn't)", () => {
+    const heal: AttackEffect = { type: AttackEffectType.Heal, target: AttackTarget.Self, amount: 10 };
+    const protectedOnix = inPlay("Onix", { protection: { type: "damageOnly", expiresAfterTurn: 3 } });
+    const blot = withAttack(inPlay("Oddish", { set: "jungle", damage: 20 }), { damage: 10, effects: [{ ...heal, ignorePrevention: true }] });
+    expect(use(vs(blot, protectedOnix)).playerActivePokemon!.currentDamage).toBe(10);
+    const leechSeed = withAttack(inPlay("Oddish", { set: "jungle", damage: 20 }), { damage: 10, effects: [heal] });
+    expect(use(vs(leechSeed, protectedOnix)).playerActivePokemon!.currentDamage).toBe(20);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {

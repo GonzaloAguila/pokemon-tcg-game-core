@@ -4225,7 +4225,8 @@ function executeAttackUnchecked(
         // Leech Seed: "unless all damage from this attack is prevented" (protection, Invisible Wall,
         // Transparency); an attack without damage (Spacing Out) heals anyway
         const damagePrevented = transparencyPrevents || (defenderIsProtected && damage > 0) || damageBarrierBlocked;
-        let healAmount = damagePrevented ? 0 : effect.amount || 0;
+        // Blot / Sporadic Sponging: no such condition (`ignorePrevention`)
+        let healAmount = damagePrevented && !effect.ignorePrevention ? 0 : effect.amount || 0;
         if (effect.healFromDamage === "all") {
           // Leech Life: as many counters as the damage done (after W/R)
           healAmount = effectiveDamage;

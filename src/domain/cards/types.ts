@@ -133,6 +133,8 @@ export type AttackEffect = {
   maxBenchTargets?: number;
   /** Heal: `amount` from each of your Pokémon in play, Active and Benched (Healing Pollen; with a coin: per heads) */
   healAllOwn?: boolean;
+  /** Heal (`amount`): heals even if the attack's damage was prevented (Blot); default: not then (Leech Seed) */
+  ignorePrevention?: boolean;
   /** For Heal: heal amount equals half the actual damage dealt */
   healFromDamageDealt?: boolean;
   /** For SearchDeck: Pokemon names to search for (e.g., ["Bellsprout"] or ["Nidoran♂", "Nidoran♀"]) */
