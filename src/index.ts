@@ -17,6 +17,8 @@ export type {
   GameEvent,
 } from "./domain/match";
 
+
+export type { PokemonOwner } from "./domain/cards";
 export type {
   ExecuteAttackOptions,
   PowerSuppression,
@@ -85,6 +87,10 @@ export {
   cardOutOfPlay,
   cardsLeavingPlay,
   givesPrizeWhenKnockedOut,
+  // Gym Heroes owner's Pokémon
+  POKEMON_OWNERS,
+  ownerOf,
+  hasOwner,
 } from "./domain/cards";
 
 // =============================================================================
