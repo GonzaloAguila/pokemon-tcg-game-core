@@ -131,6 +131,8 @@ export type AttackEffect = {
   benchTargetIndexes?: number[];
   /** For BenchDamage: max number of bench targets (undefined = all) */
   maxBenchTargets?: number;
+  /** Heal: `amount` from each of your Pokémon in play, Active and Benched (Healing Pollen; with a coin: per heads) */
+  healAllOwn?: boolean;
   /** For Heal: heal amount equals half the actual damage dealt */
   healFromDamageDealt?: boolean;
   /** For SearchDeck: Pokemon names to search for (e.g., ["Bellsprout"] or ["Nidoran♂", "Nidoran♀"]) */

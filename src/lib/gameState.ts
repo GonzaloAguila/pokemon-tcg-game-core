@@ -3340,7 +3340,7 @@ export type CoinResolution = {
  *   `onTails` is set (the value only matters for ApplyStatus, where it is the status).
  * - CoinFlipDamage / coin BonusDamage → CoinFlipDamage with amount × matching coins
  *   (calculateBaseDamage adds it to the base damage).
- * - SelfDamage → amount × matching coins. ApplyStatus → the status for the coin side.
+ * - SelfDamage / Heal → amount × matching coins. ApplyStatus → the status for the coin side.
  * - Protection, PreventRetreat, Draw (Pay Day) and anything else → kept once if any coin matches.
  */
 export function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipResult[]): CoinResolution {
@@ -3399,7 +3399,8 @@ export function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipR
       missed.push(effect);
       continue;
     }
-    if (effect.type === AttackEffectType.SelfDamage) {
+    if (effect.type === AttackEffectType.SelfDamage || effect.type === AttackEffectType.Heal) {
+      // Healing Pollen: "for each heads, remove 1 damage counter"
       resolved.push({ ...plain, amount: (effect.amount ?? 0) * hits });
     } else if (effect.type === AttackEffectType.Discard && effect.energyType) {
       // Continuous Fireball: one Fire Energy card per heads
@@ -4204,8 +4205,23 @@ function executeAttackUnchecked(
         if (hit.length > 0) events.push(createGameEvent(`${attack.name}: ${amount / 10} contador${amount > 10 ? "es" : ""} de daño en ${hit.join(", ")}`, "action"));
       }
 
+      // Healing Pollen: `amount` from each of your Pokémon (all of their counters if fewer)
+      if (effect.type === AttackEffectType.Heal && effect.healAllOwn) {
+        const amount = effect.amount ?? 0;
+        const healed: string[] = [];
+        const heal = (p: PokemonInPlay): PokemonInPlay => {
+          const removed = Math.min(amount, p.currentDamage ?? 0);
+          if (removed <= 0) return p;
+          healed.push(`${p.pokemon.name} (${removed})`);
+          return { ...p, currentDamage: (p.currentDamage ?? 0) - removed };
+        };
+        if (newPlayerActive) newPlayerActive = heal(newPlayerActive);
+        newPlayerBench = newPlayerBench.map(heal);
+        if (healed.length > 0) events.push(createGameEvent(`${attack.name}: se curó el daño de ${healed.join(", ")}`, "action"));
+      }
+
       // Heal: cure damage from self (e.g., Butterfree Mega Drain, Exeggcute Leech Seed, Venonat Leech Life)
-      if (effect.type === AttackEffectType.Heal && effect.target === AttackTarget.Self && newPlayerActive) {
+      if (effect.type === AttackEffectType.Heal && !effect.healAllOwn && effect.target === AttackTarget.Self && newPlayerActive) {
         // Leech Seed: "unless all damage from this attack is prevented" (protection, Invisible Wall,
         // Transparency); an attack without damage (Spacing Out) heals anyway
         const damagePrevented = transparencyPrevents || (defenderIsProtected && damage > 0) || damageBarrierBlocked;

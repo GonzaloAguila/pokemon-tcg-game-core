@@ -331,6 +331,18 @@ describe("new effect kinds", () => {
     expect(ko.playerCanTakePrize).toBe(true);
   });
 
+  it("Heal healAllOwn with coins (Healing Pollen): 10 per heads from each of your Pokémon", () => {
+    const pollen = withAttack(inPlay("Venomoth", { set: "jungle", damage: 30 }), {
+      effects: [{ type: AttackEffectType.Heal, target: AttackTarget.Self, amount: 10, healAllOwn: true, coinFlip: { count: 3, onHeads: "damage" } }],
+    });
+    const state = deepFreeze(vs(pollen, inPlay("Onix", { damage: 30 }), { player: { bench: [inPlay("Abra", { damage: 10 }), inPlay("Machop", { damage: 40 })] } }));
+    const next = use(state, [H, T, H]);
+    expect(next.playerActivePokemon!.currentDamage).toBe(10);
+    expect(next.playerBench.map((p) => p.currentDamage)).toEqual([0, 20]);
+    expect(next.opponentActivePokemon!.currentDamage).toBe(30);
+    expect(use(state, [T, T, T]).playerBench.map((p) => p.currentDamage)).toEqual([10, 40]);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {
