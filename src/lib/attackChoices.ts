@@ -14,7 +14,7 @@
  * | `ChooseTargetDamage` + `switchWithDefender` | Drag Off (Dark Machoke) | self | 1 of the opponent's Benched Pokémon: switched in, then takes `amount` (W/R) |
  * | `ChooseTargetDamage` + `optionalEnergyDiscard` | Flame Pillar (Dark Rapidash) | self | step 1: 0–1 Fire Energy card to discard; step 2 (if discarded): 1 of the opponent's Benched Pokémon |
  * | `MoveDefenderEnergyToBench` | Magnetic Lines (Dark Magneton) | self | step 1: 1 basic Energy of the Defending Pokémon; step 2: 1 of the opponent's Benched Pokémon |
- * | `MoveAllEnergyToBench` | Energy Bomb (Dark Electrode) | self | one step per attached Energy card (the first one each time): 1 of your Benched Pokémon |
+ * | `MoveAllEnergyToBench` | Energy Bomb (Dark Electrode); with `energyType` + `amount`: Electric Current (Lt. Surge's Electabuzz) | self | one step per attached Energy card to move (the first one each time): 1 of your Benched Pokémon |
  * | `DiscardEnergyToDraw` | Third Eye (Dark Golduck) | self | step 1: 1 attached Energy card; step 2: how many cards to draw, "0".."3" |
  * | `EvolveFromDeck` | Rapid Evolution (Magikarp) | self | 1 Gyarados / Dark Gyarados card of the deck |
  * | `AttachEnergyFromDeck` | Afternoon Nap (Slowpoke) | self | 1 basic Psychic Energy card of the deck |
@@ -63,6 +63,7 @@ import {
   endTurn,
   energyCardLabel,
   energyProvidesType,
+  energyToMove,
   getEnergyTypeInSpanish,
   knockOutPlayerActive,
   knockOutRetaliationDamage,
@@ -239,11 +240,12 @@ function stepFor(
     }
     case AttackEffectType.MoveAllEnergyToBench: {
       const attacker = attackerOf(state, context);
-      const next = attacker?.attachedEnergy[0];
+      const left = attacker ? energyToMove(attacker, effect, picked?.length ?? 0) : [];
+      const next = left[0];
       if (!attacker || !next || state.playerBench.length === 0) return null;
       return {
         title,
-        description: `¿A cuál de tus Pokémon en la Banca va ${energyLabel(next)}? (quedan ${attacker.attachedEnergy.length})`,
+        description: `¿A cuál de tus Pokémon en la Banca va ${energyLabel(next)}? (quedan ${left.length})`,
         options: state.playerBench.map((p) => pokemonChoice(p, "Banca")),
         maxSelections: 1,
         thumbnails: state.playerBench.map((p) => p.pokemon),
@@ -555,18 +557,19 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
     }
     case AttackEffectType.MoveAllEnergyToBench: {
       const attacker = state.playerActivePokemon!;
-      const [energy, ...rest] = attacker.attachedEnergy;
+      const energy = energyToMove(attacker, effect, pending.picked?.length ?? 0)[0];
+      const moved = [...(pending.picked ?? []), energy.id];
       const receiver = state.playerBench.find((p) => p.pokemon.id === selection[0])!;
       const next = log(
         {
           ...state,
-          playerActivePokemon: { ...attacker, attachedEnergy: rest },
+          playerActivePokemon: { ...attacker, attachedEnergy: attacker.attachedEnergy.filter((e) => e.id !== energy.id) },
           playerBench: state.playerBench.map((p) => (p.pokemon.id === receiver.pokemon.id ? { ...p, attachedEnergy: [...p.attachedEnergy, energy] } : p)),
         },
         `${name}: ${energyLabel(energy)} pasó a ${receiver.pokemon.name}`
       );
-      const step = stepFor(next, effect, context);
-      return { state: next, next: step ? { ...pending, step } : undefined };
+      const step = stepFor(next, effect, context, undefined, moved);
+      return { state: next, next: step ? { ...pending, step, picked: moved } : undefined };
     }
     case AttackEffectType.DiscardEnergyToDraw: {
       if (!pending.picked) {

@@ -331,6 +331,23 @@ describe("new effect kinds", () => {
     expect(ko.playerCanTakePrize).toBe(true);
   });
 
+  it("MoveAllEnergyToBench with energyType + amount (Electric Current): 1 Lightning Energy to a Benched Pokémon, discarded without a Bench", () => {
+    const current = withAttack(inPlay("Electabuzz", { energy: [Water, Lightning, Lightning] }), {
+      damage: 20,
+      effects: [{ type: AttackEffectType.MoveAllEnergyToBench, target: AttackTarget.Self, energyType: Lightning, amount: 1 }],
+    });
+    const abra = inPlay("Abra");
+    const next = use(vs(current, inPlay("Onix"), { player: { bench: [abra] } }));
+    expect(next.pendingAttackChoice!.step.description).toMatch(/Energía Eléctrica/);
+    const done = choose(next, [abra.pokemon.id]);
+    expect(done.pendingAttackChoice).toBeUndefined();
+    expect(names(done.playerBench[0].attachedEnergy)).toEqual(["Lightning Energy"]);
+    expect(names(done.playerActivePokemon!.attachedEnergy)).toEqual(["Water Energy", "Lightning Energy"]);
+    const alone = use(vs(current, inPlay("Onix")));
+    expect(names(alone.playerDiscard)).toEqual(["Lightning Energy"]);
+    expect(names(alone.playerActivePokemon!.attachedEnergy)).toEqual(["Water Energy", "Lightning Energy"]);
+  });
+
   describe("SearchDeckChoice (Moonwatching, Jellyfish Pod, Call for Friend, Sleight of Hand)", () => {
     const search = (effect: Partial<AttackEffect>, setup: Parameters<typeof makeState>[0] = {}) =>
       vs(withAttack(inPlay("Clefairy"), { effects: [{ type: AttackEffectType.SearchDeckChoice, target: AttackTarget.Self, ...effect }] }), inPlay("Onix"), setup);

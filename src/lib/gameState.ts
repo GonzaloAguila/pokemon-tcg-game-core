@@ -3199,6 +3199,22 @@ function smokescreenCoins(attacker: PokemonInPlay): number {
   return attacker.mustFlipToAttack ? 1 : 0;
 }
 
+/**
+ * Energy Bomb / Electric Current (MoveAllEnergyToBench): the attached Energy cards still to move,
+ * in order — every card, or with `energyType` those providing it (printed type first, Rainbow
+ * Energy last) — at most `amount` minus the `moved` ones.
+ */
+export function energyToMove(attacker: PokemonInPlay, effect: AttackEffect, moved = 0): GameCard[] {
+  const type = effect.energyType;
+  const cards = type
+    ? [
+        ...attacker.attachedEnergy.filter((e) => energyProvidesType(e, type) && !(isEnergyCard(e) && e.providesAllTypes)),
+        ...attacker.attachedEnergy.filter((e) => energyProvidesType(e, type) && isEnergyCard(e) && e.providesAllTypes),
+      ]
+    : attacker.attachedEnergy;
+  return cards.slice(0, Math.max(0, (effect.amount ?? Infinity) - moved));
+}
+
 /** An attached card as it is once it leaves play (a Mysterious Fossil can't be attached, but be safe). */
 function cardOutOfPlayEnergy(card: GameCard): GameCard {
   return cardOutOfPlay(card);
@@ -4291,13 +4307,18 @@ function executeAttackUnchecked(
         }
       }
 
-      // Energy Bomb with no Benched Pokémon: every Energy card attached is discarded
+      // Energy Bomb / Electric Current with no Benched Pokémon: the Energy cards to move are discarded
       if (effect.type === AttackEffectType.MoveAllEnergyToBench && newPlayerActive && !attackerKnockedOut && newPlayerBench.length === 0) {
-        const discarded = newPlayerActive.attachedEnergy;
+        const discarded = energyToMove(newPlayerActive, effect);
         if (discarded.length > 0) {
           newPlayerDiscard.push(...discarded.map(cardOutOfPlayEnergy));
-          newPlayerActive = { ...newPlayerActive, attachedEnergy: [] };
-          events.push(createGameEvent(`${newPlayerActive.pokemon.name} descartó todas sus energías (no hay Pokémon en la Banca)`, "action"));
+          newPlayerActive = { ...newPlayerActive, attachedEnergy: newPlayerActive.attachedEnergy.filter((e) => !discarded.includes(e)) };
+          events.push(createGameEvent(
+            effect.energyType
+              ? `${newPlayerActive.pokemon.name} descartó ${discarded.map(energyCardLabel).join(", ")} (no hay Pokémon en la Banca)`
+              : `${newPlayerActive.pokemon.name} descartó todas sus energías (no hay Pokémon en la Banca)`,
+            "action"
+          ));
         }
       }
 

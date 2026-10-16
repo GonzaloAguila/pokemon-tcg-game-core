@@ -117,7 +117,11 @@ export type AttackEffect = {
   /** RecoverFromDiscard: kind of card (`amount` = most cards, `minAmount` = fewest, default 0) */
   recoverCardKind?: "energy" | "trainer";
   minAmount?: number;
-  /** DiscardEnergyForMill: type of the attached Energy cards that may be discarded */
+  /**
+   * Energy type of the effect: DiscardEnergyForMill (the attached Energy that may be discarded),
+   * Discard (Self) / RequireAttachedEnergy / AttachEnergyFromDeck / AttachEnergyFromDiscard,
+   * MoveAllEnergyToBench (only that type, Electric Current)
+   */
   energyType?: EnergyType;
   /** Set by the engine when it resolves a perCoinBenchTarget effect: indexes (in the target bench) that got heads */
   benchTargetIndexes?: number[];
