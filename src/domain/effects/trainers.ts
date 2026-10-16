@@ -1,5 +1,5 @@
 /**
- * TRAINER_EFFECTS — every Base Set and Jungle Trainer as a CardEffectDef (sourceId = the
+ * TRAINER_EFFECTS — every Trainer (Base Set to Gym Heroes) as a CardEffectDef (sourceId = the
  * card's id in the hand). Steps are ported from the frontend's trainer-registry.ts and the
  * selections mean what the API's playTrainer handler maps them to:
  *
@@ -32,17 +32,30 @@
  * | Imposter Oak's Revenge (TR) | [[handCardIdToDiscard]] |
  * | Nightly Garbage Run (TR) | [[up to 3 discard ids: Pokémon cards / basic Energy]] |
  * | Sleep! (TR) | 1 coin; [] |
+ * | Brock, Blaine's Last Resort, Sabrina's Gaze, Trash Exchange (GH) | [] |
+ * | Lt. Surge (GH) | [[handBasicPokemonId]] |
+ * | Misty (GH) | [[handCardId, handCardId]] (discarded); then a `misty` modifier for this turn's attack |
+ * | The Rocket's Trap (GH) | 1 coin; [] (heads: up to 3 random cards of the opponent's hand) |
+ * | Brock's Training Method (GH) | [[deckBrocksPokemonId]] (no step when the deck has none) · Good Manners: [[deckBasicPokemonId]] (same) |
+ * | Erika's Maids (GH) | [[handCardId, handCardId], [0–2 deck Erika's Pokémon ids]] (no 2nd step when the deck has none) |
+ * | Erika's Perfume (GH) | [[0+ Basic Pokémon ids from the opponent's hand]] (`reveals`; no step when that hand is empty) |
+ * | Minion of Team Rocket (GH) | 2 coins; both heads (and a Bench): [[opponentBenchPokemonId]]; a tails ends the turn (`skipEndTurn`: the caller ends it) |
+ * | Misty's Wrath (GH) | [[2 of the top 7 deck card ids]] (fewer when the deck is shorter) |
+ * | Secret Mission (GH) | [[] (looks at the opponent's hand, `reveals`; no step when it is empty), [0+ handCardIds to discard]] |
+ * | Blaine's Gamble (GH) | [[0+ handCardIds to discard]]; then 1 coin (asked with the selections: getTrainerCoinFlips(state, id, selections)) |
+ * | Energy Flow (GH) | [[0+ Energy card ids attached to own Pokémon]] |
  *
  * Mysterious Fossil and Clefairy Doll have no entry: they are played as Basic Pokémon
  * (playBasicPokemon; see isPlayedAsBasic).
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
-import { applyStatusCondition, createGameEvent, drawCard, energyCardLabel, getEnergyTypeInSpanish, shuffle, triggerOnPlayPower } from "@/lib/gameState";
+import { applyStatusCondition, clearStatusConditionsOnRetreat, createGameEvent, drawCard, endTurn, energyCardLabel, getEnergyTypeInSpanish, shuffle, triggerOnPlayPower } from "@/lib/gameState";
 import { hasStatusImmunity } from "@/domain/powers";
 import { modifiersAttachedTo } from "@/lib/modifiers";
 import { ALL_CARDS } from "@/domain/catalog";
-import { cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
+import { cardOutOfPlay, cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
+import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { CardKind, PokemonStage, StatusCondition } from "@/domain/constants";
 import { isBenchFull, maxBenchSize, findInPlay, getEvolutionBlocker } from "@/domain/board";
 import {
@@ -677,7 +690,17 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  * Trainer cards in the catalog that are intentionally NOT playable yet. Every other Trainer
  * in ALL_CARDS must have a TRAINER_EFFECTS entry (enforced by a test).
  */
-export const UNSUPPORTED_TRAINERS: readonly string[] = [];
+export const UNSUPPORTED_TRAINERS: readonly string[] = [
+  // Gym Heroes Trainers that need new machinery, each removed by the task that implements it
+  "Charity", // Task 10 (attached Trainer)
+  "Sabrina's ESP", // Task 10 (attached Trainer)
+  "Recall", // Task 11
+  "Tickling Machine", // Task 12
+  "Erika", // Task 13
+  "Lt. Surge's Treaty", // Task 13
+  "Blaine's Quiz #1", // Task 13
+  "Misty's Duel", // Task 14
+];
 
 // ============================================================================
 // Fossil
@@ -1100,6 +1123,541 @@ Object.assign(TRAINER_EFFECTS, {
       };
     },
   },
+} satisfies Record<string, CardEffectDef>);
+
+// ============================================================================
+// Gym Heroes
+// ============================================================================
+
+/** "a Basic Pokémon or Evolution card with <owner> in its name" */
+const ownersPokemonCard = (owner: PokemonOwner) => (c: GameCard) => isPokemonCard(c) && hasOwner(c, owner);
+
+/** Energy cards attached to a Pokémon (a Buzzap Electrode attached as Energy is one). */
+const attachedEnergyCards = (p: PokemonInPlay) => p.attachedEnergy.filter((e) => isEnergyCard(e) || !!e.buzzapEnergyType);
+
+/** A card leaving play for the hand is the printed card again (a Buzzap Electrode is an Electrode). */
+function backToHand(card: GameCard): GameCard {
+  if (!card.buzzapEnergyType) return cardOutOfPlay(card);
+  const { buzzapEnergyType: _type, buzzapSourceId: _source, ...electrode } = card;
+  return electrode as GameCard;
+}
+
+const listNames = (cards: GameCard[]) => cards.map((c) => c.name).join(", ");
+const cardsCount = (n: number) => `${n} carta${n === 1 ? "" : "s"}`;
+
+/** "Show your hand to your opponent": the cards are listed in the log (the played card aside). */
+function handShownEvent(state: GameState, cardId: string, trainerName: string) {
+  const others = otherHandCards(state, cardId);
+  return createGameEvent(`${trainerName}: quien lo jugó mostró su mano (${others.length > 0 ? listNames(others) : "ninguna otra carta"})`, "info");
+}
+
+/** A search of the deck for the cards matching `filter` ("show it, put it into your hand, shuffle"). */
+function deckSearch(
+  name: string,
+  description: string,
+  filter: (c: GameCard) => boolean,
+  { showsHand = false }: { showsHand?: boolean } = {}
+): Pick<CardEffectDef, "getSteps" | "resolve"> {
+  return {
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length > 0) return null;
+      const found = state.playerDeck.filter(filter);
+      if (found.length === 0) return null;
+      return { title: name, description, options: found.map(cardOption), maxSelections: 1, cards: found };
+    },
+    resolve: (state, cardId, selections) => {
+      const chosen = state.playerDeck.find((c) => c.id === selections[0]?.[0]);
+      const played = discardPlayed(state, cardId, `Jugaste ${name}`);
+      return {
+        ...played,
+        playerHand: chosen ? [...played.playerHand, chosen] : played.playerHand,
+        playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== chosen?.id)),
+        events: [
+          ...played.events,
+          ...(showsHand ? [handShownEvent(state, cardId, name)] : []),
+          createGameEvent(chosen ? `${name}: se mostró ${chosen.name} y se puso en la mano` : `${name}: no se encontró ninguna carta válida en el mazo`, "info"),
+          createGameEvent("Se mezcló el mazo", "info"),
+        ],
+      };
+    },
+  };
+}
+
+Object.assign(TRAINER_EFFECTS, {
+  "Brock": immediate(
+    (state, cardId) => {
+      const healed: string[] = [];
+      const heal = (p: PokemonInPlay): PokemonInPlay => {
+        if ((p.currentDamage ?? 0) <= 0) return p;
+        healed.push(p.pokemon.name);
+        return { ...p, currentDamage: Math.max(0, (p.currentDamage ?? 0) - 10) };
+      };
+      const played = discardPlayed(state, cardId, "Jugaste Brock");
+      const active = played.playerActivePokemon && heal(played.playerActivePokemon);
+      const bench = played.playerBench.map(heal);
+      return {
+        ...played,
+        playerActivePokemon: active,
+        playerBench: bench,
+        events: [...played.events, createGameEvent(`Brock: se quitó 1 contador de daño de ${healed.join(", ")}`, "info")],
+      };
+    },
+    (state) => (ownPokemonChoices(state, isDamaged).options.length > 0 ? null : "Ninguno de tus Pokémon tiene contadores de daño")
+  ),
+
+  "Lt. Surge": singleStep(
+    (state, cardId) => {
+      const basics = otherHandCards(state, cardId).filter(isBasicPokemonCard);
+      return {
+        title: "Lt. Surge",
+        description: "Elige una carta de Pokémon Básico de tu mano: pasa a ser tu Pokémon Activo y el actual va a tu Banca",
+        options: basics.map(cardOption),
+        maxSelections: 1,
+        cards: basics,
+      };
+    },
+    (state, cardId) => {
+      if (!state.playerActivePokemon) return "No tienes Pokémon activo";
+      if (!otherHandCards(state, cardId).some(isBasicPokemonCard)) return "Necesitas una carta de Pokémon Básico en tu mano";
+      return isBenchFull(state, "player") ? "Tu Banca está llena" : null;
+    },
+    (state, cardId, [basicId]) => {
+      const basic = state.playerHand.find((c) => c.id === basicId)!;
+      const old = state.playerActivePokemon!;
+      const played = discardPlayed({ ...state, playerHand: state.playerHand.filter((c) => c.id !== basicId) }, cardId, "Jugaste Lt. Surge");
+      // Like a Switch: the old Active goes to the Bench without its Special Conditions
+      const benched: PokemonInPlay = { ...clearStatusConditionsOnRetreat(old), modifiedWeakness: undefined, modifiedResistance: undefined };
+      const next: GameState = {
+        ...played,
+        playerActivePokemon: benchFrom([basic], state.turnNumber)[0],
+        playerBench: [...played.playerBench, benched],
+        events: [...played.events, createGameEvent(`Lt. Surge: ${basic.name} pasa a ser el Pokémon Activo y ${old.pokemon.name} va a la Banca`, "action")],
+      };
+      // Played from the hand: its "when you play it from your hand" power triggers
+      return triggerOnPlayPower(next, basic.id);
+    }
+  ),
+
+  "Misty": singleStep(
+    (state, cardId) => ({
+      title: "Misty",
+      description: "Descarta 2 cartas de tu mano para jugar esta carta",
+      options: otherHandCards(state, cardId).map(cardOption),
+      maxSelections: 2,
+      source: "hand",
+    }),
+    (state, cardId) => (otherHandCards(state, cardId).length < 2 ? "Necesitas descartar 2 cartas de tu mano para jugar esta carta" : null),
+    (state, cardId, chosen) => {
+      const card = state.playerHand.find((c) => c.id === cardId)!;
+      const discarded = state.playerHand.filter((c) => chosen.includes(c.id));
+      const paid: GameState = {
+        ...state,
+        playerHand: state.playerHand.filter((c) => !chosen.includes(c.id)),
+        playerDiscard: [...state.playerDiscard, ...discarded],
+      };
+      const played = discardPlayed(paid, cardId, "Jugaste Misty");
+      return {
+        ...played,
+        // This turn's attack: +20 after Weakness and Resistance (attackBonusFromModifiers)
+        activeModifiers: [
+          ...played.activeModifiers,
+          { id: `misty-${card.id}`, source: "misty", card, amount: 20, expiresAfterTurn: state.turnNumber, playerId: "player" },
+        ],
+        events: [
+          ...played.events,
+          createGameEvent(`Misty: se descartaron ${discarded.map((c) => c.name).join(" y ")}`, "info"),
+          createGameEvent("Misty: el ataque de este turno de un Pokémon con Misty en su nombre hace 20 puntos de daño más al Pokémon Defensor", "info"),
+        ],
+      };
+    }
+  ),
+
+  "The Rocket's Trap": {
+    canUse: () => null,
+    coinFlips: () => 1,
+    getSteps: () => null,
+    resolve: (state, cardId, _selections, { coinResults }) => {
+      const heads = coinResults?.[0] === "heads";
+      const played = discardPlayed(state, cardId, `Jugaste The Rocket's Trap - Moneda: [coin:${heads ? "heads" : "tails"}]`);
+      if (!heads || state.opponentHand.length === 0) return played;
+      // "choose up to 3 cards at random (don't look at them)": as many as there are, up to 3
+      const taken = new Set(shuffle(state.opponentHand).slice(0, 3).map((c) => c.id));
+      const back = state.opponentHand.filter((c) => taken.has(c.id));
+      return {
+        ...played,
+        opponentHand: state.opponentHand.filter((c) => !taken.has(c.id)),
+        opponentDeck: shuffle([...state.opponentDeck, ...back]),
+        events: [...played.events, createGameEvent(`The Rocket's Trap: ${cardsCount(back.length)} al azar de la mano del otro jugador se barajaron en su mazo`, "action")],
+      };
+    },
+  },
+
+  "Blaine's Last Resort": immediate(
+    (state, cardId) => {
+      const played = discardPlayed(state, cardId, "Jugaste Blaine's Last Resort");
+      const shown = { ...played, events: [...played.events, handShownEvent(state, cardId, "Blaine's Last Resort")] };
+      const { state: drew, drawn } = drawCards(shown, 5);
+      return { ...drew, events: [...drew.events, createGameEvent(`Robaste ${cardsCount(drawn)}`, "info")] };
+    },
+    (state, cardId) =>
+      otherHandCards(state, cardId).some((c) => c.name !== "Blaine's Last Resort")
+        ? "No puedes tener en tu mano otras cartas que no sean Blaine's Last Resort"
+        : null
+  ),
+
+  "Brock's Training Method": {
+    canUse: (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
+    ...deckSearch(
+      "Brock's Training Method",
+      "Elige una carta de Pokémon Básico o de Evolución con Brock en su nombre de tu mazo",
+      ownersPokemonCard("Brock")
+    ),
+  },
+
+  "Erika's Maids": {
+    canUse: (state, cardId) => (otherHandCards(state, cardId).length < 2 ? "Necesitas otras 2 cartas en tu mano para intercambiar" : null),
+    getSteps: (state, cardId, selections) => {
+      if (selections.length === 0) {
+        return {
+          title: "Erika's Maids",
+          description: "Elige 2 cartas de tu mano para intercambiar (se barajan en tu mazo)",
+          options: otherHandCards(state, cardId).map(cardOption),
+          maxSelections: 2,
+          source: "hand",
+        };
+      }
+      if (selections.length === 1) {
+        const found = state.playerDeck.filter(ownersPokemonCard("Erika"));
+        if (found.length === 0) return null;
+        return {
+          title: "Erika's Maids",
+          description: "Elige hasta 2 cartas de Pokémon Básico o de Evolución con Erika en su nombre de tu mazo",
+          options: found.map(cardOption),
+          maxSelections: Math.min(2, found.length),
+          minSelections: 0,
+          cards: found,
+        };
+      }
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const traded = state.playerHand.filter((c) => selections[0].includes(c.id));
+      const taken = state.playerDeck.filter((c) => (selections[1] ?? []).includes(c.id));
+      const played = discardPlayed(
+        { ...state, playerHand: state.playerHand.filter((c) => !selections[0].includes(c.id)) },
+        cardId,
+        "Jugaste Erika's Maids"
+      );
+      return {
+        ...played,
+        playerHand: [...played.playerHand, ...taken],
+        playerDeck: shuffle([...state.playerDeck.filter((c) => !taken.includes(c)), ...traded]),
+        events: [
+          ...played.events,
+          createGameEvent(
+            taken.length > 0
+              ? `Erika's Maids: 2 cartas de la mano por ${listNames(taken)} (se mostraron y se pusieron en la mano)`
+              : "Erika's Maids: 2 cartas de la mano se barajaron en el mazo sin tomar ninguna",
+            "info"
+          ),
+          createGameEvent("Se mezcló el mazo", "info"),
+        ],
+      };
+    },
+  },
+
+  "Erika's Perfume": {
+    canUse: () => null,
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length > 0 || state.opponentHand.length === 0) return null;
+      const hand = state.opponentHand;
+      const basics = hand.filter(isBasicPokemonCard);
+      const room = Math.max(0, maxBenchSize(state, "opponent") - state.opponentBench.length);
+      return {
+        title: "Erika's Perfume",
+        description:
+          basics.length === 0 ? "Mano de tu rival: no tiene cartas de Pokémon Básico"
+          : room === 0 ? "Mano de tu rival: su Banca está llena"
+          : "Mano de tu rival: elige las cartas de Pokémon Básico que pones en su Banca (las que quieras)",
+        options: hand.map((c) => ({ ...cardOption(c), disabled: !isBasicPokemonCard(c) || room === 0 })),
+        maxSelections: Math.min(room, basics.length),
+        minSelections: 0,
+        cards: hand,
+        reveals: "opponentHand",
+        disableAutoSelect: true,
+      };
+    },
+    resolve: (state, cardId, selections) => {
+      const chosen = state.opponentHand.filter((c) => (selections[0] ?? []).includes(c.id));
+      const played = discardPlayed(state, cardId, "Jugaste Erika's Perfume");
+      const looked = { ...played, events: [...played.events, createGameEvent("Erika's Perfume: se miró la mano del otro jugador", "info")] };
+      if (chosen.length === 0) return looked;
+      return {
+        ...looked,
+        opponentHand: state.opponentHand.filter((c) => !chosen.includes(c)),
+        opponentBench: [...state.opponentBench, ...benchFrom(chosen, state.turnNumber)],
+        events: [...looked.events, createGameEvent(`Erika's Perfume: ${listNames(chosen)} a la Banca del otro jugador`, "action")],
+      };
+    },
+  },
+
+  "Good Manners": {
+    canUse: (state, cardId) => {
+      if (otherHandCards(state, cardId).some(isBasicPokemonCard)) return "No puedes tener cartas de Pokémon Básico en tu mano para jugar esta carta";
+      return state.playerDeck.length === 0 ? "Tu mazo está vacío" : null;
+    },
+    ...deckSearch("Good Manners", "Elige una carta de Pokémon Básico de tu mazo", isBasicPokemonCard, { showsHand: true }),
+  },
+
+  "Minion of Team Rocket": {
+    canUse: () => null,
+    coinFlips: () => 2,
+    getSteps: (state, _cardId, selections, coinResults) => {
+      if (selections.length > 0 || coinResults?.length !== 2 || coinResults.some((c) => c !== "heads")) return null;
+      const bench = state.opponentBench;
+      if (bench.length === 0) return null;
+      return {
+        title: "Minion of Team Rocket",
+        description: "Elige un Pokémon en la Banca de tu rival: vuelve a su mano con todas las cartas unidas a él",
+        options: bench.map((p) => pokemonOption(p, "Banca rival")),
+        maxSelections: 1,
+        thumbnails: bench.map((p) => p.pokemon),
+        disableAutoSelect: true,
+      };
+    },
+    resolve: (state, cardId, selections, { coinResults, skipEndTurn }) => {
+      const coins = coinResults ?? [];
+      const played = discardPlayed(state, cardId, `Jugaste Minion of Team Rocket - Monedas: ${coins.map((c) => `[coin:${c}]`).join(", ")}`);
+      if (coins.some((c) => c === "tails")) {
+        // "your turn ends immediately (you can't attack this turn)"
+        const over: GameState = {
+          ...played,
+          attackedThisTurn: true,
+          events: [...played.events, createGameEvent("Minion of Team Rocket: el turno de quien lo jugó termina", "action")],
+        };
+        return skipEndTurn ? over : endTurn(over);
+      }
+      const target = state.opponentBench.find((p) => p.pokemon.id === selections[0]?.[0]);
+      if (!target) return played;
+      // A Defender attached to it is one of its cards (kept as a modifier by the engine)
+      const { attached, rest } = modifiersAttachedTo(played, target);
+      return {
+        ...played,
+        activeModifiers: rest,
+        opponentBench: state.opponentBench.filter((p) => p.pokemon.id !== target.pokemon.id),
+        opponentHand: [...state.opponentHand, ...cardsLeavingPlay(target).map(backToHand), ...attached.map((m) => m.card)],
+        events: [...played.events, createGameEvent(`Minion of Team Rocket: ${target.pokemon.name} y sus cartas vuelven a la mano del otro jugador`, "action")],
+      };
+    },
+  },
+
+  "Misty's Wrath": singleStep(
+    (state) => {
+      const top = state.playerDeck.slice(0, 7);
+      return {
+        title: "Misty's Wrath",
+        description: `Las ${top.length} primeras cartas de tu mazo: elige ${Math.min(2, top.length)} para tu mano; el resto se descarta`,
+        options: top.map(cardOption),
+        maxSelections: Math.min(2, top.length),
+        cards: top,
+      };
+    },
+    (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
+    (state, cardId, chosen) => {
+      const top = state.playerDeck.slice(0, 7);
+      const kept = top.filter((c) => chosen.includes(c.id));
+      const discarded = top.filter((c) => !chosen.includes(c.id));
+      const played = discardPlayed(
+        { ...state, playerDeck: state.playerDeck.slice(top.length), playerDiscard: [...state.playerDiscard, ...discarded] },
+        cardId,
+        "Jugaste Misty's Wrath"
+      );
+      return {
+        ...played,
+        playerHand: [...played.playerHand, ...kept],
+        events: [
+          ...played.events,
+          createGameEvent(
+            `Misty's Wrath: ${cardsCount(kept.length)} a la mano${discarded.length > 0 ? `; se descartaron ${listNames(discarded)}` : ""}`,
+            "info"
+          ),
+        ],
+      };
+    }
+  ),
+
+  "Secret Mission": {
+    canUse: () => null,
+    getSteps: (state, cardId, selections) => {
+      const looks = state.opponentHand.length > 0;
+      if (looks && selections.length === 0) {
+        const hand = state.opponentHand;
+        return {
+          title: "Secret Mission",
+          description: "Mano de tu rival",
+          options: hand.map((c) => ({ ...cardOption(c), disabled: true })),
+          maxSelections: 0,
+          minSelections: 0,
+          cards: hand,
+          reveals: "opponentHand",
+          disableAutoSelect: true,
+        };
+      }
+      const others = otherHandCards(state, cardId);
+      if (selections.length === (looks ? 1 : 0) && others.length > 0) {
+        return {
+          title: "Secret Mission",
+          description: "Descarta las cartas de tu mano que quieras: robas esa misma cantidad",
+          options: others.map(cardOption),
+          maxSelections: others.length,
+          minSelections: 0,
+          source: "hand",
+        };
+      }
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const chosen = selections[state.opponentHand.length > 0 ? 1 : 0] ?? [];
+      const discarded = state.playerHand.filter((c) => chosen.includes(c.id));
+      const played = discardPlayed(
+        { ...state, playerHand: state.playerHand.filter((c) => !chosen.includes(c.id)), playerDiscard: [...state.playerDiscard, ...discarded] },
+        cardId,
+        "Jugaste Secret Mission"
+      );
+      const looked = state.opponentHand.length > 0 ? [createGameEvent("Secret Mission: se miró la mano del otro jugador", "info")] : [];
+      if (discarded.length === 0) return { ...played, events: [...played.events, ...looked] };
+      const { state: drew, drawn } = drawCards(
+        { ...played, events: [...played.events, ...looked, createGameEvent(`Secret Mission: se descartaron ${listNames(discarded)}`, "info")] },
+        discarded.length
+      );
+      return { ...drew, events: [...drew.events, createGameEvent(`Robaste ${cardsCount(drawn)}`, "info")] };
+    },
+  },
+
+  "Blaine's Gamble": {
+    canUse: () => null,
+    // "Discard any number of other cards from your hand, then flip a coin": the coin comes
+    // after the choice (none to choose with an empty hand: flipped right away)
+    coinFlips: (state, cardId, selections) => (selections.length > 0 || otherHandCards(state, cardId).length === 0 ? 1 : 0),
+    getSteps: (state, cardId, selections) => {
+      const others = otherHandCards(state, cardId);
+      if (selections.length > 0 || others.length === 0) return null;
+      return {
+        title: "Blaine's Gamble",
+        description: "Descarta las cartas de tu mano que quieras; después se lanza una moneda: si sale cara, robas el doble de cartas",
+        options: others.map(cardOption),
+        maxSelections: others.length,
+        minSelections: 0,
+        source: "hand",
+      };
+    },
+    resolve: (state, cardId, selections, { coinResults }) => {
+      const heads = coinResults?.[0] === "heads";
+      const chosen = selections[0] ?? [];
+      const discarded = state.playerHand.filter((c) => chosen.includes(c.id));
+      const played = discardPlayed(
+        { ...state, playerHand: state.playerHand.filter((c) => !chosen.includes(c.id)), playerDiscard: [...state.playerDiscard, ...discarded] },
+        cardId,
+        "Jugaste Blaine's Gamble"
+      );
+      const events = [
+        ...played.events,
+        ...(discarded.length > 0 ? [createGameEvent(`Blaine's Gamble: se descartaron ${listNames(discarded)}`, "info")] : []),
+        createGameEvent(`Blaine's Gamble - Moneda: [coin:${heads ? "heads" : "tails"}]`, "info"),
+      ];
+      if (!heads || discarded.length === 0) return { ...played, events };
+      const { state: drew, drawn } = drawCards({ ...played, events }, discarded.length * 2);
+      return { ...drew, events: [...drew.events, createGameEvent(`Robaste ${cardsCount(drawn)}`, "info")] };
+    },
+  },
+
+  "Energy Flow": {
+    canUse: (state) =>
+      ownPokemonChoices(state, (p) => attachedEnergyCards(p).length > 0).options.length > 0 ? null : "Tus Pokémon no tienen cartas de Energía unidas",
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length > 0) return null;
+      const holders = [
+        ...(state.playerActivePokemon ? [{ pokemon: state.playerActivePokemon, location: "Activo" }] : []),
+        ...state.playerBench.map((pokemon) => ({ pokemon, location: "Banca" })),
+      ];
+      const choices = holders.flatMap(({ pokemon, location }) =>
+        attachedEnergyCards(pokemon).map((energy) => ({ energy, holder: `${pokemon.pokemon.name} (${location})` }))
+      );
+      return {
+        title: "Energy Flow",
+        description: "Elige las cartas de Energía unidas a tus Pokémon que vuelven a tu mano (las que quieras)",
+        options: choices.map(({ energy, holder }) => ({ ...energyOption(energy), sublabel: holder })),
+        maxSelections: choices.length,
+        minSelections: 0,
+        thumbnails: choices.map(({ energy }) => energy),
+        disableAutoSelect: true,
+      };
+    },
+    resolve: (state, cardId, selections) => {
+      const chosen = new Set(selections[0] ?? []);
+      const returned: GameCard[] = [];
+      const strip = (p: PokemonInPlay): PokemonInPlay => {
+        const leaving = p.attachedEnergy.filter((e) => chosen.has(e.id));
+        if (leaving.length === 0) return p;
+        returned.push(...leaving);
+        return { ...p, attachedEnergy: p.attachedEnergy.filter((e) => !chosen.has(e.id)) };
+      };
+      const played = discardPlayed(state, cardId, "Jugaste Energy Flow");
+      const active = played.playerActivePokemon && strip(played.playerActivePokemon);
+      const bench = played.playerBench.map(strip);
+      return {
+        ...played,
+        playerActivePokemon: active,
+        playerBench: bench,
+        playerHand: [...played.playerHand, ...returned.map(backToHand)],
+        events: [
+          ...played.events,
+          createGameEvent(
+            returned.length > 0 ? `Energy Flow: ${returned.map((e) => energyCardLabel(e)).join(", ")} volvieron a la mano` : "Energy Flow: no volvió ninguna carta de Energía",
+            "info"
+          ),
+        ],
+      };
+    },
+  },
+
+  "Sabrina's Gaze": immediate((state, cardId) => {
+    const played = discardPlayed(state, cardId, "Jugaste Sabrina's Gaze");
+    const mine = played.playerHand.length;
+    const theirs = played.opponentHand.length;
+    const myDeck = shuffle([...played.playerDeck, ...played.playerHand]);
+    const theirDeck = shuffle([...played.opponentDeck, ...played.opponentHand]);
+    return {
+      ...played,
+      playerHand: myDeck.slice(0, mine),
+      playerDeck: myDeck.slice(mine),
+      opponentHand: theirDeck.slice(0, theirs),
+      opponentDeck: theirDeck.slice(theirs),
+      events: [
+        ...played.events,
+        createGameEvent(
+          `Sabrina's Gaze: cada jugador barajó su mano en su mazo; quien lo jugó robó ${cardsCount(mine)} y el otro jugador ${cardsCount(theirs)}`,
+          "action"
+        ),
+      ],
+    };
+  }),
+
+  "Trash Exchange": immediate((state, cardId) => {
+    const count = state.playerDiscard.length;
+    const deck = shuffle([...state.playerDeck, ...state.playerDiscard]);
+    const played = discardPlayed({ ...state, playerDeck: deck.slice(count), playerDiscard: deck.slice(0, count) }, cardId, "Jugaste Trash Exchange");
+    return {
+      ...played,
+      events: [
+        ...played.events,
+        createGameEvent(
+          `Trash Exchange: ${cardsCount(count)} de la pila de descartes se barajaron en el mazo y se descartaron las ${count} primeras del mazo`,
+          "info"
+        ),
+      ],
+    };
+  }),
 } satisfies Record<string, CardEffectDef>);
 
 // Gym Heroes: Stadiums with an on-play effect (every other Stadium falls back to playStadium)

@@ -17,27 +17,12 @@ import {
   type GameCard,
   type GameState,
 } from "@/index";
-import { createTrainerCard } from "@/domain/cards";
-import { CardRarity, CardSet, TrainerType } from "@/domain/constants";
 import { IllegalActionError } from "@/shared/errors";
 import { ownedCardIds } from "@/domain/simulation";
-import { makeState, inPlay, deepFreeze, names } from "./helpers/state";
+import { makeState, inPlay, gameCard, deepFreeze, names } from "./helpers/state";
 
-let uid = 0;
-/** A test-only Stadium (the real ones arrive with the Gym Heroes catalog). */
-function stadium(name: string): GameCard {
-  uid += 1;
-  const card = createTrainerCard({
-    id: `test-stadium-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-    name,
-    number: 0,
-    set: CardSet.GymHeroes,
-    rarity: CardRarity.Rare,
-    trainerType: TrainerType.Stadium,
-    effect: "Estadio de prueba",
-  });
-  return { ...card, id: `${card.id}#${uid}` } as GameCard;
-}
+/** A Gym Heroes Stadium card from the catalog (a fresh instance each call). */
+const stadium = (name: string): GameCard => gameCard(name, "gym-heroes");
 
 const newLines = (before: GameState, after: GameState) => after.events.slice(before.events.length).map((e) => e.message);
 

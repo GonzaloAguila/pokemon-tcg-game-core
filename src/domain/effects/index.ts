@@ -8,6 +8,8 @@
  *   const coins = getTrainerCoinFlips(state, cardId);           // flip them (server in MP)
  *   getTrainerCoinFlippers(state, cardId, coins.length);        // who flipped each (captions)
  *   let step = getTrainerSteps(state, cardId, [], coins);       // ask, append answer, repeat
+ *   // none flipped before? a coin may come after the choices (Blaine's Gamble: "discard…, then flip")
+ *   if (coins.length === 0) coins = flip(getTrainerCoinFlips(state, cardId, selections));
  *   const next = playTrainerCard(state, cardId, selections, { coinResults: coins });
  *
  * Same for powers with the id of the Pokémon in play using it (canUsePokemonPower,
@@ -60,9 +62,10 @@ function runEffect(
   context: CardEffectContext
 ): GameState {
   const coins = context.coinResults ?? [];
-  checkCoins(coinRequirement(def, state, sourceId), coins);
+  if (!Array.isArray(selections)) throw new IllegalActionError("Selecciones no válidas");
+  checkCoins(coinRequirement(def, state, sourceId, selections), coins);
   checkSelections(def, state, sourceId, selections, coins.length > 0 ? coins : undefined);
-  const next = def.resolve(state, sourceId, selections, { coinResults: coins });
+  const next = def.resolve(state, sourceId, selections, { coinResults: coins, ...(context.skipEndTurn && { skipEndTurn: true }) });
   // The wrapped legacy functions return the same object when their own checks fail
   if (next === state) throw new IllegalActionError("No se pudo aplicar el efecto");
   // State-based Knock Outs (e.g. Gust of Wind changed what a transformed Ditto copies)
@@ -108,10 +111,14 @@ export function getTrainerSteps(
   return def ? def.getSteps(state, cardId, selections, coinResults) : null;
 }
 
-/** Coins to flip before the Trainer's first step (0 = none). */
+/**
+ * Coins to flip before the Trainer's first step (0 = none). With its answers (`selections`, once
+ * getTrainerSteps returned null) and no coins before: the coins it flips after its choices
+ * (Blaine's Gamble: the player chooses the discards without knowing the coin).
+ */
 export function getTrainerCoinFlips(state: GameState, cardId: string, selections: string[][] = []): CoinFlipRequirement {
   const { def } = trainerDef(state, cardId);
-  return def?.coinFlips?.(state, cardId, selections) ?? 0;
+  return def ? coinRequirement(def, state, cardId, selections) : 0;
 }
 
 /** Who flipped each of `count` coins of an effect (default: its player). */

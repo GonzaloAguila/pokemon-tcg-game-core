@@ -53,7 +53,7 @@ import { isAttackChoiceEffect, matchesDeckCardFilter, startAttackChoices, type A
 export { resolveAttackChoice, isAttackChoiceEffect, matchesDeckCardFilter } from "./attackChoices";
 export type { AttackChoiceContext } from "./attackChoices";
 import type { PendingPowerChoice } from "./powerChoices";
-import { defenderReduction as attachedDefenderReduction, modifierAppliesTo, releaseOrphanModifiers } from "./modifiers";
+import { attackBonusFromModifiers, defenderReduction as attachedDefenderReduction, modifierAppliesTo, modifierHoldsCard, releaseOrphanModifiers } from "./modifiers";
 export { resolvePowerChoice, triggerOnPlayPower, ON_PLAY_POWERS } from "./powerChoices";
 export type { PendingPowerChoice, OnPlayPowerDef } from "./powerChoices";
 import { assertLegal, IllegalActionError } from "@/shared/errors";
@@ -166,10 +166,16 @@ export { GamePhase } from "@/domain/constants";
 
 export type GameModifier = {
   id: string;
-  source: "plusPower" | "defender";
+  /**
+   * plusPower / defender: the attached Trainer kept as a modifier (`card` is in play here and
+   * goes to the discard pile when it expires). misty (Gym Heroes' Misty): this turn's attack of a
+   * Pokémon with Misty in its name does `amount` more; the card is already in the discard pile
+   * (`card` is only a reference, see modifierHoldsCard).
+   */
+  source: "plusPower" | "defender" | "misty";
   card: GameCard;
   targetPokemonId?: string; // Para Defender: qué pokemon protege
-  amount: number; // +10 para PlusPower, -20 para Defender
+  amount: number; // +10 para PlusPower, -20 para Defender, +20 para Misty
   expiresAfterTurn: number; // Turno en que expira
   playerId: "player" | "opponent"; // Quién jugó este modifier
 };
@@ -2442,9 +2448,11 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     (m) => m.expiresAfterTurn > currentTurn
   );
 
-  // Move expired modifier cards to the appropriate discard pile
+  // Move expired modifier cards to the appropriate discard pile (Misty's is already there)
   for (const mod of expiredModifiers) {
-    if (mod.playerId === "player") {
+    if (!modifierHoldsCard(mod)) {
+      // nothing to move
+    } else if (mod.playerId === "player") {
       updatedState.playerDiscard = [...updatedState.playerDiscard, mod.card];
     } else {
       updatedState.opponentDiscard = [...updatedState.opponentDiscard, mod.card];
@@ -3950,11 +3958,9 @@ function executeAttackUnchecked(
 
   // Aplicar bonus de PlusPower (después de debilidad/resistencia, según reglas TCG)
   // PlusPower only adds damage if the attack does damage to the defending Pokemon after
-  // Weakness and Resistance (10 vs Resistance = 0: no PlusPower)
-  const plusPowerModifiers = gameState.activeModifiers.filter(
-    (m) => m.source === "plusPower" && m.playerId === "player" && modifierAppliesTo(m, attacker)
-  );
-  const plusPowerBonus = plusPowerModifiers.reduce((sum, m) => sum + m.amount, 0);
+  // Weakness and Resistance (10 vs Resistance = 0: no PlusPower). Misty (Gym Heroes): the same
+  // for this turn's attack of a Pokémon with Misty in its name.
+  const plusPowerBonus = attackBonusFromModifiers(gameState, attacker);
   if (plusPowerBonus > 0 && damage > 0) {
     damage += plusPowerBonus;
   }

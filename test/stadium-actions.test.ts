@@ -37,11 +37,10 @@ import {
   type GameState,
   type PokemonInPlay,
 } from "@/index";
-import { createTrainerCard } from "@/domain/cards";
-import { CardRarity, CardSet, EnergyType, StatusCondition, TrainerType, type CoinFlipResult } from "@/domain/constants";
+import { EnergyType, StatusCondition, type CoinFlipResult } from "@/domain/constants";
 import { IllegalActionError } from "@/shared/errors";
 import { legalActions, randomAnswer, actionKind, mulberry32 } from "@/domain/simulation";
-import { makeState, inPlay, deepFreeze, names } from "./helpers/state";
+import { makeState, inPlay, gameCard, deepFreeze, names } from "./helpers/state";
 
 const { Grass, Lightning } = EnergyType;
 const { Asleep, Confused, Paralyzed, Poisoned, CannotAttack } = StatusCondition;
@@ -50,21 +49,8 @@ const T: CoinFlipResult = "tails";
 
 afterEach(() => vi.restoreAllMocks());
 
-let uid = 0;
-/** A test-only Stadium (the real ones arrive with the Gym Heroes catalog). */
-function stadium(name: string): GameCard {
-  uid += 1;
-  const card = createTrainerCard({
-    id: `test-stadium-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-    name,
-    number: 0,
-    set: CardSet.GymHeroes,
-    rarity: CardRarity.Rare,
-    trainerType: TrainerType.Stadium,
-    effect: "Estadio de prueba",
-  });
-  return { ...card, id: `${card.id}#${uid}` } as GameCard;
-}
+/** A Gym Heroes Stadium card from the catalog (a fresh instance each call). */
+const stadium = (name: string): GameCard => gameCard(name, "gym-heroes");
 const inPlayStadium = (name: string, playedBy: "player" | "opponent" = "player") => ({ card: stadium(name), playedBy });
 
 /** A Pokémon in play renamed as an owner's Pokémon ("Erika's Bulbasaur") — the owner is the name prefix. */

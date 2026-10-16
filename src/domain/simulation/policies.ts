@@ -165,7 +165,13 @@ export function trainerAction(cardId: string, name: string, rng: Rng, answer: (s
         answer,
         coins,
         (selections) => getTrainerSteps(view, cardId, selections, coins.length > 0 ? coins : undefined),
-        (selections) => playTrainerCard(view, cardId, selections, { coinResults: coins })
+        // A coin flipped after the choices (Blaine's Gamble); a Trainer that ends the turn
+        // (Minion of Team Rocket) leaves it to the runner (attackedThisTurn → endTurn)
+        (selections) =>
+          playTrainerCard(view, cardId, selections, {
+            coinResults: coins.length > 0 ? coins : flipFor(getTrainerCoinFlips(view, cardId, selections), rng),
+            skipEndTurn: true,
+          })
       );
     },
   };

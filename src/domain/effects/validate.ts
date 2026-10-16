@@ -9,9 +9,14 @@ import type { CoinFlipResult } from "@/domain/constants";
 import { IllegalActionError } from "@/shared/errors";
 import type { CardEffectDef, CoinFlipRequirement, SelectionStep } from "./types";
 
-/** Coins requested by an effect before its first step. */
-export function coinRequirement(def: CardEffectDef, state: GameState, sourceId: string): CoinFlipRequirement {
-  return def.coinFlips?.(state, sourceId, []) ?? 0;
+/**
+ * Coins an effect requests: before its first step (selections = []), or — for an effect whose
+ * coin comes after its choices (Blaine's Gamble) — once its steps are answered (`selections`).
+ */
+export function coinRequirement(def: CardEffectDef, state: GameState, sourceId: string, selections: string[][] = []): CoinFlipRequirement {
+  const before = def.coinFlips?.(state, sourceId, []) ?? 0;
+  if (before !== 0) return before;
+  return def.coinFlips?.(state, sourceId, selections) ?? 0;
 }
 
 /** Throws unless `coins` satisfies the requirement (a caller bug: the outcome would change). */

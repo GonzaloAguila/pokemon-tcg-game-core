@@ -55,7 +55,7 @@ import {
 import { evolvePokemonInPlay, getEvolutionBlocker, maxBenchSize } from "@/domain/board";
 import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
 import { IllegalActionError } from "@/shared/errors";
-import { modifierAppliesTo } from "./modifiers";
+import { attackBonusFromModifiers, modifierAppliesTo } from "./modifiers";
 import type { AttackReactions, GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
 import {
   activeCounterAttack,
@@ -851,8 +851,8 @@ export function dealChosenTargetDamage(
   }
   let consumedReduction = false;
   if (isActive) {
-    const plusPower = state.activeModifiers.filter((m) => m.source === "plusPower" && m.playerId === "player" && modifierAppliesTo(m, attacker)).reduce((sum, m) => sum + m.amount, 0);
-    if (damage > 0) damage += plusPower;
+    // PlusPower / Misty: the Defending Pokémon only
+    if (damage > 0) damage += attackBonusFromModifiers(state, attacker);
   }
   const defenderReduction = state.activeModifiers
     .filter((m) => m.source === "defender" && modifierAppliesTo(m, target))

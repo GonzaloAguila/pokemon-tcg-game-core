@@ -7,7 +7,7 @@
  *   its cards to the hand, the opponent of whoever played it first (#124) — pendingBenchTrim.
  * - No Removal Gym: discard 2 cards from the hand to play (Super) Energy Removal (#103).
  *
- * The real Stadium cards arrive with the catalog (Task 9): built here like test/stadium.test.ts.
+ * The Stadium cards are the real catalog cards (gym-heroes.ts).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -37,28 +37,14 @@ import {
   type GameCard,
   type PokemonInPlay,
 } from "@/index";
-import { createTrainerCard } from "@/domain/cards";
-import { CardRarity, CardSet, EnergyType, TrainerType } from "@/domain/constants";
+import { EnergyType } from "@/domain/constants";
 import { IllegalActionError } from "@/shared/errors";
 import { makeState, inPlay, gameCard, deepFreeze, names, armedFor, attackIndex, energy } from "./helpers/state";
 
 const { Water, Fighting } = EnergyType;
 
-let uid = 0;
-/** A test-only Stadium (the real ones arrive with the Gym Heroes catalog). */
-function stadium(name: string): GameCard {
-  uid += 1;
-  const card = createTrainerCard({
-    id: `test-stadium-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-    name,
-    number: 0,
-    set: CardSet.GymHeroes,
-    rarity: CardRarity.Rare,
-    trainerType: TrainerType.Stadium,
-    effect: "Estadio de prueba",
-  });
-  return { ...card, id: `${card.id}#${uid}` } as GameCard;
-}
+/** A Gym Heroes Stadium card from the catalog (a fresh instance each call). */
+const stadium = (name: string): GameCard => gameCard(name, "gym-heroes");
 
 const inPlayStadium = (name: string, playedBy: "player" | "opponent" = "player") => ({ card: stadium(name), playedBy });
 

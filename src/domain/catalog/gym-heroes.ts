@@ -4,11 +4,13 @@
  * the other sets). Source: api.pokemontcg.io `gym1` (data/pokemontcg/gym1.json).
  * Attack and power names and texts in Spanish; Pokémon names in English, exactly as printed
  * ("Brock's Onix", "Lt. Surge's Pikachu": an owner's Pokémon only evolves from the same
- * owner's, see cards/owner.ts). The Trainers and Stadiums (#15–19, #97–126) are added by a
- * later task. The behavior of the 11 Pokémon Powers is implemented separately (their data is here).
+ * owner's, see cards/owner.ts). Trainer and Stadium names stay in English as printed, with
+ * their Spanish text (Stadiums: `TrainerType.Stadium`; Tickling Machine is a Rocket's Secret
+ * Machine). Their behavior lives in the effect registry (effects/trainers.ts, effects/stadiums.ts,
+ * stadiums/rules.ts); the 11 Pokémon Powers in domain/powers (their data is here).
  */
 
-import { type AttackEffect, type Card, createPokemonCard, makeCardId } from "@/domain/cards";
+import { type AttackEffect, type Card, createPokemonCard, createTrainerCard, makeCardId } from "@/domain/cards";
 import {
   EnergyType,
   CardSet,
@@ -20,6 +22,7 @@ import {
   ProtectionType,
   BenchDamageTarget,
   PokemonPowerType,
+  TrainerType,
 } from "@/domain/constants";
 
 const SET: CardSet = CardSet.GymHeroes;
@@ -552,6 +555,57 @@ export const gymHeroesCards: Card[] = [
     retreatCost: 1,
     weaknesses: [],
     resistances: [Fighting],
+  }),
+  // ==========================================================================
+  // Rare Holo Trainers (15–19)
+  // ==========================================================================
+  createTrainerCard({
+    id: makeCardId(SET, 15, "Brock"),
+    name: "Brock",
+    number: 15,
+    set: SET,
+    rarity: RareHolo,
+    trainerType: TrainerType.Item,
+    effect: "Quita 1 contador de daño de cada uno de tus Pokémon que tenga contadores de daño.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 16, "Erika"),
+    name: "Erika",
+    number: 16,
+    set: SET,
+    rarity: RareHolo,
+    trainerType: TrainerType.Item,
+    effect: "Puedes robar hasta 3 cartas; después, tu rival puede robar hasta 3 cartas.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 17, "Lt. Surge"),
+    name: "Lt. Surge",
+    number: 17,
+    set: SET,
+    rarity: RareHolo,
+    trainerType: TrainerType.Item,
+    effect:
+      "Solo puedes jugar esta carta si tienes al menos 1 carta de Pokémon Básico en tu mano. Pon en juego una carta de Pokémon Básico de tu mano como tu Pokémon Activo y pon tu antiguo Pokémon Activo en tu Banca. (No puedes jugar esta carta si tu Banca está llena.)",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 18, "Misty"),
+    name: "Misty",
+    number: 18,
+    set: SET,
+    rarity: RareHolo,
+    trainerType: TrainerType.Item,
+    effect:
+      "Descarta otras 2 cartas de tu mano para poder jugar esta carta. Si el ataque de este turno hace daño al Pokémon Defensor (después de aplicar Debilidad y Resistencia) y el Pokémon atacante tiene a Misty en su nombre, el ataque hace 20 puntos de daño más al Pokémon Defensor.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 19, "The Rocket's Trap"),
+    name: "The Rocket's Trap",
+    number: 19,
+    set: SET,
+    rarity: RareHolo,
+    trainerType: TrainerType.Item,
+    effect:
+      "Lanza una moneda. Si sale cara, elige al azar hasta 3 cartas de la mano de tu rival (sin mirarlas). Tu rival baraja esas cartas en su mazo.",
   }),
   // ==========================================================================
   // Rare (20–34)
@@ -2504,5 +2558,267 @@ export const gymHeroesCards: Card[] = [
     retreatCost: 1,
     weaknesses: [Fire],
     resistances: [],
+  }),
+  // ==========================================================================
+  // Trainers and Stadiums (97–126; #98, #100, #101, #102 are non-holo reprints of #15–18)
+  // ==========================================================================
+  createTrainerCard({
+    id: makeCardId(SET, 97, "Blaine's Quiz #1"),
+    name: "Blaine's Quiz #1",
+    number: 97,
+    set: SET,
+    rarity: Rare,
+    trainerType: TrainerType.Item,
+    effect:
+      "Pon boca abajo delante de ti una carta de Pokémon Básico o de Evolución de tu mano y di su nombre a tu rival. Tu rival adivina la altura de ese Pokémon. Da la vuelta a la carta. Si tu rival acertó, roba 2 cartas; si falló, robas tú 2 cartas. En cualquier caso, devuelve la carta a tu mano.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 99, "Charity"),
+    name: "Charity",
+    number: 99,
+    set: SET,
+    rarity: Rare,
+    trainerType: TrainerType.Item,
+    effect:
+      "Une Charity a tu Pokémon Activo. Salvo que ese Pokémon quede Fuera de Combate, devuelve Charity a tu mano al final de tu turno. Si ese Pokémon ataca y hace daño al Pokémon Defensor, puedes reducir ese daño en la cantidad que quieras (redondeada a la decena más cercana).",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 103, "No Removal Gym"),
+    name: "No Removal Gym",
+    number: 103,
+    set: SET,
+    rarity: Rare,
+    trainerType: TrainerType.Stadium,
+    effect:
+      "Esta carta permanece en juego cuando la juegas. Descártala si entra en juego otra carta de Estadio. Un jugador debe descartar 2 cartas de su mano para poder jugar una carta de Energy Removal o de Super Energy Removal.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 104, "The Rocket's Training Gym"),
+    name: "The Rocket's Training Gym",
+    number: 104,
+    set: SET,
+    rarity: Rare,
+    trainerType: TrainerType.Stadium,
+    effect:
+      "Esta carta permanece en juego cuando la juegas. Descártala si entra en juego otra carta de Estadio. Cada jugador paga una Energía Incolora más para retirar a su Pokémon Activo.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 105, "Blaine's Last Resort"),
+    name: "Blaine's Last Resort",
+    number: 105,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect:
+      "No puedes jugar esta carta si tienes en tu mano alguna carta que no sea Blaine's Last Resort. Muestra tu mano a tu rival y después roba 5 cartas.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 106, "Brock's Training Method"),
+    name: "Brock's Training Method",
+    number: 106,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect:
+      "Busca en tu mazo una carta de Pokémon Básico o de Evolución con Brock en su nombre. Muéstrasela a tu rival y ponla en tu mano. Después, baraja tu mazo.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 107, "Celadon City Gym"),
+    name: "Celadon City Gym",
+    number: 107,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Stadium,
+    effect:
+      "Esta carta permanece en juego cuando la juegas. Descártala si entra en juego otra carta de Estadio. Durante el turno de cada jugador, ese jugador puede descartar una carta de Energía unida a 1 de sus Pokémon con Erika en su nombre. Si lo hace, ese Pokémon deja de estar Dormido, Confundido, Paralizado o Envenenado.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 108, "Cerulean City Gym"),
+    name: "Cerulean City Gym",
+    number: 108,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Stadium,
+    effect:
+      "Esta carta permanece en juego cuando la juegas. Descártala si entra en juego otra carta de Estadio. Cada jugador paga una Energía Incolora menos para retirar a su Pokémon si tiene a Misty en su nombre.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 109, "Erika's Maids"),
+    name: "Erika's Maids",
+    number: 109,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect:
+      "Intercambia otras 2 cartas de tu mano por hasta 2 cartas de Pokémon Básico y/o de Evolución de tu mazo con Erika en su nombre. Muéstraselas a tu rival y ponlas en tu mano. Después, baraja tu mazo.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 110, "Erika's Perfume"),
+    name: "Erika's Perfume",
+    number: 110,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect:
+      "Mira la mano de tu rival. Si tiene cartas de Pokémon Básico, puedes poner cualquier cantidad de ellas en la Banca de tu rival (mientras haya sitio).",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 111, "Good Manners"),
+    name: "Good Manners",
+    number: 111,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect:
+      "Para jugar esta carta no puedes tener cartas de Pokémon Básico en tu mano. Muestra tu mano a tu rival; después, busca en tu mazo una carta de Pokémon Básico, muéstrasela a tu rival y ponla en tu mano. Después, baraja tu mazo.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 112, "Lt. Surge's Treaty"),
+    name: "Lt. Surge's Treaty",
+    number: 112,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect:
+      "Tu rival elige 1 de estas opciones: cada jugador elige 1 de sus cartas de Premio y la pone en su mano, o tú robas una carta.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 113, "Minion of Team Rocket"),
+    name: "Minion of Team Rocket",
+    number: 113,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect:
+      "Lanza 2 monedas. Si ambas salen cara, elige 1 de los Pokémon en Banca de tu rival y devuélvelo a su mano junto con todas las cartas unidas a él. Si sale alguna cruz, tu turno termina inmediatamente (no puedes atacar este turno).",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 114, "Misty's Wrath"),
+    name: "Misty's Wrath",
+    number: 114,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect: "Mira las 7 primeras cartas de tu mazo. Elige 2 de ellas y ponlas en tu mano. Descarta el resto.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 115, "Pewter City Gym"),
+    name: "Pewter City Gym",
+    number: 115,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Stadium,
+    effect:
+      "Esta carta permanece en juego cuando la juegas. Descártala si entra en juego otra carta de Estadio. No se aplica la Resistencia a los ataques de los Pokémon con Brock en su nombre.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 116, "Recall"),
+    name: "Recall",
+    number: 116,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect:
+      "Para tu ataque de este turno, tu Pokémon Activo puede usar cualquier ataque de su carta de Pokémon Básico o de cualquier carta de Evolución que tenga debajo. (Debes pagar igualmente el coste de Energía de ese ataque.)",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 117, "Sabrina's ESP"),
+    name: "Sabrina's ESP",
+    number: 117,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect:
+      "Une Sabrina's ESP a 1 de tus Pokémon con Sabrina en su nombre. Al final de tu turno, descarta Sabrina's ESP. Si ese Pokémon usa un ataque en el que hay que lanzar monedas, Sabrina's ESP te permite volver a lanzar esas monedas una vez. Si lo haces, vuelve a lanzarlas todas.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 118, "Secret Mission"),
+    name: "Secret Mission",
+    number: 118,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    effect:
+      "Mira la mano de tu rival. Después, puedes descartar tantas otras cartas de tu mano como quieras y robar esa misma cantidad de cartas.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 119, "Tickling Machine"),
+    name: "Tickling Machine",
+    number: 119,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Item,
+    subtype: "Rocket's Secret Machine",
+    effect:
+      "Máquina Secreta Rocket. Lanza una moneda. Si sale cara, tu rival aparta boca abajo todas las cartas de su mano; nadie puede mirarlas. Al final del siguiente turno de tu rival, tu rival vuelve a poner esas cartas en su mano. Si sale cruz, tu turno termina inmediatamente (no puedes atacar este turno).",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 120, "Vermilion City Gym"),
+    name: "Vermilion City Gym",
+    number: 120,
+    set: SET,
+    rarity: Uncommon,
+    trainerType: TrainerType.Stadium,
+    effect:
+      "Esta carta permanece en juego cuando la juegas. Descártala si entra en juego otra carta de Estadio. Cada vez que un jugador ataque con un Pokémon con Lt. Surge en su nombre, puede lanzar una moneda. Si sale cara, y si el ataque de ese Pokémon hace daño al Pokémon Defensor (después de aplicar Debilidad y Resistencia), ese ataque hace 10 puntos de daño más al Pokémon Defensor. Si sale cruz, el Pokémon atacante se hace 10 puntos de daño a sí mismo además de lo que haga su ataque.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 121, "Blaine's Gamble"),
+    name: "Blaine's Gamble",
+    number: 121,
+    set: SET,
+    rarity: Common,
+    trainerType: TrainerType.Item,
+    effect:
+      "Descarta cualquier cantidad de otras cartas de tu mano y después lanza una moneda. Si sale cara, roba el doble de esa cantidad de cartas.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 122, "Energy Flow"),
+    name: "Energy Flow",
+    number: 122,
+    set: SET,
+    rarity: Common,
+    trainerType: TrainerType.Item,
+    effect:
+      "Por cada uno de tus Pokémon, puedes devolver a tu mano cualquier cantidad de las cartas de Energía unidas a él.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 123, "Misty's Duel"),
+    name: "Misty's Duel",
+    number: 123,
+    set: SET,
+    rarity: Common,
+    trainerType: TrainerType.Item,
+    effect:
+      "Tú y tu rival jugáis a piedra, papel o tijera. El ganador baraja su mano en su mazo y roba una nueva mano de 5 cartas.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 124, "Narrow Gym"),
+    name: "Narrow Gym",
+    number: 124,
+    set: SET,
+    rarity: Common,
+    trainerType: TrainerType.Stadium,
+    effect:
+      "Esta carta permanece en juego cuando la juegas. Descártala si entra en juego otra carta de Estadio. Ningún jugador puede tener más de 4 Pokémon en su Banca. Cuando se juega esta carta, si un jugador tiene 5 Pokémon en su Banca, elige 1 de ellos y lo devuelve a su mano junto con todas las cartas unidas a él. (Si ambos jugadores tienen que devolver un Pokémon, primero lo devuelve tu rival.)",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 125, "Sabrina's Gaze"),
+    name: "Sabrina's Gaze",
+    number: 125,
+    set: SET,
+    rarity: Common,
+    trainerType: TrainerType.Item,
+    effect: "Cada jugador baraja su mano en su mazo y roba una nueva mano con el mismo número de cartas.",
+  }),
+  createTrainerCard({
+    id: makeCardId(SET, 126, "Trash Exchange"),
+    name: "Trash Exchange",
+    number: 126,
+    set: SET,
+    rarity: Common,
+    trainerType: TrainerType.Item,
+    effect:
+      "Cuenta las cartas de tu pila de descartes y barájalas en tu mazo. Después, descarta esa misma cantidad de cartas de la parte superior de tu mazo.",
   }),
 ];

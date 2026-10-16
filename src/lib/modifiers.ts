@@ -4,9 +4,11 @@
  * them when it evolves (the card named by `targetPokemonId` is then under it) or devolves
  * (Devolution Spray moves the target to the new top card), and they leave play with it
  * (Scoop Up, Mr. Fuji). A modifier without `targetPokemonId` (older states) applies to every
- * Pokémon of its player.
+ * Pokémon of its player. Misty (Gym Heroes) is a turn-long modifier of the same list without a
+ * target (attackBonusFromModifiers); it holds no card (modifierHoldsCard).
  */
 import type { GameModifier, GameState, PokemonInPlay } from "./gameState";
+import { hasOwner } from "@/domain/cards/owner";
 
 /** Is `modifier` attached to `pokemon` (its card or any card under it)? */
 export function modifierAppliesTo(modifier: GameModifier, pokemon: PokemonInPlay | null | undefined): boolean {
@@ -14,6 +16,27 @@ export function modifierAppliesTo(modifier: GameModifier, pokemon: PokemonInPlay
   if (!pokemon) return false;
   const id = modifier.targetPokemonId;
   return pokemon.pokemon.id === id || (pokemon.previousEvolutions ?? []).some((card) => card.id === id);
+}
+
+/**
+ * Does the modifier keep its Trainer card out of the piles (PlusPower / Defender attached to a
+ * Pokémon: the card goes to the discard pile when it expires or leaves play)? Misty's
+ * modifier only remembers the played card, which is already in the discard pile.
+ */
+export function modifierHoldsCard(modifier: GameModifier): boolean {
+  return modifier.source !== "misty";
+}
+
+/**
+ * Damage the modifiers of the attacking side ("player") add to `attacker`'s attack on the
+ * Defending Pokémon, after Weakness and Resistance and only when the attack does damage there:
+ * PlusPower attached to it, +20 per Misty played this turn when it has Misty in its name.
+ */
+export function attackBonusFromModifiers(state: GameState, attacker: PokemonInPlay): number {
+  const misty = hasOwner(attacker.pokemon, "Misty");
+  return state.activeModifiers
+    .filter((m) => m.playerId === "player" && ((m.source === "plusPower" && modifierAppliesTo(m, attacker)) || (m.source === "misty" && misty)))
+    .reduce((sum, m) => sum + m.amount, 0);
 }
 
 /** Defender: damage done by attacks to `pokemon` (Active or Benched) is reduced by 20 per attached Defender. */

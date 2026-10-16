@@ -18,7 +18,7 @@ import {
   resolveCoinFlipEffects,
   canUseAttack,
 } from "@/lib/gameState";
-import { defenderReduction as modifierDefenderReduction, modifierAppliesTo } from "@/lib/modifiers";
+import { attackBonusFromModifiers, defenderReduction as modifierDefenderReduction } from "@/lib/modifiers";
 import type { Attack, PokemonCard } from "@/domain/cards";
 import { givesPrizeWhenKnockedOut, isEnergyCard, isPokemonCard, isTrainerInPlay } from "@/domain/cards";
 import { AttackEffectType, EnergyType, PokemonPowerType, StatusCondition, type CoinFlipResult } from "@/domain/constants";
@@ -208,9 +208,7 @@ function computeAttackDamage(
   const weaknesses = defender.modifiedWeakness ? [defender.modifiedWeakness] : defenderCard.weaknesses ?? [];
   const resistances = defender.modifiedResistance ? [defender.modifiedResistance] : defenderCard.resistances ?? [];
   const plusPower =
-    w.activeModifiers
-      .filter((m) => m.source === "plusPower" && m.playerId === "player" && modifierAppliesTo(m, attacker))
-      .reduce((sum, m) => sum + m.amount, 0) + extraPlusPower * 10;
+    attackBonusFromModifiers(w, attacker) + extraPlusPower * 10;
   const defenderMinus = modifierDefenderReduction(w, defender);
   const attackerView = { ...attacker, pokemon: attackerCard };
   const defenderView = { ...defender, pokemon: defenderCard };

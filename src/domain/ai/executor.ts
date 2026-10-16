@@ -104,9 +104,13 @@ export function executeAIAction(state: GameState, action: AIAction): GameState {
     case "attack":
       return executeOpponentAttack(state, action);
 
-    case "playTrainer":
+    case "playTrainer": {
       // A Stadium that shrank the Benches: the AI returns its own Benched Pokémon when it is first to answer
-      return resolveBenchTrimForAI(executeTrainer(state, action));
+      const played = resolveBenchTrimForAI(executeTrainer(state, action));
+      // A Trainer that ended the AI's turn (Minion of Team Rocket's tails): ended here, after the
+      // swap back, so the end-of-turn log reads right for the human
+      return played.attackedThisTurn && !state.attackedThisTurn && !played.isPlayerTurn && played.gameResult === null ? endTurn(played) : played;
+    }
 
     case "usePower":
       return executePower(state, action);
@@ -503,7 +507,7 @@ function executeTrainer(state: GameState, action: PlayTrainerAction): GameState 
     (s) => canPlayTrainerCard(s, cardId),
     (s) =>
       tryEffect(s, () => {
-        const coins = flipCoins(getTrainerCoinFlips(s, cardId));
+        let coins = flipCoins(getTrainerCoinFlips(s, cardId));
         const coinsForSteps = coins.length > 0 ? coins : undefined;
         const selections = action.answerAtPlay
           ? collectAnswers(
@@ -511,7 +515,10 @@ function executeTrainer(state: GameState, action: PlayTrainerAction): GameState 
               (step) => answerTrainerStepForAI(s, cardId, trainerName, step)
             )
           : action.selections;
-        return playTrainerCard(s, cardId, selections, { coinResults: coins });
+        // A coin flipped after the choices (Blaine's Gamble)
+        if (coins.length === 0) coins = flipCoins(getTrainerCoinFlips(s, cardId, selections));
+        // skipEndTurn: a Trainer that ends the turn leaves it to the caller (after the swap back)
+        return playTrainerCard(s, cardId, selections, { coinResults: coins, skipEndTurn: true });
       })
   );
 }

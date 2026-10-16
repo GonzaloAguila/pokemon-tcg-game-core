@@ -32,6 +32,21 @@
  * | Goop Gas Attack | it will attack and an opposing Pokémon has a working passive power |
  * | Sleep! | the Defending Pokémon isn't Asleep / Paralyzed and can be affected |
  * | Challenge!, Digger, Here Comes Team Rocket! | never (`AI_NEVER_PLAYS`) |
+ * | Blaine's Last Resort (GH) | its hand holds nothing else, deck > 7 and 5 draws can't lose the deck-out race (hand change) |
+ * | Misty's Wrath (GH) | hand of 4 or fewer, deck ≥ 15 (hand change) |
+ * | Brock's Training Method, Erika's Maids (GH) | the deck has that owner's Pokémon that evolves one in play or a Basic with room on the Bench (Maids: 2 cards it can spare) (hand change) |
+ * | Good Manners (GH) | no Basic in hand, room on the Bench, the deck has a Basic (hand change) |
+ * | Secret Mission (GH) | a card it can spare (value ≤ 15) and deck > 6: discards those, draws as many (hand change) |
+ * | Blaine's Gamble (GH) | 2+ cards of little value (≤ 12) and deck ≥ 10: discards those (hand change) |
+ * | Sabrina's Gaze (GH) | the opponent holds 6+ cards and the AI's other cards are of little value (hand change) |
+ * | Energy Flow (GH) | an Active that can't attack and is about to be Knocked Out (≤ 20 HP left) with 2+ Energy cards and a Bench: its Energy cards back to the hand (hand change) |
+ * | Brock (GH) | 2+ damaged Pokémon, or a damaged Active with ≤ 30 HP left |
+ * | The Rocket's Trap (GH) | the opponent holds 4+ cards |
+ * | Misty (GH) | it will attack with an Active with Misty in its name and can spare 2 cards (value ≤ 25) |
+ * | Erika's Perfume (GH) | the opponent holds 3+ cards and has room on the Bench: its Basics with ≤ 50 HP go there (easy Prizes) |
+ * | Lt. Surge (GH) | the Active can't attack and is Asleep / Confused / Paralyzed or has ≤ 20 HP left: the Basic in hand with the most HP takes its place (played alone, before benching) |
+ * | Trash Exchange (GH) | the discard pile holds more useful cards (needed Energy, evolutions of Pokémon in play) than the deck, proportionally |
+ * | Minion of Team Rocket (GH) | last action of a turn without an attack (a tails ends the turn): the opponent has an evolved Benched Pokémon or one with 2+ Energy |
  * | Celadon City Gym (Stadium action) | its Active is Asleep / Confused / Paralyzed and keeps an attack it can pay after discarding the Energy card |
  */
 
@@ -39,6 +54,7 @@ import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { canUseAttack, energyProvidesType, getEnergyValue, hasStatusCondition } from "@/lib/gameState";
 import { isBenchFull } from "@/domain/board";
 import { isBasicEnergy, isEnergyCard, isPokemonCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
+import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { EnergyType, PokemonStage, StatusCondition } from "@/domain/constants";
 import {
   ACTIVATED_POWER_TYPES,
@@ -251,7 +267,106 @@ export function planHandChange(view: GameState, options: { saveDeck?: boolean } 
   const [exchange] = withUsablePower(view, "Intercambio de Materia");
   if (exchange && deck.length >= 5 && spareCard(view)) return usePower(exchange);
 
+  return planGymHeroesHandChange(view, options);
+}
+
+// ---------------------------------------------------------------------------- Gym Heroes
+
+/** A Pokémon card of `owner` worth searching: it evolves one in play, or a Basic with room on the Bench. */
+function wantedOwnersPokemon(view: GameState, owner: PokemonOwner) {
+  return (c: GameCard | undefined) =>
+    !!c && isPokemonCard(c) && hasOwner(c, owner) &&
+    (evolvesFromInPlay(view, c) || (c.stage === PokemonStage.Basic && !isBenchFull(view, "player")));
+}
+
+/** Cards of the hand the AI gives away for free (Secret Mission, Blaine's Gamble): value ≤ maxValue. */
+function lowValueCards(view: GameState, exceptId: string, maxValue: number): GameCard[] {
+  return view.playerHand.filter((c) => c.id !== exceptId && handCardValue(view, c) <= maxValue);
+}
+
+/** Its Active can't attack and will be Knocked Out soon: Energy Flow saves its Energy cards. */
+function activeAboutToFall(view: GameState): boolean {
+  const active = view.playerActivePokemon;
+  if (!active || view.playerBench.length === 0 || activeCanAttack(view)) return false;
+  const energyCards = active.attachedEnergy.filter((e) => isEnergyCard(e) || !!e.buzzapEnergyType);
+  return energyCards.length >= 2 && remainingHp(active) <= 20;
+}
+
+/** Gym Heroes Trainers that change the AI's hand (played alone, the turn is planned again). */
+function planGymHeroesHandChange(view: GameState, options: { saveDeck?: boolean }): AIAction | null {
+  const deck = view.playerDeck;
+  const hand = view.playerHand;
+  const pool = unknownOwnCards(view);
+  const affords = (count: number) => !options.saveDeck || canAffordDraws(view, count);
+
+  const lastResort = playable(view, "Blaine's Last Resort");
+  if (lastResort && deck.length > 7 && affords(5)) return playTrainer(lastResort);
+
+  const wrath = playable(view, "Misty's Wrath");
+  if (wrath && hand.length <= 4 && deck.length >= 15 && affords(7)) return playTrainer(wrath);
+
+  const method = playable(view, "Brock's Training Method");
+  if (method && deck.length > 3 && pool.some(wantedOwnersPokemon(view, "Brock")) && !hand.some(wantedOwnersPokemon(view, "Brock"))) {
+    return playTrainer(method);
+  }
+
+  const maids = playable(view, "Erika's Maids");
+  if (maids && pool.some(wantedOwnersPokemon(view, "Erika")) && spareHandCards(view, maids.id, 2)) return playTrainer(maids);
+
+  const manners = playable(view, "Good Manners");
+  if (manners && deck.length > 3 && !isBenchFull(view, "player") && pool.some((c) => isPokemonCard(c) && c.stage === PokemonStage.Basic)) {
+    return playTrainer(manners);
+  }
+
+  const mission = playable(view, "Secret Mission");
+  if (mission && deck.length > 6 && lowValueCards(view, mission.id, 15).length > 0) return playTrainer(mission);
+
+  const gamble = playable(view, "Blaine's Gamble");
+  if (gamble && deck.length >= 10 && lowValueCards(view, gamble.id, 12).length >= 2) return playTrainer(gamble);
+
+  const gaze = playable(view, "Sabrina's Gaze");
+  if (gaze && view.opponentHand.length >= 6 && hand.filter((c) => c.id !== gaze.id).every((c) => handCardValue(view, c) <= 25)) {
+    return playTrainer(gaze);
+  }
+
+  // Lt. Surge: a Basic from the hand takes the place of a stuck Active (Asleep / Confused /
+  // Paralyzed) or one about to fall, before the Basics are benched
+  const surge = playable(view, "Lt. Surge");
+  const active = view.playerActivePokemon!;
+  if (surge && !activeCanAttack(view)) {
+    const stuck = [StatusCondition.Asleep, StatusCondition.Confused, StatusCondition.Paralyzed].some((c) => hasStatusCondition(active, c));
+    if (stuck || remainingHp(active) <= 20) return playTrainer(surge);
+  }
+
+  const flow = playable(view, "Energy Flow");
+  if (flow && activeAboutToFall(view)) return playTrainer(flow);
+
   return null;
+}
+
+/** Share of the cards the AI wants (needed basic Energy, evolutions of its Pokémon in play). */
+function usefulShare(view: GameState, cards: GameCard[]): number {
+  if (cards.length === 0) return 0;
+  const needed = isNeededEnergy(view);
+  return cards.filter((c) => needed(c) || evolvesFromInPlay(view, c)).length / cards.length;
+}
+
+/** The opposing Benched Pokémon worth sending back to the hand (Minion of Team Rocket): evolved or with 2+ Energy. */
+function minionTarget(view: GameState): PokemonInPlay | undefined {
+  const worth = (p: PokemonInPlay) => (p.previousEvolutions?.length ?? 0) * 2 + p.attachedEnergy.length;
+  return [...view.opponentBench]
+    .filter((p) => !isTrainerInPlay(p.pokemon) && ((p.previousEvolutions?.length ?? 0) > 0 || p.attachedEnergy.length >= 2))
+    .sort((a, b) => worth(b) - worth(a))[0];
+}
+
+/**
+ * Minion of Team Rocket, as the LAST action of a turn without an attack: a tails ends the turn
+ * (the executor ends it), two heads send an evolved / powered-up Benched Pokémon back to the
+ * other player's hand (then the turn is planned again).
+ */
+export function planMinion(view: GameState): AIAction | null {
+  const minion = playable(view, "Minion of Team Rocket");
+  return minion && minionTarget(view) ? playTrainer(minion) : null;
 }
 
 /** Step In: the Benched Dragonite takes the place of an Active that can't attack. */
@@ -348,6 +463,15 @@ export function planTrainers(view: GameState, options: { willAttack: boolean }):
       !hasStatusCondition(defender, StatusCondition.Paralyzed) &&
       !hasStatusImmunity(defender, view)
   );
+
+  // Gym Heroes
+  const active = view.playerActivePokemon;
+  const damaged = ownPokemon(view).filter((p) => (p.currentDamage ?? 0) > 0);
+  add("Brock", () => damaged.length >= 2 || (!!active && (active.currentDamage ?? 0) > 0 && remainingHp(active) <= 30));
+  add("The Rocket's Trap", () => view.opponentHand.length >= 4);
+  add("Misty", (card) => options.willAttack && !!active && hasOwner(active.pokemon, "Misty") && spareHandCards(view, card.id, 2, 25) !== null);
+  add("Erika's Perfume", () => view.opponentHand.length >= 3 && !isBenchFull(view, "opponent"));
+  add("Trash Exchange", () => view.playerDiscard.length >= 4 && usefulShare(view, view.playerDiscard) > usefulShare(view, unknownOwnCards(view)) + 0.2);
   return actions;
 }
 
@@ -442,11 +566,61 @@ export function answerTrainerStepForAI(view: GameState, cardId: string, name: st
       ]);
     }
     case "Poké Ball":
+    case "Good Manners":
       return prefer(view, step, [
         ...wantedFromDeck(view),
         (c) => evolvesFromInPlay(view, c),
         (c) => !!c && isPokemonCard(c) && c.stage === PokemonStage.Basic,
       ]);
+    default:
+      return answerGymHeroesStep(view, cardId, name, step);
+  }
+}
+
+/** Enabled option ids ordered by `score` (highest first). */
+function bestIds(view: GameState, step: SelectionStep, score: (card: GameCard | undefined, id: string) => number): string[] {
+  return enabledIds(step).sort((a, b) => score(cardById(view, b), b) - score(cardById(view, a), a));
+}
+
+/** The AI's answers to the Gym Heroes Trainers' steps (AI view). */
+function answerGymHeroesStep(view: GameState, cardId: string, name: string, step: SelectionStep): string[] {
+  const hpOf = (c: GameCard | undefined) => (c && isPokemonCard(c) ? c.hp : 0);
+  switch (name) {
+    case "Lt. Surge":
+      return bestIds(view, step, hpOf).slice(0, 1);
+    case "Misty":
+    case "Erika's Maids":
+      if (step.source === "hand") {
+        const spare = spareHandCards(view, cardId, step.maxSelections, 100)?.map((c) => c.id) ?? [];
+        const ids = new Set(enabledIds(step));
+        return spare.every((id) => ids.has(id)) && spare.length >= minSelectionsOf(step) ? spare : answerStepForAI(step);
+      }
+      // Erika's Maids, the deck: evolutions of Pokémon in play first, then Basics
+      return bestIds(view, step, (c) => (evolvesFromInPlay(view, c) ? 2 : c && isPokemonCard(c) && c.stage === PokemonStage.Basic ? 1 : 0)).slice(0, step.maxSelections);
+    case "Brock's Training Method":
+      return prefer(view, step, [(c) => evolvesFromInPlay(view, c), (c) => !!c && isPokemonCard(c) && c.stage === PokemonStage.Basic]);
+    case "Erika's Perfume": {
+      // Weak Basics only: easy Prizes on that Bench
+      const weak = enabledIds(step).filter((id) => hpOf(cardById(view, id)) <= 50);
+      return weak.slice(0, step.maxSelections);
+    }
+    case "Minion of Team Rocket": {
+      const target = minionTarget(view);
+      return prefer(view, step, [(_c, id) => id === target?.pokemon.id]);
+    }
+    case "Misty's Wrath":
+      return bestIds(view, step, (c) => (c ? handCardValue(view, c) : 0)).slice(0, step.maxSelections);
+    case "Secret Mission":
+    case "Blaine's Gamble": {
+      if (step.source !== "hand") return [];
+      const low = new Set(lowValueCards(view, cardId, name === "Secret Mission" ? 15 : 12).map((c) => c.id));
+      return enabledIds(step).filter((id) => low.has(id)).slice(0, step.maxSelections);
+    }
+    case "Energy Flow": {
+      const active = view.playerActivePokemon;
+      const own = new Set(active?.attachedEnergy.map((e) => e.id) ?? []);
+      return enabledIds(step).filter((id) => own.has(id)).slice(0, step.maxSelections);
+    }
     default:
       return answerStepForAI(step);
   }

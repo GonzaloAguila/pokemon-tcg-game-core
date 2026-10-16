@@ -5,6 +5,7 @@
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { maxBenchSize } from "@/domain/board";
+import { modifierHoldsCard } from "@/lib/modifiers";
 import { GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
 import { isPokemonCard, isTrainerInPlay } from "@/domain/cards";
 import { getEffectiveHp, isAwaitingTransformTarget } from "@/domain/powers";
@@ -28,7 +29,7 @@ export function ownedCardIds(state: GameState, side: "player" | "opponent"): str
   addInPlay(isPlayer ? state.playerActivePokemon : state.opponentActivePokemon);
   (isPlayer ? state.playerBench : state.opponentBench).forEach(addInPlay);
   for (const modifier of state.activeModifiers) {
-    if (modifier.playerId === side) addCard(modifier.card);
+    if (modifier.playerId === side && modifierHoldsCard(modifier)) addCard(modifier.card);
   }
   // The Stadium in play belongs to whoever played it (it goes to that discard pile)
   if (state.stadium?.playedBy === side) addCard(state.stadium.card);

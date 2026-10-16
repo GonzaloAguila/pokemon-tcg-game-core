@@ -70,6 +70,13 @@ export type CoinFlipper = "self" | "opponent";
 export type CardEffectContext = {
   /** Coins flipped by the caller (server in multiplayer), as requested by `coinFlips` */
   coinResults?: CoinFlipResult[];
+  /**
+   * An effect that ends the turn (Minion of Team Rocket's tails: "your turn ends immediately")
+   * calls endTurn itself unless this is set: then it returns the turn over (`attackedThisTurn`,
+   * no other action allowed) and the caller ends it — the AI executor does, after swapping back,
+   * so the end-of-turn log is written for the right side (like executeAttack's skipEndTurn).
+   */
+  skipEndTurn?: boolean;
 };
 
 /**
@@ -78,14 +85,19 @@ export type CardEffectContext = {
  *
  * Flow: canUse → (coinFlips → caller flips) → getSteps until null (answering each step) →
  * resolve. Coins, when needed, are requested before the first step (selections = []) and
- * passed to every later getSteps / resolve call.
+ * passed to every later getSteps / resolve call — or, for an effect that flips after its
+ * choices (Blaine's Gamble), requested once the steps are answered and passed to resolve.
  */
 export interface CardEffectDef {
   /** null when it can be used now, otherwise the Spanish reason */
   canUse(state: GameState, sourceId: string): string | null;
   /** Next question given the answers so far (selections[i] answers step i), or null when done */
   getSteps(state: GameState, sourceId: string, selections: string[][], coinResults?: CoinFlipResult[]): SelectionStep | null;
-  /** Coins to flip before the first step (0 / omitted = none) */
+  /**
+   * Coins to flip before the first step (0 / omitted = none). An effect whose coin comes after its
+   * choices (Blaine's Gamble) returns 0 for `selections = []` and its coins once every step is
+   * answered; callers ask again with the answers (see coinRequirement).
+   */
   coinFlips?(state: GameState, sourceId: string, selections: string[][]): CoinFlipRequirement;
   /** Who flips coin `index` (0-based) of `coinFlips` (omitted = always the card's player). Display only. */
   coinFlipper?(index: number): CoinFlipper;
