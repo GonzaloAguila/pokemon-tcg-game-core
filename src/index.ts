@@ -346,6 +346,7 @@ export {
   executeAIAction,
   finishAIAttackAfterReaction,
   answerOpponentTrainerStepForAI,
+  answerAttackChoiceForAI,
 } from "./domain/ai";
 export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice, chooseBenchTrim, resolveBenchTrimForAI } from "./domain/ai/pending";
 

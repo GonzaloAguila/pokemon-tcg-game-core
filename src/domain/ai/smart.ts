@@ -9,6 +9,7 @@
  * 1. Mysterious Fossil / Clefairy Doll as the Active: discard it (as before).
  * 2. Draw / search cards first (Bill, Computer Search, Poké Ball, Energy Retrieval and the
  *    Fossil / Team Rocket ones of cardEffects.planHandChange).
+ * 2b. A Stadium that helps it (cardEffects.planStadium, by its rule; played alone).
  * 3. Bench Basics in order of value; with bench snipers around, weak Basics that would only
  *    give away Prizes stay in the hand once the Bench has 3 Pokémon.
  * 4. Evolve (Pokémon Breeder first), choosing the target with the most Energy / the Active;
@@ -76,8 +77,8 @@ import {
   prizesFor,
   type Threat,
 } from "./evaluate";
-import { canAffordDraws, planHandChange, planMinion, planTicklingMachine, planStadiumAction, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
-import { canUseVermilionCoin } from "@/domain/stadiums/rules";
+import { canAffordDraws, planHandChange, planMinion, planTicklingMachine, planStadium, planStadiumAction, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
+import { canUseVermilionCoin, stadiumExtraTrainerDiscards } from "@/domain/stadiums/rules";
 import { hasOwner } from "@/domain/cards/owner";
 import { attachedTrainerNamed, SABRINAS_ESP } from "@/domain/trainers/attached";
 import { resolveAttackForEvaluation, resolveOwnAttackPendings } from "./pending";
@@ -170,6 +171,10 @@ function planTurn(state: GameState, options: DecideOpponentTurnOptions): AIActio
 
   const handChange = planDrawAndSearch(plan.view, options);
   if (handChange) return [...plan.actions, handChange];
+
+  // A Stadium that helps (played alone, the turn is planned again: Narrow Gym may leave a Bench to trim)
+  const stadium = planStadium(plan.view);
+  if (stadium) return [...plan.actions, stadium];
 
   benchBasics(plan);
   evolveAll(plan);
@@ -935,9 +940,21 @@ function trainerCandidates(v: GameState): AIAction[] {
   const actions: AIAction[] = [];
   const mine = own(v);
   const theirs = [v.opponentActivePokemon, ...v.opponentBench].filter((p): p is PokemonInPlay => p != null);
+  // A Stadium cost (No Removal Gym: 2 cards of the hand for Energy Removal / Super Energy Removal)
+  // is paid with cards the AI can spare, first step; without them the Trainer isn't played
+  const withCost = (card: GameCard, selections: string[][]): string[][] | null => {
+    const count = stadiumExtraTrainerDiscards(v, card.name);
+    if (count === 0) return selections;
+    const spare = spareHandCards(v, card.id, count);
+    return spare ? [spare.map((c) => c.id), ...selections] : null;
+  };
   const add = (name: string, selections: string[][][]) => {
     const card = playableTrainer(v, name);
-    if (card) for (const s of selections) actions.push(trainerAction(card, s));
+    if (!card) return;
+    for (const s of selections) {
+      const paid = withCost(card, s);
+      if (paid) actions.push(trainerAction(card, paid));
+    }
   };
   const damaged = mine.filter((p) => (p.currentDamage ?? 0) > 0);
   add("Potion", damaged.filter((p) => (p.currentDamage ?? 0) >= 20).map((p) => [[p.pokemon.id]]));
@@ -970,7 +987,8 @@ function trainerCandidates(v: GameState): AIAction[] {
     if (payer?.payment) {
       for (const target of theirs.filter((p) => p.attachedEnergy.length > 0)) {
         const removed = [...target.attachedEnergy].sort((a, b) => getEnergyValue(b) - getEnergyValue(a)).slice(0, 2).map((e) => e.id);
-        actions.push(trainerAction(ser, [[payer.p.pokemon.id], [payer.payment[0]], [target.pokemon.id], removed]));
+        const paid = withCost(ser, [[payer.p.pokemon.id], [payer.payment[0]], [target.pokemon.id], removed]);
+        if (paid) actions.push(trainerAction(ser, paid));
       }
     }
   }

@@ -40,7 +40,8 @@ export type {
 
 // Strategy (decision making): the smart AI; the previous greedy script stays as a simulator baseline
 export { decideOpponentTurn, decideOpponentSetup, decideOpponentPromotion, type DecideOpponentTurnOptions } from "./smart";
-export { answerOpponentTrainerStepForAI } from "./cardEffects";
+export { answerOpponentTrainerStepForAI, stadiumValue } from "./cardEffects";
+export { answerAttackChoiceForAI } from "./attackAnswers";
 export { choosePromotion, chooseForcedSwitch } from "./choices";
 export { decideOpponentTurnLegacy, decideOpponentSetupLegacy } from "./legacy";
 export { knowledgeView } from "./knowledge";

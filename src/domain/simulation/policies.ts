@@ -62,6 +62,7 @@ import {
 import {
   choosePromotion,
   chooseForcedSwitch,
+  answerAttackChoiceForAI,
   decideOpponentTurn,
   decideOpponentSetup,
   decideOpponentTurnLegacy,
@@ -91,6 +92,11 @@ export interface Policy {
   nextAction(view: GameState, rng: Rng, actionsThisTurn: number): ViewAction | null;
   /** Answer a selection step (null = it can't be answered: a registry bug). */
   answer(step: SelectionStep, rng: Rng): string[] | null;
+  /**
+   * Answer the pending attack choice of `attackerView` (the attacking side's view, where the engine
+   * keeps it) as the side its step asks (`chooser`); default: `answer` on the step.
+   */
+  attackChoice?(attackerView: GameState, rng: Rng): string[] | null;
   /** Bench index to promote (view = this side as "player") */
   promotion(view: GameState, rng: Rng): number;
   /**
@@ -433,6 +439,8 @@ export function createGreedyPolicy(
       return next ? aiViewAction(next, view) : null;
     },
     answer: (step) => firstAnswer(step),
+    // The smart AI's answers to attack choices (its own, and the defender's: Flee, Bench Guard...)
+    attackChoice: variant === "smart" ? (attackerView) => answerAttackChoiceForAI(attackerView) : undefined,
     // The legacy AI promoted its first Benched Pokémon; the smart one chooses (it moves next
     // when it promotes off-turn, after the other side Knocked Out its Active)
     promotion: (view) => (variant === "smart" ? choosePromotion(knowledgeView(view), !view.isPlayerTurn) : 0),

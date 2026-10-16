@@ -54,6 +54,11 @@
  * | Blaine's Quiz #1 (GH) | only with `otherPlayerAnswersByAI`: a Pokémon card in hand, deck ≥ 6 and 2 draws affordable (hand change) |
  * | Misty's Duel (GH) | only with `otherPlayerDuels` (someone shows the other player the duel): 2 other cards in hand or fewer, the opponent holds 4+, deck ≥ 8 and 5 draws affordable (a new hand of 5 on a win; the opponent's 4+ cards gain little if it loses) (hand change); its pick is `aiDuelPick`, submitted by the consumer / simulator, never by the executor |
  * | Celadon City Gym (Stadium action) | its Active is Asleep / Confused / Paralyzed and keeps an attack it can pay after discarding the Energy card |
+ * | Stadiums (GH) | planStadium: the one that helps it most by its rule (stadiumValue, read through the Stadium rule hooks) when it beats the Stadium in play for the AI — never its own replaced by a worse one (played alone, the turn is planned again) |
+ * | Energy Removal, Super Energy Removal under No Removal Gym | only with 2 cards it can spare for the cost (spareHandCards; smart.ts trainerCandidates) |
+ *
+ * Attack choices (its own attack's and the defender's: Fairy Power, Magic Pollen, Sleight of
+ * Hand, ESP, Charity, Flee, Bench Guard...) are answered in attackAnswers.ts.
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
@@ -61,7 +66,8 @@ import { canUseAttack, energyProvidesType, getAvailableAttacks, getEnergyValue, 
 import { isBenchFull } from "@/domain/board";
 import { isBasicEnergy, isEnergyCard, isPokemonCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
-import { EnergyType, PokemonStage, StatusCondition } from "@/domain/constants";
+import { EnergyType, PokemonStage, StatusCondition, TrainerType } from "@/domain/constants";
+import { stadiumBenchLimit, stadiumExtraTrainerDiscards, stadiumFavoredOwner, stadiumRetreatModifier } from "@/domain/stadiums/rules";
 import {
   ACTIVATED_POWER_TYPES,
   canPlayTrainerCard,
@@ -113,7 +119,7 @@ function evolvesFromInPlay(view: GameState, card: GameCard | undefined): boolean
 }
 
 /** Basic Energy types the AI's attacks ask for (Active first, then the Bench). */
-function neededEnergyTypes(view: GameState): EnergyType[] {
+export function neededEnergyTypes(view: GameState): EnergyType[] {
   const types: EnergyType[] = [];
   for (const pokemon of ownPokemon(view)) {
     const card = getEffectivePokemonCard(view, pokemon);
@@ -428,6 +434,67 @@ export function planMinion(view: GameState): AIAction | null {
 export function planTicklingMachine(view: GameState): AIAction | null {
   const machine = playable(view, "Tickling Machine");
   return machine && view.opponentHand.length >= 3 ? playTrainer(machine) : null;
+}
+
+// ---------------------------------------------------------------------------- Stadiums
+
+const ENERGY_REMOVALS = ["Energy Removal", "Super Energy Removal"];
+
+/** Its Pokémon would like to leave the Active Spot: lost half its HP, or Asleep / Confused / Paralyzed. */
+function wantsToRetreat(pokemon: PokemonInPlay): boolean {
+  const hp = isPokemonCard(pokemon.pokemon) ? pokemon.pokemon.hp : 0;
+  const stuck = [StatusCondition.Asleep, StatusCondition.Confused, StatusCondition.Paralyzed].some((c) => hasStatusCondition(pokemon, c));
+  return stuck || remainingHp(pokemon) * 2 <= hp;
+}
+
+/**
+ * How much the Stadium `stadium` helps the AI (view: AI = "player"; > 0 helps, < 0 hurts), judged
+ * with the Stadium rule hooks on the view with it in play (no Stadium card is named here):
+ * - +1 per own Pokémon in play it favors (stadiumFavoredOwner: Brock / Misty / Lt. Surge / Erika
+ *   in its name), −1 per opposing one;
+ * - Retreat Cost changes of the Actives (stadiumRetreatModifier): a cheaper own retreat / a
+ *   dearer opposing one, weighted 1 when that Active wants to leave (half its HP gone, Asleep /
+ *   Confused / Paralyzed), else 0.25;
+ * - a Bench limit (stadiumBenchLimit): 1.5 per Pokémon the other side would have to return,
+ *   −1.5 per own one;
+ * - a cost on Energy Removal (stadiumExtraTrainerDiscards): +1 when it has 2+ Energy cards to
+ *   protect, −1 when it holds an Energy Removal / Super Energy Removal itself.
+ */
+export function stadiumValue(view: GameState, stadium: GameCard): number {
+  const s: GameState = { ...view, stadium: { card: stadium, playedBy: "player" } };
+  const theirs = [s.opponentActivePokemon, ...s.opponentBench].filter((p): p is PokemonInPlay => p != null);
+  let value = 0;
+  const owner = stadiumFavoredOwner(s);
+  if (owner) value += ownPokemon(s).filter((p) => hasOwner(p.pokemon, owner)).length - theirs.filter((p) => hasOwner(p.pokemon, owner)).length;
+  const weight = (p: PokemonInPlay) => (wantsToRetreat(p) ? 1 : 0.25);
+  if (s.playerActivePokemon) value -= stadiumRetreatModifier(s, s.playerActivePokemon) * weight(s.playerActivePokemon);
+  if (s.opponentActivePokemon) value += stadiumRetreatModifier(s, s.opponentActivePokemon) * weight(s.opponentActivePokemon);
+  const limit = stadiumBenchLimit(s);
+  if (limit !== null) value += 1.5 * (Math.max(0, s.opponentBench.length - limit) - Math.max(0, s.playerBench.length - limit));
+  if (stadiumExtraTrainerDiscards(s, ENERGY_REMOVALS[0]) > 0) {
+    const attached = ownPokemon(s).reduce((n, p) => n + p.attachedEnergy.length, 0);
+    const holdsRemoval = s.playerHand.some((c) => isTrainerCard(c) && ENERGY_REMOVALS.includes(c.name));
+    value += (attached >= 2 ? 1 : 0) - (holdsRemoval ? 1 : 0);
+  }
+  return value;
+}
+
+/**
+ * A Stadium of the hand worth playing now (played alone, the turn is planned again: Narrow Gym
+ * may leave a Bench to trim first): the best one by stadiumValue when it helps and beats the
+ * Stadium in play by its value for the AI — never its own Stadium replaced by a worse one; a
+ * harmful one (value < 0, the other player's) replaced by any that hurts less.
+ */
+export function planStadium(view: GameState): AIAction | null {
+  let best: { card: GameCard; value: number } | null = null;
+  for (const card of view.playerHand) {
+    if (!isTrainerCard(card) || card.trainerType !== TrainerType.Stadium || canPlayTrainerCard(view, card.id) !== null) continue;
+    const value = stadiumValue(view, card);
+    if (!best || value > best.value) best = { card, value };
+  }
+  if (!best) return null;
+  const current = view.stadium ? stadiumValue(view, view.stadium.card) : 0;
+  return best.value > current && (best.value > 0 || current < 0) ? playTrainer(best.card) : null;
 }
 
 /** Step In: the Benched Dragonite takes the place of an Active that can't attack. */

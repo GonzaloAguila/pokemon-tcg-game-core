@@ -447,7 +447,8 @@ export function powerAgainst(v: GameState, side: Rel, card: PokemonCard, attack:
   const type = card.types[0];
   if (defender && type && power > 0) {
     if ((defender.weaknesses ?? []).includes(type)) power *= 1.6;
-    if ((defender.resistances ?? []).includes(type)) power = Math.max(5, power - 25);
+    // Pewter City Gym: no Resistance against Pokémon with Brock in their names
+    if ((defender.resistances ?? []).includes(type) && !stadiumIgnoresResistance(v, { pokemon: card })) power = Math.max(5, power - 25);
   }
   return power;
 }

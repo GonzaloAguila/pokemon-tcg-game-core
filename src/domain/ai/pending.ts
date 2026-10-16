@@ -24,6 +24,7 @@ import { minSelectionsOf } from "@/domain/effects/validate";
 import { chooseForcedSwitch, choosePromotion } from "./choices";
 import { knowledgeView } from "./knowledge";
 import { pokemonWorth } from "./evaluate";
+import { answerAttackChoiceForAI } from "./attackAnswers";
 
 /**
  * The AI's answer to any selection step (attack choices, and what a consumer needs when the
@@ -84,14 +85,14 @@ export function resolveBenchTrimForAI(state: GameState, aiSide: "player" | "oppo
  * The AI judging its own attack (view: AI = "player"): its own choices resolved as
  * resolveOwnAttackPendings does, and the other player's powers asked mid-attack (Flee, Bench
  * Guard: `pendingAttackChoice.reaction`, which leave the board untouched until answered) answered
- * with answerStepForAI — a guess at the other player's answer, so the attack is judged by what it does.
+ * with answerAttackChoiceForAI — a guess at the other player's answer, so the attack is judged by what it does.
  */
 export function resolveAttackForEvaluation(view: GameState): GameState {
   let state = resolveOwnAttackPendings(view);
   for (let guard = 0; guard < 6 && state.gameResult === null; guard++) {
     const pending = state.pendingAttackChoice;
     if (!pending?.reaction || pending.step.chooser !== "opponent") break;
-    state = resolveOwnAttackPendings(resolveAttackChoice(state, answerStepForAI(pending.step), NO_END));
+    state = resolveOwnAttackPendings(resolveAttackChoice(state, answerAttackChoiceForAI(state), NO_END));
   }
   return state;
 }
@@ -150,14 +151,17 @@ export function resolveOwnAttackPendings(view: GameState, options: { flip?: () =
       const step = state.pendingAttackChoice.step;
       // The other player's choice (Terror Strike) stays pending: the consumer asks them
       if (step.chooser === "opponent") return state;
-      // Sabrina's ESP: re-flip bad coins with its own flips; otherwise the first answer ("keep";
-      // Charity: "0", no reduction)
+      // Sabrina's ESP: re-flip bad coins with its own flips (without them — judging an attack — it
+      // keeps them); every other choice: answerAttackChoiceForAI (Charity: "0", Fairy Power...)
       const reflip = state.pendingAttackChoice.reflip;
-      if (reflip && options.flip && wantsEspReflip(reflip.coins)) {
-        state = resolveAttackChoice(state, [reflip.option], { ...NO_END, coinResults: flipAttackCoins(reflip.plan, options.flip) });
+      if (reflip) {
+        const again = !!options.flip && wantsEspReflip(reflip.coins);
+        state = again
+          ? resolveAttackChoice(state, [reflip.option], { ...NO_END, coinResults: flipAttackCoins(reflip.plan, options.flip!) })
+          : resolveAttackChoice(state, answerStepForAI(step), NO_END);
         continue;
       }
-      state = resolveAttackChoice(state, answerStepForAI(step), NO_END);
+      state = resolveAttackChoice(state, answerAttackChoiceForAI(state), NO_END);
       continue;
     }
     if (state.pendingBenchDamageSelection) {

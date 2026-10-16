@@ -296,7 +296,7 @@ class GameRunner {
       // The attack's choice: the step says who answers; it always resolves in the attacker's view
       const step = view.pendingAttackChoice.step;
       const chooser = step.chooser === "opponent" ? other : actor;
-      const chosen = this.answer(chooser, step);
+      const chosen = this.policy(chooser).attackChoice?.(view, rng) ?? this.answer(chooser, step);
       // An answer that needs new coins (Sabrina's ESP's re-flip): flipped here, like the attack's
       const plan = getAttackChoiceCoinPlan(view, chosen);
       const coinResults = plan ? flipAttackCoins(plan, () => flipCoin(rng)) : undefined;

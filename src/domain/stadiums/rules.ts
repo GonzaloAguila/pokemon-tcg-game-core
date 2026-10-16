@@ -10,14 +10,15 @@
  * | No Removal Gym | discard 2 cards from the hand to play Energy Removal / Super Energy Removal | stadiumExtraTrainerDiscards (Trainer entry points) |
  * | Vermilion City Gym | optional coin when a Pokémon with Lt. Surge in its name attacks: heads 10 more to the Defending Pokémon (after W/R, only if the attack damaged it), tails 10 to the attacker | stadiumOffersAttackCoin, canUseVermilionCoin (getAttackCoinPlan / executeAttack `vermilionCoin`) |
  *
- * Only this file and effects/stadiums.ts name Stadium cards. Narrow Gym's on-play discard-down
+ * stadiumFavoredOwner says whose Pokémon the leader Gyms favor (the AI judges a Stadium with the
+ * hooks). Only this file and effects/stadiums.ts name Stadium cards. Narrow Gym's on-play discard-down
  * lives in effects/stadiums.ts (and board/bench-trim.ts); Celadon City Gym's action is a
  * STADIUM_ACTIONS entry there.
  */
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
 import { getAvailableAttacks } from "@/lib/gameState";
-import { hasOwner } from "@/domain/cards/owner";
+import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { stadiumNamed } from "@/domain/board/stadium";
 
 /** Bench size while Narrow Gym is in play. */
@@ -36,9 +37,31 @@ export function stadiumRetreatModifier(state: GameState, pokemon: PokemonInPlay)
   return 0;
 }
 
-/** Pewter City Gym: Resistance doesn't apply to the attacks of `attacker` (Brock in its name). */
-export function stadiumIgnoresResistance(state: GameState, attacker: PokemonInPlay): boolean {
+/**
+ * Pewter City Gym: Resistance doesn't apply to the attacks of `attacker` (Brock in its name).
+ * `attacker` may be a Pokémon in play or a card (`{ pokemon: card }`, the AI's estimates).
+ */
+export function stadiumIgnoresResistance(state: GameState, attacker: { pokemon: { name: string } }): boolean {
   return stadiumNamed(state, "Pewter City Gym") && hasOwner(attacker.pokemon, "Brock");
+}
+
+/** The leader each Gym's rule favors: Pokémon with that owner in their names (see the table above). */
+const FAVORED_OWNER: Readonly<Record<string, PokemonOwner>> = {
+  "Pewter City Gym": "Brock",
+  "Cerulean City Gym": "Misty",
+  "Vermilion City Gym": "Lt. Surge",
+  "Celadon City Gym": "Erika",
+};
+
+/**
+ * Whose Pokémon the Stadium in play favors (Pewter City Gym: Brock — no Resistance against
+ * them; Cerulean City Gym: Misty — cheaper retreat; Vermilion City Gym: Lt. Surge — the attack
+ * coin; Celadon City Gym: Erika — its action), or null. For judgements (the AI); the rules
+ * themselves are the hooks.
+ */
+export function stadiumFavoredOwner(state: GameState): PokemonOwner | null {
+  const name = state.stadium?.card.name;
+  return (name && FAVORED_OWNER[name]) || null;
 }
 
 /** Cards from the hand a player must discard to play the Trainer `trainerName` (No Removal Gym: 2 for (Super) Energy Removal). */
