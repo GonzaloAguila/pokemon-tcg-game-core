@@ -111,6 +111,20 @@ export type PokemonInPlay = {
    * opponent's), attack damage done to it is done back to the attacker. Cleared on bench/evolve.
    */
   mirrorShellOnTurn?: number;
+  /**
+   * Crosscounter / Fire Wall (CounterAttack): during the turn after `onTurn` (the opponent's),
+   * attack damage done to it is answered with damage to the attacker: `amount`, or the damage
+   * done × `damageMultiplier`; `retaliationCoin` = only on heads (the attack's defender coin);
+   * `applyWeaknessResistance` with its type. Cleared on bench/evolve.
+   */
+  counterAttack?: {
+    onTurn: number;
+    attackName: string;
+    amount?: number;
+    damageMultiplier?: number;
+    retaliationCoin?: boolean;
+    applyWeaknessResistance?: boolean;
+  };
   /** Sand-Attack / SmokeScreen: opponent must flip coin to attack. Clears on bench/evolve. */
   mustFlipToAttack?: boolean;
   /** Turn number when mustFlipToAttack was set (for expiration) */
@@ -588,6 +602,7 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     mustFlipToAttack: undefined,
     mustFlipToAttackTurn: undefined,
     mirrorShellOnTurn: undefined,
+    counterAttack: undefined,
   };
 }
 
@@ -2916,7 +2931,9 @@ export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?
  * 4. `defender` (0 or 1): Haunter's Transparency on the Defending Pokémon, LAST coin (flipped
  *    for the defending player; heads = everything the attack does to Haunter is prevented). Only
  *    counted when the attack can do something to the Defending Pokémon (damage or an effect on
- *    it); it is ignored when the attack ended up doing nothing to it.
+ *    it); it is ignored when the attack ended up doing nothing to it. The same slot is Dark
+ *    Gyarados' Final Beam and Rocket's Hitmonchan's Crosscounter (heads = double the damage
+ *    back), both only when the attack can damage it.
  *
  * In multiplayer the server flips all of them. Use flipAttackCoins to build the list.
  */
@@ -3005,6 +3022,41 @@ export function knockOutRetaliationDamage(
   return damage;
 }
 
+/** Crosscounter / Fire Wall used by `pokemon` on the previous turn (working now), or undefined. */
+export function activeCounterAttack(state: GameState, pokemon: PokemonInPlay | null | undefined): PokemonInPlay["counterAttack"] {
+  const counter = pokemon?.counterAttack;
+  return counter && counter.onTurn === state.turnNumber - 1 ? counter : undefined;
+}
+
+/**
+ * Damage the Pokémon `damaged` (with a working CounterAttack) does back to `attacker` after the
+ * attack did `damageDone` to it: `amount` or `damageDone` × `damageMultiplier`, 0 without heads on
+ * its coin (`retaliationCoin`), Weakness / Resistance of the attacker for its type if
+ * `applyWeaknessResistance`.
+ */
+export function counterAttackDamage(
+  state: GameState,
+  damaged: PokemonInPlay,
+  damageDone: number,
+  attacker: PokemonInPlay,
+  coin?: CoinFlipResult
+): number {
+  const counter = activeCounterAttack(state, damaged);
+  if (!counter || damageDone <= 0) return 0;
+  if (counter.retaliationCoin && coin !== "heads") return 0;
+  let damage = counter.amount ?? damageDone * (counter.damageMultiplier ?? 1);
+  if (counter.applyWeaknessResistance) {
+    const damagedCard = getEffectivePokemonCard(state, damaged);
+    const attackerCard = getEffectivePokemonCard(state, attacker);
+    const type = damaged.shiftedType ?? damagedCard?.types[0];
+    const weaknesses = attacker.modifiedWeakness ? [attacker.modifiedWeakness] : attackerCard?.weaknesses ?? [];
+    const resistances = attacker.modifiedResistance ? [attacker.modifiedResistance] : attackerCard?.resistances ?? [];
+    if (type && weaknesses.includes(type)) damage *= 2;
+    if (type && resistances.includes(type)) damage = Math.max(0, damage - 30);
+  }
+  return damage;
+}
+
 /**
  * Coin plan of an attack used now by the side whose turn it is ("player"): see AttackCoinPlan.
  * @param attack - index of the Active Pokémon's attack (a transformed Ditto's copied attacks),
@@ -3018,10 +3070,11 @@ export function getAttackCoinPlan(state: GameState, attack: number | Attack, opt
   const resolved = typeof attack === "number" ? card.attacks[attack] : attack;
   if (!resolved) return none;
   const defender = state.opponentActivePokemon;
-  // Transparency: whenever the attack can affect it; Final Beam: whenever it can damage it
+  // Transparency: whenever the attack can affect it; Final Beam / Crosscounter: whenever it can damage it
   const defenderCoin =
     (defenderFlipsToPrevent(state, defender) && attackCanAffectDefender(resolved)) ||
-    (!!defender && !!getKnockOutRetaliation(state, defender) && attackCanDamageDefender(resolved));
+    (!!defender && !!getKnockOutRetaliation(state, defender) && attackCanDamageDefender(resolved)) ||
+    (!!activeCounterAttack(state, defender)?.retaliationCoin && attackCanDamageDefender(resolved));
   const opponentFlips = (resolved.effects ?? []).some((e) => e.coinFlip && e.coinFlippedBy === "opponent");
   // Vermilion City Gym, only when the attacker opted in and the Stadium offers it
   const stadiumCoin = options.vermilionCoin && stadiumOffersAttackCoin(state, attacker);
@@ -3427,6 +3480,7 @@ function executeAttackUnchecked(
   const defenderPowerType = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.type : undefined;
   const transparencyCoin = defenderPowerType === PokemonPowerType.PreventAttackOnFlip ? defenderCoin : undefined;
   const finalBeamCoin = defenderPowerType === PokemonPowerType.KnockOutRetaliation ? defenderCoin : undefined;
+  const counterAttackCoin = !transparencyCoin && !finalBeamCoin ? defenderCoin : undefined;
 
   // Dive Bomb / Clamp tails: "this attack does nothing (not even damage)"
   if (attack.effects?.some((e) => e.type === AttackEffectType.AttackFails && !e.coinFlip)) {
@@ -4175,6 +4229,22 @@ function executeAttackUnchecked(
         events.push(createGameEvent(`${newPlayerActive.pokemon.name} devolverá el daño que reciba durante el siguiente turno`, "action"));
       }
 
+      // Crosscounter / Fire Wall: remembered for the opponent's next turn
+      if (effect.type === AttackEffectType.CounterAttack && newPlayerActive && !attackerKnockedOut) {
+        newPlayerActive = {
+          ...newPlayerActive,
+          counterAttack: {
+            onTurn: gameState.turnNumber,
+            attackName: attack.name,
+            ...(effect.amount !== undefined && { amount: effect.amount }),
+            ...(effect.damageMultiplier !== undefined && { damageMultiplier: effect.damageMultiplier }),
+            ...(effect.retaliationCoin && { retaliationCoin: true }),
+            ...(effect.applyWeaknessResistance && { applyWeaknessResistance: true }),
+          },
+        };
+        events.push(createGameEvent(`${newPlayerActive.pokemon.name} contraatacará si recibe daño de un ataque durante el siguiente turno`, "action"));
+      }
+
       // Conversion 1 / 2 (Porygon), when the caller passed the chosen type
       if (options?.chosenType && options.chosenType !== EnergyTypeEnum.Colorless) {
         if (effect.type === AttackEffectType.ChangeWeakness && newOpponentActive && !isKnockedOut && !defenderBlocksEffects) {
@@ -4209,10 +4279,10 @@ function executeAttackUnchecked(
         } else if (effect.discardAll && effect.energyType) {
           // Discharge: every Energy card of that type (Rainbow Energy included)
           const type = effect.energyType;
-          const discarded = newPlayerActive.attachedEnergy.filter((e) => energyProvidesType(e, type));
+          const discarded: GameCard[] = newPlayerActive.attachedEnergy.filter((e) => energyProvidesType(e, type));
           if (discarded.length > 0) {
             newPlayerDiscard.push(...discarded);
-            newPlayerActive = { ...newPlayerActive, attachedEnergy: newPlayerActive.attachedEnergy.filter((e) => !discarded.includes(e)) };
+            newPlayerActive = { ...newPlayerActive, attachedEnergy: newPlayerActive.attachedEnergy.filter((e: GameCard) => !discarded.includes(e)) };
             events.push(createGameEvent(`${newPlayerActive.pokemon.name} descartó ${discarded.map(energyCardLabel).join(", ")}`, "action"));
           }
         } else if (effect.discardAll) {
@@ -4791,6 +4861,28 @@ function executeAttackUnchecked(
     }
   }
 
+  // CROSSCOUNTER / FIRE WALL: attack damage done to it this turn is answered, even after a Knock Out
+  const counter = activeCounterAttack(gameState, defender);
+  if (counter && effectiveDamage > 0 && newPlayerActive && !attackerKnockedOut) {
+    if (counter.retaliationCoin && counterAttackCoin) {
+      events.push(createGameEvent(`${counter.attackName} de ${defender.pokemon.name} - Moneda: [coin:${counterAttackCoin}]`, "info"));
+    }
+    const retaliation = counterAttackDamage(gameState, defender, effectiveDamage, attacker, counterAttackCoin);
+    if (retaliation > 0) {
+      const newAttackerDamage = (newPlayerActive.currentDamage || 0) + retaliation;
+      events.push(createGameEvent(`¡${counter.attackName}! ${defender.pokemon.name} le hizo ${retaliation} de daño a ${newPlayerActive.pokemon.name}`, "action"));
+      if (newAttackerDamage >= attackerCard.hp) {
+        attackerKnockedOut = true;
+        events.push(createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado por ${counter.attackName}!`, "action"));
+        ({ newPlayerDiscard, newOpponentPrizes, newOpponentHand, attackerNeedsToPromote } =
+          applyAttackerKnockout(newPlayerActive, `El rival tomó un premio por ${counter.attackName}`));
+        newPlayerActive = null;
+      } else {
+        newPlayerActive = { ...newPlayerActive, currentDamage: newAttackerDamage };
+      }
+    }
+  }
+
   // Marcar ataques de uso único como utilizados
   const hasUseOnceEffect = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (hasUseOnceEffect && newPlayerActive && !attackerKnockedOut) {
@@ -4952,6 +5044,7 @@ function executeAttackUnchecked(
       defenderBlocksEffects,
       discardIdsBefore: gameState.playerDiscard.map((c) => c.id),
       finalBeamCoin,
+      counterAttackCoin,
     });
   }
 

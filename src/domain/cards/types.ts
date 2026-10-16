@@ -68,8 +68,12 @@ export type AttackEffect = {
   withAttachedCards?: boolean;
   /** ChooseTargetDamage: who can be chosen ("opponentAny": Active or Benched; "opponentBench") */
   targetScope?: "opponentAny" | "opponentBench";
-  /** ChooseTargetDamage: apply Weakness and Resistance (Drag Off). Default: don't (Stare, Flitter...) */
+  /** ChooseTargetDamage: apply Weakness and Resistance (Drag Off). Default: don't (Stare, Flitter...). CounterAttack: to its damage (Fire Wall) */
   applyWeaknessResistance?: boolean;
+  /** CounterAttack: the damage done back is the damage taken × this (Crosscounter: 2) */
+  damageMultiplier?: number;
+  /** CounterAttack: only if the defending player's coin is heads (the attack's defender coin, Crosscounter) */
+  retaliationCoin?: boolean;
   /** ChooseTargetDamage: the chosen Benched Pokémon is first switched with the Defending Pokémon (Drag Off) */
   switchWithDefender?: boolean;
   /** ChooseTargetDamage: the chosen Pokémon's Pokémon Power stops until the end of the opponent's next turn (Stare) */

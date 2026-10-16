@@ -52,8 +52,10 @@ import { IllegalActionError } from "@/shared/errors";
 import { modifierAppliesTo } from "./modifiers";
 import type { GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
 import {
+  activeCounterAttack,
   checkKnockouts,
   clearStatusConditionsOnRetreat,
+  counterAttackDamage,
   createGameEvent,
   drawCard,
   endTurn,
@@ -81,6 +83,8 @@ export type AttackChoiceContext = {
   discardIdsBefore: string[];
   /** Final Beam's coin (the attack's defender coin) when the Defending Pokémon is a Dark Gyarados */
   finalBeamCoin?: CoinFlipResult;
+  /** Crosscounter's coin (the attack's defender coin) when the Defending Pokémon used it last turn */
+  counterAttackCoin?: CoinFlipResult;
 };
 
 /** Effects whose outcome is chosen by a player after the attack (see the table above). */
@@ -738,6 +742,15 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
     if (isActive && target.mirrorShellOnTurn === state.turnNumber - 1) {
       retaliation += damage;
       events.push(createGameEvent(`¡Caparazón Espejo! ${target.pokemon.name} le devuelve ${damage} de daño a ${attacker.pokemon.name}`, "action"));
+    }
+    // Crosscounter / Fire Wall (its coin is the attack's defender coin, for the original Defending Pokémon)
+    const counter = isActive ? activeCounterAttack(state, target) : undefined;
+    if (counter) {
+      const coin = isOriginalDefender ? context.counterAttackCoin : undefined;
+      if (counter.retaliationCoin && coin) events.push(createGameEvent(`${counter.attackName} de ${target.pokemon.name} - Moneda: [coin:${coin}]`, "info"));
+      const back = counterAttackDamage(state, target, damage, attacker, coin);
+      retaliation += back;
+      if (back > 0) events.push(createGameEvent(`¡${counter.attackName}! ${target.pokemon.name} le hizo ${back} de daño a ${attacker.pokemon.name}`, "action"));
     }
     if (knockedOut && isOriginalDefender && context.finalBeamCoin && getKnockOutRetaliation(state, target)) {
       const powerName = isPokemonCard(target.pokemon) ? target.pokemon.power?.name ?? "Rayo Final" : "Rayo Final";

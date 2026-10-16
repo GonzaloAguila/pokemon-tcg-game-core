@@ -174,6 +174,12 @@ export const AttackEffectType = {
   AttachEnergyFromDiscard: "attachEnergyFromDiscard",
   /** Fairy Power: return any number of your Pokémon in play, with every card attached, to your hand */
   ReturnPokemonToHand: "returnPokemonToHand",
+  /**
+   * Crosscounter / Fire Wall: if an attack damages this Pokémon during the opponent's next turn
+   * (even a Knock Out), it does damage to the attacker: `amount`, or the damage × `damageMultiplier`;
+   * `retaliationCoin`: only if the defending player's coin is heads; `applyWeaknessResistance`
+   */
+  CounterAttack: "counterAttack",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

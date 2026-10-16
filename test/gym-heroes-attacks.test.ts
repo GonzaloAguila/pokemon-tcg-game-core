@@ -130,8 +130,10 @@
  * | 96 | Sabrina's Venonat | Removal Beam | Discard Defender (attack choice, coin) | existing |
  */
 import { describe, it, expect } from "vitest";
+import { clearEffectsAsIfEvolved } from "@/domain/board";
 import {
   canExecuteAttack,
+  clearStatusConditionsOnRetreat,
   endTurn,
   executeAttack,
   getAttackCoinPlan,
@@ -251,6 +253,59 @@ describe("new effect kinds", () => {
     it("with an empty Bench the Active Pokémon isn't offered (returning it would lose the game)", () => {
       const { clefable } = setup();
       expect(use(vs(clefable, inPlay("Onix")), [H]).pendingAttackChoice).toBeUndefined();
+    });
+  });
+
+  describe("CounterAttack (Crosscounter, Fire Wall)", () => {
+    const fireWall: AttackEffect = { type: AttackEffectType.CounterAttack, target: AttackTarget.Self, amount: 10, applyWeaknessResistance: true };
+    const crosscounter: AttackEffect = { type: AttackEffectType.CounterAttack, target: AttackTarget.Self, damageMultiplier: 2, retaliationCoin: true };
+    const hit = (damage: number) => withAttack(inPlay("Electabuzz"), { damage, effects: [] });
+
+    it("is remembered on the attacker for the opponent's next turn", () => {
+      const next = use(vs(withAttack(inPlay("Moltres", { set: "fossil" }), { effects: [fireWall] }), inPlay("Onix")));
+      expect(next.playerActivePokemon!.counterAttack).toMatchObject({ onTurn: 3, amount: 10, applyWeaknessResistance: true });
+    });
+
+    it("Fire Wall: an attack that damages it takes 10 back (Weakness and Resistance applied), even when it is Knocked Out", () => {
+      const moltres = inPlay("Moltres", { set: "fossil", counterAttack: { onTurn: 2, attackName: "Muro de Fuego", amount: 10, applyWeaknessResistance: true } });
+      const state = deepFreeze(vs(hit(20), moltres));
+      expect(getAttackCoinPlan(state, 0).defender).toBe(0);
+      expect(use(state).playerActivePokemon!.currentDamage).toBe(10);
+      // Weak to Fire: 20
+      const bellsprout = withAttack(inPlay("Bellsprout", { set: "jungle" }), { damage: 20, effects: [] });
+      expect(use(vs(bellsprout, moltres)).playerActivePokemon!.currentDamage).toBe(20);
+      const knockedOut = use(vs(hit(100), moltres));
+      expect(knockedOut.opponentActivePokemon).toBeNull();
+      expect(knockedOut.playerActivePokemon!.currentDamage).toBe(10);
+      // No damage done, or not the turn right after: nothing
+      expect(use(vs(hit(0), moltres)).playerActivePokemon!.currentDamage).toBe(0);
+      expect(use(vs(hit(20), moltres, { turnNumber: 5 })).playerActivePokemon!.currentDamage).toBe(0);
+    });
+
+    it("Crosscounter: the defending player flips; heads = double the damage done back to the attacker", () => {
+      const hitmonchan = inPlay("Hitmonchan", { counterAttack: { onTurn: 2, attackName: "Contraataque Cruzado", damageMultiplier: 2, retaliationCoin: true } });
+      const state = deepFreeze(vs(hit(20), hitmonchan));
+      expect(getAttackCoinPlan(state, 0).defender).toBe(1);
+      expect(use(state, [H]).playerActivePokemon!.currentDamage).toBe(40);
+      expect(use(state, [T]).playerActivePokemon!.currentDamage).toBe(0);
+      // Knocked Out by the double damage: the defender takes a Prize
+      const ko = use(vs(withAttack(inPlay("Abra"), { damage: 30, effects: [] }), hitmonchan), [H]);
+      expect(ko.playerActivePokemon).toBeNull();
+      expect(ko.opponentPrizes).toHaveLength(5);
+    });
+
+    it("works for chosen-target damage on the Active Pokémon too", () => {
+      const hitmonchan = inPlay("Hitmonchan", { counterAttack: { onTurn: 2, attackName: "Contraataque Cruzado", damageMultiplier: 2, retaliationCoin: true } });
+      const flitter = withAttack(inPlay("Electabuzz"), { effects: [{ type: AttackEffectType.ChooseTargetDamage, target: AttackTarget.Defender, amount: 20, targetScope: "opponentAny" }] });
+      const next = use(vs(flitter, hitmonchan), [H]);
+      expect(choose(next, [hitmonchan.pokemon.id]).playerActivePokemon!.currentDamage).toBe(40);
+    });
+
+    it("ends when the Pokémon goes to the Bench", () => {
+      const hitmonchan = inPlay("Hitmonchan", { counterAttack: { onTurn: 2, attackName: "Contraataque Cruzado", damageMultiplier: 2, retaliationCoin: true } });
+      const benched = clearStatusConditionsOnRetreat(hitmonchan);
+      expect(benched.counterAttack).toBeUndefined();
+      expect(clearEffectsAsIfEvolved(hitmonchan).counterAttack).toBeUndefined();
     });
   });
 });
