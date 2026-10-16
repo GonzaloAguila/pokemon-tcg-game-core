@@ -4206,6 +4206,15 @@ function executeAttackUnchecked(
             newPlayerActive = { ...newPlayerActive, attachedEnergy: newPlayerActive.attachedEnergy.filter((e) => !ids.includes(e.id)) };
             events.push(createGameEvent(`${newPlayerActive.pokemon.name} descartó ${candidates.map(energyCardLabel).join(", ")}`, "action"));
           }
+        } else if (effect.discardAll && effect.energyType) {
+          // Discharge: every Energy card of that type (Rainbow Energy included)
+          const type = effect.energyType;
+          const discarded = newPlayerActive.attachedEnergy.filter((e) => energyProvidesType(e, type));
+          if (discarded.length > 0) {
+            newPlayerDiscard.push(...discarded);
+            newPlayerActive = { ...newPlayerActive, attachedEnergy: newPlayerActive.attachedEnergy.filter((e) => !discarded.includes(e)) };
+            events.push(createGameEvent(`${newPlayerActive.pokemon.name} descartó ${discarded.map(energyCardLabel).join(", ")}`, "action"));
+          }
         } else if (effect.discardAll) {
           // Descartar TODAS las energías (ej: Zapdos' Rayo)
           const allEnergy = [...newPlayerActive.attachedEnergy];

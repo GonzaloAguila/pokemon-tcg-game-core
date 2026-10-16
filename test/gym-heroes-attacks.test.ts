@@ -177,4 +177,20 @@ describe("new effect kinds", () => {
     expect(names(tails.playerDeck).sort()).toEqual(["Fire Energy", "Fire Energy", "Moltres"]);
     expect(tails.playerDiscard).toEqual([]);
   });
+
+  it("Discard discardAll + energyType: only the Energy cards of that type go (Discharge: a coin per card discarded)", () => {
+    const electabuzz = withAttack(inPlay("Electabuzz", { energy: [Lightning, Water, Lightning] }), {
+      damage: "30x",
+      effects: [
+        { type: AttackEffectType.Discard, target: AttackTarget.Self, discardAll: true, energyType: Lightning },
+        { type: AttackEffectType.CoinFlipDamage, target: AttackTarget.Defender, amount: 30, coinFlip: { count: 1, onHeads: "damage" }, coinCountFromEnergyType: Lightning },
+      ],
+    });
+    const state = deepFreeze(vs(electabuzz, inPlay("Onix")));
+    expect(getAttackCoinPlan(state, 0).attack).toBe(2);
+    const next = use(state, [H, T]);
+    expect(next.opponentActivePokemon!.currentDamage).toBe(30);
+    expect(names(next.playerDiscard)).toEqual(["Lightning Energy", "Lightning Energy"]);
+    expect(names(next.playerActivePokemon!.attachedEnergy)).toEqual(["Water Energy"]);
+  });
 });

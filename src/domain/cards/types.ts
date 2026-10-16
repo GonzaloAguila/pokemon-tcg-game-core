@@ -81,6 +81,7 @@ export type AttackEffect = {
   amount?: number;
   benchTarget?: BenchDamageTarget;
   discardCostRequirement?: EnergyType[];
+  /** Discard (Self): every attached Energy card (Thunderbolt), or only those providing `energyType` (Discharge) */
   discardAll?: boolean;
   protectionType?: ProtectionType;
   extraDamagePerEnergy?: number;
