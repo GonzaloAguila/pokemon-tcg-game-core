@@ -3,7 +3,8 @@
  * (state in side A's perspective):
  *
  * - Prizes: each side has taken exactly one Prize per prize-giving Pokémon of the other side
- *   that was Knocked Out (capped by the Prizes it had), whenever no Prize is waiting.
+ *   that was Knocked Out (capped by the Prizes it had), whenever no Prize is waiting; Prizes
+ *   put into the hand by Lt. Surge's Treaty (its log lines) don't count.
  *   A Knock Out = a Pokémon leaves play with the bottom card of its stack (its Basic or
  *   Mysterious Fossil) in its owner's discard pile — a Knocked Out devolved Pokémon's top card
  *   is in the hand — or as Buzzap Energy (Electrode Knocks itself Out), or back in the hand by
@@ -162,6 +163,13 @@ export class GameRules {
     // Prizes taken = Knock Outs of the other side (when no Prize is waiting)
     if (after.gamePhase === GamePhase.Playing && !this.prizeBaseline) {
       this.prizeBaseline = { player: prizesOf(after, "player"), opponent: prizesOf(after, "opponent") };
+    }
+    // Lt. Surge's Treaty: a Prize put into the hand without a Knock Out (one per side)
+    if (this.prizeBaseline) {
+      for (const line of newLines) {
+        if (/^Lt\. Surge's Treaty: quien lo jugó puso el Premio \d+ en su mano$/.test(line)) this.prizeBaseline[actor]--;
+        if (/^Lt\. Surge's Treaty: el otro jugador puso el Premio \d+ en su mano$/.test(line)) this.prizeBaseline[other(actor)]--;
+      }
     }
     if (this.prizeBaseline && !after.playerCanTakePrize && !after.opponentCanTakePrize) {
       for (const side of ["player", "opponent"] as const) {

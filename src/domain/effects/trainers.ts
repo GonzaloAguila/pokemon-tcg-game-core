@@ -48,6 +48,9 @@
  * | Sabrina's ESP (GH) | [[ownSabrinasPokemonId]] (attached to it) |
  * | Recall (GH) | [] (state.recallActiveOnTurn: this turn's Active may use the attacks under it, getAvailableAttacks) |
  * | Tickling Machine (GH) | 1 coin; [] (heads: the opponent's hand is set aside until the end of their next turn, state.setAsideHands; a tails ends the turn, `skipEndTurn` as Minion of Team Rocket) |
+ * | Erika (GH) | [["0"–"3"] (self: how many you draw), ["0"–"3"] (chooser: opponent: how many they draw)] (counts above that deck's size disabled) |
+ * | Lt. Surge's Treaty (GH) | [["prizes"/"draw"] (chooser: opponent)]; "prizes": + [[own Prize position "0".."n-1"]] (self) + [[opponent's Prize position]] (chooser: opponent). "prizes" disabled when both sides hold their last Prize |
+ * | Blaine's Quiz #1 (GH) | [[handPokemonCardId] (self), [length in inches, e.g. "346"] (chooser: opponent; 4 options, quizLengthOptions)] |
  *
  * Mysterious Fossil and Clefairy Doll have no entry: they are played as Basic Pokémon
  * (playBasicPokemon; see isPlayedAsBasic).
@@ -55,14 +58,14 @@
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { applyStatusCondition, clearStatusConditionsOnRetreat, createGameEvent, drawCard, endTurn, energyCardLabel, getEnergyTypeInSpanish, shuffle, triggerOnPlayPower } from "@/lib/gameState";
-import { hasStatusImmunity } from "@/domain/powers";
+import { arePrizesRevealed, hasStatusImmunity } from "@/domain/powers";
 import { modifiersAttachedTo } from "@/lib/modifiers";
-import { ALL_CARDS } from "@/domain/catalog";
+import { ALL_CARDS, heightInInches, pokedexHeight, pokedexSpecies, quizLengthOptions } from "@/domain/catalog";
 import { cardOutOfPlay, cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { attachTrainer, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
 import { setAsideHand, TICKLING_MACHINE } from "@/domain/trainers/set-aside";
-import { CardKind, PokemonStage, StatusCondition } from "@/domain/constants";
+import { CardKind, GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
 import { isBenchFull, maxBenchSize, findInPlay, getEvolutionBlocker } from "@/domain/board";
 import {
   playBill,
@@ -698,9 +701,6 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  */
 export const UNSUPPORTED_TRAINERS: readonly string[] = [
   // Gym Heroes Trainers that need new machinery, each removed by the task that implements it
-  "Erika", // Task 13
-  "Lt. Surge's Treaty", // Task 13
-  "Blaine's Quiz #1", // Task 13
   "Misty's Duel", // Task 14
 ];
 
@@ -1703,6 +1703,221 @@ Object.assign(TRAINER_EFFECTS, {
       ],
     };
   }),
+} satisfies Record<string, CardEffectDef>);
+
+// ============================================================================
+// Gym Heroes: Trainers the opponent answers (`chooser: "opponent"` steps; consumers show them to
+// the other player with stepForAnswerer, the AI answers with answerOpponentTrainerStepForAI)
+// ============================================================================
+
+/** The opponent draws up to `count` cards (fewer when the deck runs short). */
+function opponentDraws(state: GameState, count: number): { state: GameState; drawn: number } {
+  let deck = state.opponentDeck;
+  let hand = state.opponentHand;
+  let drawn = 0;
+  for (let i = 0; i < count; i++) {
+    const result = drawCard(deck, hand);
+    if (!result.success) break;
+    deck = result.newDeck;
+    hand = result.newHand;
+    drawn++;
+  }
+  return { state: { ...state, opponentDeck: deck, opponentHand: hand }, drawn };
+}
+
+/** Erika: "draw up to 3" as buttons 0 / 1 / 2 / 3 (counts above the deck's size disabled; 0 always). */
+function drawCountStep(deckSize: number, chooser: "self" | "opponent"): SelectionStep {
+  const options = ["0", "1", "2", "3"].map((n) => ({ id: n, label: n, ...(Number(n) > deckSize && { disabled: true }) }));
+  return chooser === "self"
+    ? {
+        title: "Erika",
+        description: "¿Cuántas cartas quieres robar? (hasta 3; después, tu rival puede robar hasta 3)",
+        options,
+        maxSelections: 1,
+        minSelections: 1,
+        disableAutoSelect: true,
+      }
+    : {
+        title: "Erika",
+        description: "Tu rival elige cuántas cartas roba (hasta 3)",
+        answererTitle: "Erika",
+        answererDescription: "Tu rival jugó Erika: ¿cuántas cartas quieres robar? (hasta 3)",
+        options,
+        maxSelections: 1,
+        minSelections: 1,
+        disableAutoSelect: true,
+        chooser: "opponent",
+      };
+}
+
+/** A Prize position step ("Premio 1".."Premio n"; names only when the Prizes are face up). */
+function prizePositionStep(state: GameState, side: "player" | "opponent"): SelectionStep {
+  const prizes = side === "player" ? state.playerPrizes : state.opponentPrizes;
+  const revealed = arePrizesRevealed(state, side);
+  const options = prizes.map((c, i) => ({ id: String(i), label: revealed ? `Premio ${i + 1}: ${c.name}` : `Premio ${i + 1}` }));
+  return side === "player"
+    ? {
+        title: "Lt. Surge's Treaty",
+        description: "Elige 1 de tus Premios para ponerlo en tu mano",
+        options,
+        maxSelections: 1,
+        disableAutoSelect: true,
+      }
+    : {
+        title: "Lt. Surge's Treaty",
+        description: "Tu rival elige 1 de sus Premios para ponerlo en su mano",
+        answererDescription: "Tu rival jugó Lt. Surge's Treaty: elige 1 de tus Premios para ponerlo en tu mano",
+        options,
+        maxSelections: 1,
+        disableAutoSelect: true,
+        chooser: "opponent",
+      };
+}
+
+/** Pokémon cards of the hand Blaine's Quiz #1 can name (Basic or Evolution, with a known length). */
+const quizCards = (state: GameState, cardId: string) => otherHandCards(state, cardId).filter((c) => isPokemonCard(c) && pokedexHeight(c) !== undefined);
+
+/** A side that took its last Prize wins (outside a Knock Out: Lt. Surge's Treaty). */
+function endGameIfPrizedOut(state: GameState): GameState {
+  const playerOut = state.playerPrizes.length === 0;
+  const opponentOut = state.opponentPrizes.length === 0;
+  if (!playerOut && !opponentOut) return state;
+  return {
+    ...state,
+    gameResult: playerOut ? "victory" : "defeat",
+    gamePhase: GamePhase.GameOver,
+    events: [...state.events, createGameEvent("¡Se tomó el último premio! Fin de la partida", "system")],
+  };
+}
+
+Object.assign(TRAINER_EFFECTS, {
+  // "You may draw up to 3 cards, then your opponent may draw up to 3 cards."
+  "Erika": {
+    canUse: () => null,
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length === 0) return drawCountStep(state.playerDeck.length, "self");
+      if (selections.length === 1) return drawCountStep(state.opponentDeck.length, "opponent");
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const played = discardPlayed(state, cardId, "Jugaste Erika");
+      const { state: mine, drawn } = drawCards(played, Number(selections[0][0]));
+      const counted = { ...mine, events: [...mine.events, createGameEvent(`Robaste ${cardsCount(drawn)}`, "info")] };
+      const { state: theirs, drawn: theirDraw } = opponentDraws(counted, Number(selections[1][0]));
+      return { ...theirs, events: [...theirs.events, createGameEvent(`Erika: el otro jugador robó ${cardsCount(theirDraw)}`, "info")] };
+    },
+  },
+
+  // "Your opponent chooses 1 of the following: everyone chooses 1 of his or her own Prizes and put
+  // it into his or her hand, or you draw a card." Prizes are picked blind, the player first.
+  "Lt. Surge's Treaty": {
+    canUse: () => null,
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length === 0) {
+        const mine = state.playerPrizes.length;
+        const theirs = state.opponentPrizes.length;
+        // Both would take their last Prize at once: sudden death isn't modelled
+        const prizesBlocked = mine === 0 || theirs === 0 || (mine === 1 && theirs === 1);
+        return {
+          title: "Lt. Surge's Treaty",
+          description: "Tu rival elige: cada jugador pone 1 de sus Premios en su mano, o tú robas 1 carta",
+          answererDescription: "Tu rival jugó Lt. Surge's Treaty: elige si cada jugador pone 1 de sus Premios en su mano o si tu rival roba 1 carta",
+          options: [
+            { id: "prizes", label: "Cada jugador pone 1 de sus Premios en su mano", ...(prizesBlocked && { disabled: true, sublabel: "Ambos tomarían su último Premio" }) },
+            { id: "draw", label: "Quien jugó Lt. Surge's Treaty roba 1 carta" },
+          ],
+          maxSelections: 1,
+          disableAutoSelect: true,
+          chooser: "opponent",
+        };
+      }
+      if (selections[0][0] !== "prizes") return null;
+      if (selections.length === 1) return prizePositionStep(state, "player");
+      if (selections.length === 2) return prizePositionStep(state, "opponent");
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const played = discardPlayed(state, cardId, "Jugaste Lt. Surge's Treaty");
+      if (selections[0][0] === "draw") {
+        const chosen = { ...played, events: [...played.events, createGameEvent("Lt. Surge's Treaty: el otro jugador eligió que quien lo jugó robe 1 carta", "info")] };
+        const { state: drew, drawn } = drawCards(chosen, 1);
+        return { ...drew, events: [...drew.events, createGameEvent(`Robaste ${cardsCount(drawn)}`, "info")] };
+      }
+      const mine = Number(selections[1][0]);
+      const theirs = Number(selections[2][0]);
+      const taken: GameState = {
+        ...played,
+        playerPrizes: state.playerPrizes.filter((_, i) => i !== mine),
+        playerHand: [state.playerPrizes[mine], ...played.playerHand],
+        opponentPrizes: state.opponentPrizes.filter((_, i) => i !== theirs),
+        opponentHand: [state.opponentPrizes[theirs], ...state.opponentHand],
+        events: [
+          ...played.events,
+          createGameEvent("Lt. Surge's Treaty: el otro jugador eligió que cada jugador ponga 1 de sus Premios en su mano", "info"),
+          createGameEvent(`Lt. Surge's Treaty: quien lo jugó puso el Premio ${mine + 1} en su mano`, "action"),
+          createGameEvent(`Lt. Surge's Treaty: el otro jugador puso el Premio ${theirs + 1} en su mano`, "action"),
+        ],
+      };
+      return endGameIfPrizedOut(taken);
+    },
+  },
+
+  // The player names a Pokémon card of the hand (put face down: the guesser only gets its name);
+  // the opponent guesses its length among 4 (quizLengthOptions); right: they draw 2, wrong: the
+  // player draws 2. The card goes back to the hand (it never leaves it here).
+  "Blaine's Quiz #1": {
+    canUse: (state, cardId) => (quizCards(state, cardId).length > 0 ? null : "Necesitas una carta de Pokémon Básico o de Evolución en tu mano"),
+    getSteps: (state, cardId, selections) => {
+      if (selections.length === 0) {
+        return {
+          title: "Blaine's Quiz #1",
+          description: "Elige una carta de Pokémon Básico o de Evolución de tu mano: tu rival adivinará la altura de ese Pokémon",
+          options: quizCards(state, cardId).map(cardOption),
+          maxSelections: 1,
+          source: "hand",
+          disableAutoSelect: true,
+        };
+      }
+      if (selections.length === 1) {
+        const named = quizCards(state, cardId).find((c) => c.id === selections[0][0]);
+        if (!named) return null; // not an offered card: the first answer is refused anyway
+        return {
+          title: "Blaine's Quiz #1",
+          description: `Tu rival adivina la altura de ${named.name}`,
+          answererDescription: `Tu rival jugó Blaine's Quiz #1 con ${named.name}: ¿cuánto mide? Si aciertas, robas 2 cartas; si fallas, tu rival roba 2`,
+          options: quizLengthOptions(pokedexSpecies(named.name)).map((length) => ({ id: String(heightInInches(length)), label: length })),
+          maxSelections: 1,
+          disableAutoSelect: true,
+          chooser: "opponent",
+        };
+      }
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const named = state.playerHand.find((c) => c.id === selections[0][0])!;
+      const length = pokedexHeight(named)!;
+      const guessed = Number(selections[1][0]);
+      const right = guessed === heightInInches(length);
+      const guessLabel = quizLengthOptions(pokedexSpecies(named.name)).find((l) => heightInInches(l) === guessed) ?? selections[1][0];
+      const played = discardPlayed(state, cardId, "Jugaste Blaine's Quiz #1");
+      const told: GameState = {
+        ...played,
+        events: [
+          ...played.events,
+          createGameEvent(
+            `Blaine's Quiz #1: ${named.name} mide ${length}; el otro jugador dijo ${guessLabel} y ${right ? "acertó" : "falló"} (la carta vuelve a la mano de quien lo jugó)`,
+            "action"
+          ),
+        ],
+      };
+      if (right) {
+        const { state: drew, drawn } = opponentDraws(told, 2);
+        return { ...drew, events: [...drew.events, createGameEvent(`Blaine's Quiz #1: el otro jugador robó ${cardsCount(drawn)}`, "info")] };
+      }
+      const { state: drew, drawn } = drawCards(told, 2);
+      return { ...drew, events: [...drew.events, createGameEvent(`Robaste ${cardsCount(drawn)}`, "info")] };
+    },
+  },
 } satisfies Record<string, CardEffectDef>);
 
 // ============================================================================

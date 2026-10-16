@@ -34,7 +34,7 @@ import {
   type CoinFlipRequirement,
 } from "@/domain/effects";
 import type { CoinFlipResult } from "@/domain/constants";
-import { answerPowerStepForAI, answerTrainerStepForAI, collectAnswers } from "./cardEffects";
+import { answerOpponentTrainerStepForAI, answerPowerStepForAI, answerTrainerStepForAI, collectAnswers } from "./cardEffects";
 import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapBenchTrim, swapStadium } from "@/domain/board";
 import { swapSetAsideHands } from "@/domain/trainers/set-aside";
 import { choosePromotion } from "./choices";
@@ -502,7 +502,8 @@ function tryEffect(view: GameState, run: () => GameState): GameState {
 /**
  * Ejecuta un trainer del oponente a través del registro de efectos del engine (las selecciones
  * significan lo mismo que para el jugador). The AI flips its coins; with `answerAtPlay` it also
- * answers the steps now (cardEffects.answerTrainerStepForAI).
+ * answers the steps now (cardEffects.answerTrainerStepForAI; the other player's steps with
+ * answerOpponentTrainerStepForAI — planned only when that player is an AI too).
  */
 function executeTrainer(state: GameState, action: PlayTrainerAction): GameState {
   const { cardId, trainerName } = action;
@@ -517,7 +518,12 @@ function executeTrainer(state: GameState, action: PlayTrainerAction): GameState 
         const selections = action.answerAtPlay
           ? collectAnswers(
               (answered) => getTrainerSteps(s, cardId, answered, coinsForSteps),
-              (step) => answerTrainerStepForAI(s, cardId, trainerName, step)
+              // A step the other player answers (only planned when that side is an AI too:
+              // cardEffects.OTHER_PLAYER_ANSWERS) gets the answerer's rules
+              (step) =>
+                step.chooser === "opponent"
+                  ? answerOpponentTrainerStepForAI(s, cardId, step)
+                  : answerTrainerStepForAI(s, cardId, trainerName, step)
             )
           : action.selections;
         // A coin flipped after the choices (Blaine's Gamble)

@@ -320,13 +320,14 @@ export * from "./domain/status";
 // AI (for single-player mode)
 // =============================================================================
 
-export type { AIAction } from "./domain/ai";
+export type { AIAction, DecideOpponentTurnOptions } from "./domain/ai";
 export {
   decideOpponentTurn,
   decideOpponentSetup,
   decideOpponentPromotion,
   executeAIAction,
   finishAIAttackAfterReaction,
+  answerOpponentTrainerStepForAI,
 } from "./domain/ai";
 export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice, chooseBenchTrim, resolveBenchTrimForAI } from "./domain/ai/pending";
 
@@ -372,6 +373,12 @@ export {
   findCardById,
   findCardDefinition,
   findCardByName,
+  // Pokédex lengths (Blaine's Quiz #1)
+  POKEDEX_HEIGHTS,
+  pokedexSpecies,
+  pokedexHeight,
+  heightInInches,
+  quizLengthOptions,
 } from "./domain/catalog";
 export type { CardSetId, CardSetInfo, CardImageInput } from "./domain/catalog";
 

@@ -139,12 +139,21 @@ function playableTrainer(v: GameState, name: string): GameCard | undefined {
  * Same contract as before: a list of actions to execute in order; without "attack" / "endTurn"
  * the caller asks again after executing them (the hand changed).
  */
-export function decideOpponentTurn(state: GameState): AIAction[] {
+export type DecideOpponentTurnOptions = {
+  /**
+   * The other player is an AI too (simulator bots): the AI may play Trainers whose steps that
+   * player answers (cardEffects.OTHER_PLAYER_ANSWERS: Erika, Lt. Surge's Treaty, Blaine's Quiz #1),
+   * and the executor answers those steps for it. Single-player leaves it off (no flow relays them to the human).
+   */
+  otherPlayerAnswersByAI?: boolean;
+};
+
+export function decideOpponentTurn(state: GameState, options: DecideOpponentTurnOptions = {}): AIAction[] {
   // Threat / damage estimates are memoized for the whole decision (keyed by the Pokémon as they are)
-  return withThreatCache(() => planTurn(state));
+  return withThreatCache(() => planTurn(state, options));
 }
 
-function planTurn(state: GameState): AIAction[] {
+function planTurn(state: GameState, options: DecideOpponentTurnOptions): AIAction[] {
   const real = swapSides(state);
   if (getTurnActionBlocker(real)) return [{ type: "endTurn", delay: 500 }];
   const plan = new Plan(knowledgeView(real));
@@ -152,7 +161,7 @@ function planTurn(state: GameState): AIAction[] {
   discardStuckFossil(plan);
   if (!plan.view.playerActivePokemon) return [...plan.actions, { type: "endTurn", delay: 500 }];
 
-  const handChange = planDrawAndSearch(plan.view);
+  const handChange = planDrawAndSearch(plan.view, options);
   if (handChange) return [...plan.actions, handChange];
 
   benchBasics(plan);
@@ -241,9 +250,9 @@ function evolvesSomethingInPlay(v: GameState, card: GameCard): boolean {
 }
 
 /** A Trainer that draws or searches, worth playing now (played alone: the turn is planned again). */
-function planDrawAndSearch(v: GameState): AIAction | null {
+function planDrawAndSearch(v: GameState, options: DecideOpponentTurnOptions): AIAction | null {
   const pool = unknownOwnCards(v);
-  const fromCardEffects = planHandChange(v, { saveDeck: true });
+  const fromCardEffects = planHandChange(v, { saveDeck: true, otherPlayerAnswersByAI: options.otherPlayerAnswersByAI });
   if (fromCardEffects) return fromCardEffects;
 
   const search = playableTrainer(v, "Computer Search");

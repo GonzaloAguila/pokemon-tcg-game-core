@@ -49,6 +49,9 @@
  * | Trash Exchange (GH) | the discard pile holds more useful cards (needed Energy, evolutions of Pokémon in play) than the deck, proportionally |
  * | Minion of Team Rocket (GH) | last action of a turn without an attack (a tails ends the turn): the opponent has an evolved Benched Pokémon or one with 2+ Energy |
  * | Tickling Machine (GH) | last action of a turn without an attack, when Minion isn't played (a tails ends the turn): the opponent holds 3+ cards |
+ * | Erika (GH) | only with `otherPlayerAnswersByAI` (OTHER_PLAYER_ANSWERS): hand of 3 other cards or fewer, deck ≥ 8 and 3 draws affordable; draws as many as it can without emptying its deck (hand change) |
+ * | Lt. Surge's Treaty (GH) | only with `otherPlayerAnswersByAI`: as many Prizes left as the other side or fewer, deck ≥ 5 (hand change) |
+ * | Blaine's Quiz #1 (GH) | only with `otherPlayerAnswersByAI`: a Pokémon card in hand, deck ≥ 6 and 2 draws affordable (hand change) |
  * | Celadon City Gym (Stadium action) | its Active is Asleep / Confused / Paralyzed and keeps an attack it can pay after discarding the Energy card |
  */
 
@@ -80,6 +83,14 @@ import type { AIAction } from "./types";
  * Charity (Gym Heroes): its only effect is a damage reduction the AI never wants.
  */
 export const AI_NEVER_PLAYS: ReadonlySet<string> = new Set(["Challenge!", "Digger", "Here Comes Team Rocket!", "Charity"]);
+
+/**
+ * Trainers whose steps the other player answers (Gym Heroes: Erika, Lt. Surge's Treaty, Blaine's
+ * Quiz #1). The AI plays them only when the other side's answers also come from an AI
+ * (`otherPlayerAnswersByAI`: the simulator's bots): in single-player no flow relays a step of the
+ * AI's Trainer to the human (same reason as Challenge!), and the executor would answer it for them.
+ */
+export const OTHER_PLAYER_ANSWERS: ReadonlySet<string> = new Set(["Erika", "Lt. Surge's Treaty", "Blaine's Quiz #1"]);
 
 
 // ============================================================================
@@ -237,7 +248,7 @@ function withUsablePower(view: GameState, powerName: string): PokemonInPlay[] {
  * A Trainer / power that changes the AI's hand, worth playing now (or null). The caller plays
  * it alone and plans the turn again once it resolved, with the new cards.
  */
-export function planHandChange(view: GameState, options: { saveDeck?: boolean } = {}): AIAction | null {
+export function planHandChange(view: GameState, options: HandChangeOptions = {}): AIAction | null {
   if (!view.playerActivePokemon) return null;
   const deck = view.playerDeck;
   const hand = view.playerHand;
@@ -294,8 +305,37 @@ function activeAboutToFall(view: GameState): boolean {
   return energyCards.length >= 2 && remainingHp(active) <= 20;
 }
 
+export type HandChangeOptions = {
+  /** Don't draw toward a deck-out the other side won't suffer first (smart AI) */
+  saveDeck?: boolean;
+  /** The other player's answers to the AI's Trainers come from an AI too (OTHER_PLAYER_ANSWERS) */
+  otherPlayerAnswersByAI?: boolean;
+};
+
+/** Most cards the side with `deckSize` cards can draw now without emptying its deck (its next turn's draw). */
+function safeDrawCount(step: SelectionStep, deckSize: number): string[] {
+  const counts = enabledIds(step).map(Number).filter((n) => n < deckSize || n === 0);
+  return [String(counts.length > 0 ? Math.max(...counts) : 0)];
+}
+
+/**
+ * Erika, Lt. Surge's Treaty, Blaine's Quiz #1 (the other player answers a step; only with
+ * `otherPlayerAnswersByAI`). Erika: few cards in hand and a deck that affords 3. Treaty: as many
+ * Prizes left as the other side or fewer (they then let it draw; on a tie both take one).
+ * Quiz: a Pokémon card to name and a deck that affords 2 (half the time the guess is wrong).
+ */
+function planOpponentAnsweredTrainers(view: GameState, affords: (count: number) => boolean): AIAction | null {
+  const erika = playable(view, "Erika");
+  if (erika && view.playerHand.length <= 4 && view.playerDeck.length >= 8 && affords(3)) return playTrainer(erika);
+  const treaty = playable(view, "Lt. Surge's Treaty");
+  if (treaty && view.playerDeck.length >= 5 && view.playerPrizes.length <= view.opponentPrizes.length) return playTrainer(treaty);
+  const quiz = playable(view, "Blaine's Quiz #1");
+  if (quiz && view.playerDeck.length >= 6 && affords(2)) return playTrainer(quiz);
+  return null;
+}
+
 /** Gym Heroes Trainers that change the AI's hand (played alone, the turn is planned again). */
-function planGymHeroesHandChange(view: GameState, options: { saveDeck?: boolean }): AIAction | null {
+function planGymHeroesHandChange(view: GameState, options: HandChangeOptions): AIAction | null {
   const deck = view.playerDeck;
   const hand = view.playerHand;
   const pool = unknownOwnCards(view);
@@ -343,7 +383,7 @@ function planGymHeroesHandChange(view: GameState, options: { saveDeck?: boolean 
   const flow = playable(view, "Energy Flow");
   if (flow && activeAboutToFall(view)) return playTrainer(flow);
 
-  return null;
+  return options.otherPlayerAnswersByAI ? planOpponentAnsweredTrainers(view, affords) : null;
 }
 
 /** Share of the cards the AI wants (needed basic Energy, evolutions of its Pokémon in play). */
@@ -633,6 +673,42 @@ function answerGymHeroesStep(view: GameState, cardId: string, name: string, step
       const own = new Set(active?.attachedEnergy.map((e) => e.id) ?? []);
       return enabledIds(step).filter((id) => own.has(id)).slice(0, step.maxSelections);
     }
+    // Its own draw: as many as it can without emptying its deck
+    case "Erika":
+      return safeDrawCount(step, view.playerDeck.length);
+    // Lt. Surge's Treaty (its own Prize: face down, any) and Blaine's Quiz #1 (any Pokémon card: it comes back)
+    default:
+      return answerStepForAI(step);
+  }
+}
+
+/**
+ * The AI's answer to a `chooser: "opponent"` step of a Trainer the OTHER player plays (the AI
+ * answers it). `trainerView` is that Trainer's player's view (the card still in its hand; the AI
+ * is "opponent" there) — in single-player the human's view the step was built on. Fair: it reads
+ * only what the step and the public counts say.
+ *
+ * | Trainer | Answer |
+ * |---|---|
+ * | Erika | the most cards it can draw without emptying its deck |
+ * | Lt. Surge's Treaty | "prizes" when the AI has as many Prizes left as the Trainer's player or fewer (it gains as much or more; on 1 Prize it wins), else "draw"; its own Prize: any position (face down) |
+ * | Blaine's Quiz #1 | a random length among the 4 offered (Math.random: seeded by the simulator) |
+ * | anything else (Challenge!) | answerStepForAI |
+ */
+export function answerOpponentTrainerStepForAI(trainerView: GameState, cardId: string, step: SelectionStep): string[] {
+  const name = trainerView.playerHand.find((c) => c.id === cardId)?.name;
+  const enabled = enabledIds(step);
+  switch (name) {
+    case "Erika":
+      return safeDrawCount(step, trainerView.opponentDeck.length);
+    case "Lt. Surge's Treaty":
+      if (enabled.includes("prizes") || enabled.includes("draw")) {
+        const wantsPrizes = enabled.includes("prizes") && trainerView.opponentPrizes.length <= trainerView.playerPrizes.length;
+        return [wantsPrizes ? "prizes" : "draw"];
+      }
+      return answerStepForAI(step);
+    case "Blaine's Quiz #1":
+      return enabled.length > 0 ? [enabled[Math.min(enabled.length - 1, Math.floor(Math.random() * enabled.length))]] : [];
     default:
       return answerStepForAI(step);
   }
