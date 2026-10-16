@@ -406,6 +406,6 @@ export type { CardSetId, CardSetInfo, CardImageInput } from "./domain/catalog";
 // =============================================================================
 
 export type { DeckEntry, FeaturedPokemonRef, Deck, ResolvedDeckEntry, GroupedDeck } from "./domain/decks";
-export { decks, resolveDeck, findCardBySetAndNumber, findCardByNumber, getDeckById, getDeckEnergyTypes, getDeckCardCount, getDeckFeaturedPokemon, groupDeckByKind } from "./domain/decks";
+export { decks, gymLeaderDecks, resolveDeck, findCardBySetAndNumber, findCardByNumber, getDeckById, getDeckEnergyTypes, getDeckCardCount, getDeckFeaturedPokemon, groupDeckByKind } from "./domain/decks";
 
 export type { StartGameOptions } from "./lib/gameState";

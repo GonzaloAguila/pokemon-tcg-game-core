@@ -8,6 +8,7 @@ import { EnergyType as EnergyTypeEnum, CardRarity, PokemonStage } from "@/domain
 import type { Deck } from "./types";
 import { resolveDeck } from "./resolve";
 import { decks } from "./theme-decks";
+import { gymLeaderDecks } from "./gym-heroes-decks";
 
 /** Rarity ordering for sorting (higher = more featured) */
 const RARITY_ORDER: Record<string, number> = {
@@ -95,8 +96,8 @@ export function getDeckFeaturedPokemon(deck: Deck, count: number = 3): PokemonCa
 }
 
 /**
- * Returns a deck by its ID
+ * Returns a deck by its ID (the classic theme decks and the Gym Heroes Gym Leader decks)
  */
 export function getDeckById(deckId: string): Deck | undefined {
-  return decks.find((d) => d.id === deckId);
+  return decks.find((d) => d.id === deckId) ?? gymLeaderDecks.find((d) => d.id === deckId);
 }

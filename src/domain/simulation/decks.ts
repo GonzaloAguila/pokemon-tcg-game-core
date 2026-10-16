@@ -8,7 +8,10 @@
 import type { Card, PokemonCard } from "@/domain/cards";
 import { CARD_SETS, getSet, type CardSetId } from "@/domain/catalog";
 import { CardKind, CardSet, EnergyType, PokemonStage } from "@/domain/constants";
-import { decks as themeDecks, type Deck, type DeckEntry } from "@/domain/decks";
+import { decks as classicThemeDecks, gymLeaderDecks, type Deck, type DeckEntry } from "@/domain/decks";
+
+/** `--decks theme`: the classic theme decks and the Gym Heroes Gym Leader decks */
+const themeDecks: Deck[] = [...classicThemeDecks, ...gymLeaderDecks];
 import { UNSUPPORTED_TRAINERS } from "@/domain/effects";
 import { pick, pickSome, randomInt, shuffled, type Rng } from "./rng";
 import { cardRarity, type ExploreMemory } from "./explore";
