@@ -23,6 +23,7 @@ export type {
   ExecuteAttackOptions,
   PowerSuppression,
   StadiumInPlay,
+  BenchTrim,
   PendingResolutionOptions,
   PendingAttackChoice,
   AttackChoiceContext,
@@ -131,7 +132,18 @@ export {
   // Gym Heroes Stadium in play
   getStadium,
   stadiumNamed,
+  // Bench trim after a Stadium shrank the Benches (pendingBenchTrim)
+  getBenchTrimStep,
+  resolveBenchTrim,
 } from "./domain/board";
+
+// Gym Heroes Stadium rules (continuous effects of the Stadium in play)
+export {
+  stadiumRetreatModifier,
+  stadiumIgnoresResistance,
+  stadiumExtraTrainerDiscards,
+  stadiumBenchLimit,
+} from "./domain/stadiums/rules";
 
 // =============================================================================
 // Game Engine (lib/gameState.ts)
@@ -294,7 +306,7 @@ export {
   decideOpponentPromotion,
   executeAIAction,
 } from "./domain/ai";
-export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice } from "./domain/ai/pending";
+export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice, chooseBenchTrim, resolveBenchTrimForAI } from "./domain/ai/pending";
 
 // =============================================================================
 // Simulation (headless bot games; used by scripts/simulate.ts and tests)

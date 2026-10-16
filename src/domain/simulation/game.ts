@@ -30,7 +30,7 @@ import {
 import { isPokemonCard } from "@/domain/cards";
 import { GamePhase, PokemonPowerType, PokemonStage } from "@/domain/constants";
 import type { Deck } from "@/domain/decks";
-import { swapSides } from "@/domain/board";
+import { getBenchTrimStep, resolveBenchTrim, swapSides } from "@/domain/board";
 import { ACTIVATED_POWER_TYPES, type SelectionStep } from "@/domain/effects";
 import { isPowerActive } from "@/domain/powers";
 import { cardIdentities, checkInvariants, ownedCardIds, type CardIdentity } from "./invariants";
@@ -290,6 +290,14 @@ class GameRunner {
       const { step, powerName } = view.pendingPowerChoice;
       const chosen = this.answer(actor, step);
       this.apply(actor, { label: `powerChoice ${powerName}`, run: (v) => resolvePowerChoice(v, chosen) });
+      return true;
+    }
+    if (view.pendingBenchTrim) {
+      // Bench trim (a Stadium shrank the Benches): the first listed player returns Benched Pokémon, on its own view (either side)
+      const answerer = view.pendingBenchTrim[0].side === "player" ? actor : other;
+      const answererView = this.view(answerer);
+      const chosen = this.answer(answerer, getBenchTrimStep(answererView)!);
+      this.apply(answerer, { label: `bench trim ${chosen.length}`, run: (v) => resolveBenchTrim(v, chosen) });
       return true;
     }
     if (view.playerCanTakePrize) {

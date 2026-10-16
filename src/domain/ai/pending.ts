@@ -15,11 +15,13 @@ import {
   skipPendingSwitch,
 } from "@/lib/gameState";
 import { isPokemonCard } from "@/domain/cards";
+import { resolveBenchTrim, swapSides } from "@/domain/board";
 import { PokemonStage } from "@/domain/constants";
 import type { SelectionStep } from "@/domain/effects/types";
 import { minSelectionsOf } from "@/domain/effects/validate";
 import { chooseForcedSwitch, choosePromotion } from "./choices";
 import { knowledgeView } from "./knowledge";
+import { pokemonWorth } from "./evaluate";
 
 /**
  * The AI's answer to any selection step (attack choices, and what a consumer needs when the
@@ -45,6 +47,35 @@ export function resolveOwnPowerChoice(view: GameState): GameState {
   if (!pending) return view;
   const enabled = pending.step.options.filter((o) => !o.disabled).map((o) => o.id);
   return resolvePowerChoice(view, enabled.slice(0, pending.step.maxSelections));
+}
+
+/**
+ * The Bench trim (pendingBenchTrim) for the player who answers it (view: that player = "player", the
+ * first entry of pendingBenchTrim): its lowest-value Benched Pokémon, as many as it must return.
+ */
+export function chooseBenchTrim(view: GameState): string[] {
+  const trim = view.pendingBenchTrim?.[0];
+  if (!trim) return [];
+  const known = knowledgeView(view);
+  const count = Math.max(0, known.playerBench.length - trim.keep);
+  return [...known.playerBench]
+    .sort((a, b) => pokemonWorth(known, a) - pokemonWorth(known, b))
+    .slice(0, count)
+    .map((p) => p.pokemon.id);
+}
+
+/**
+ * The AI answers the Bench trim (pendingBenchTrim) while the first entry of pendingBenchTrim is its own
+ * (`aiSide` in `state`; consumers: "opponent"). When the other player must answer first the
+ * state is returned as is: call it again after their answer.
+ */
+export function resolveBenchTrimForAI(state: GameState, aiSide: "player" | "opponent" = "opponent"): GameState {
+  let next = state;
+  while (next.pendingBenchTrim?.[0]?.side === aiSide && next.gameResult === null) {
+    const view = aiSide === "player" ? next : swapSides(next);
+    next = resolveBenchTrim(next, chooseBenchTrim(view));
+  }
+  return next;
 }
 
 function remainingHp(pokemon: PokemonInPlay): number {

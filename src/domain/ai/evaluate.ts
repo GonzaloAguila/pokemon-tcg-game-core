@@ -23,6 +23,7 @@ import type { Attack, PokemonCard } from "@/domain/cards";
 import { givesPrizeWhenKnockedOut, isEnergyCard, isPokemonCard, isTrainerInPlay } from "@/domain/cards";
 import { AttackEffectType, EnergyType, PokemonPowerType, StatusCondition, type CoinFlipResult } from "@/domain/constants";
 import { swapSides } from "@/domain/board";
+import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
 import {
   applyDamageHalving,
   getConfusedDamageBonus,
@@ -200,6 +201,7 @@ function computeAttackDamage(
 
   const mirrorMove = hasEffect(attack, AttackEffectType.MirrorMove);
   const ignoresWR = mirrorMove || hasEffect(attack, AttackEffectType.IgnoreWeaknessResistance);
+  const ignoresResistance = stadiumIgnoresResistance(w, attacker);
   const attackerType = attacker.shiftedType ?? attackerCard.types[0];
   const weaknesses = defender.modifiedWeakness ? [defender.modifiedWeakness] : defenderCard.weaknesses ?? [];
   const resistances = defender.modifiedResistance ? [defender.modifiedResistance] : defenderCard.resistances ?? [];
@@ -232,7 +234,7 @@ function computeAttackDamage(
     }
     if (!ignoresWR && damage > 0 && attackerType) {
       if (weaknesses.includes(attackerType)) damage *= 2;
-      if (resistances.includes(attackerType)) damage = Math.max(0, damage - 30);
+      if (resistances.includes(attackerType) && !ignoresResistance) damage = Math.max(0, damage - 30);
     }
     if (plusPower > 0 && damage > 0) damage += plusPower;
     if (defenderMinus > 0) damage = Math.max(0, damage - defenderMinus);

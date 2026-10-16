@@ -30,7 +30,8 @@ import type { CardEffectContext, CardEffectDef, CoinFlipper, CoinFlipRequirement
 import { checkCoins, checkSelections, coinRequirement } from "./validate";
 import { TRAINER_EFFECTS } from "./trainers";
 import { POWER_EFFECTS } from "./powers";
-import { playStadium } from "./stadiums";
+import { playStadium, withHandDiscardCost } from "./stadiums";
+import { stadiumExtraTrainerDiscards } from "@/domain/stadiums/rules";
 
 export type {
   SelectionOption,
@@ -42,7 +43,7 @@ export type {
 } from "./types";
 export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames, isPlayedAsBasic } from "./trainers";
 export { POWER_EFFECTS, ACTIVATED_POWER_TYPES } from "./powers";
-export { playStadium } from "./stadiums";
+export { playStadium, STADIUM_EFFECTS, withHandDiscardCost } from "./stadiums";
 export { checkSelection, minSelectionsOf, stepForAnswerer } from "./validate";
 
 // ============================================================================
@@ -78,7 +79,9 @@ function trainerDef(state: GameState, cardId: string): { def?: CardEffectDef; re
   // Stadiums without an on-play effect have no entry: they are all played the same way
   const def = TRAINER_EFFECTS[card.name] ?? (card.trainerType === TrainerType.Stadium ? playStadium : undefined);
   if (!def) return { reason: `${card.name} todavía no se puede jugar` };
-  return { def, reason: null };
+  // The Stadium in play may require discarding cards from the hand first
+  const discards = stadiumExtraTrainerDiscards(state, card.name);
+  return { def: discards > 0 ? withHandDiscardCost(def, discards) : def, reason: null };
 }
 
 /** null when the Trainer in the hand can be played now, else the Spanish reason. */

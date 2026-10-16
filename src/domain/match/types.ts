@@ -19,6 +19,7 @@ export type {
   GameResult,
   PowerSuppression,
   StadiumInPlay,
+  BenchTrim,
   GameState,
 } from "@/lib/gameState";
 

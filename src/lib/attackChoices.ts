@@ -45,6 +45,7 @@ import {
   isDamageBlocked,
 } from "@/domain/powers";
 import { evolvePokemonInPlay, getEvolutionBlocker } from "@/domain/board";
+import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
 import { IllegalActionError } from "@/shared/errors";
 import { modifierAppliesTo } from "./modifiers";
 import type { GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
@@ -617,7 +618,7 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
     const weaknesses = target.modifiedWeakness ? [target.modifiedWeakness] : targetCard.weaknesses ?? [];
     const resistances = target.modifiedResistance ? [target.modifiedResistance] : targetCard.resistances ?? [];
     if (type && weaknesses.includes(type)) damage *= 2;
-    if (type && resistances.includes(type)) damage = Math.max(0, damage - 30);
+    if (type && resistances.includes(type) && !stadiumIgnoresResistance(state, attacker)) damage = Math.max(0, damage - 30);
   }
   let consumedReduction = false;
   if (isActive) {

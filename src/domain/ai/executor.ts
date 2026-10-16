@@ -31,10 +31,10 @@ import {
 } from "@/domain/effects";
 import type { CoinFlipResult } from "@/domain/constants";
 import { answerPowerStepForAI, answerTrainerStepForAI, collectAnswers } from "./cardEffects";
-import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapStadium } from "@/domain/board";
+import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapBenchTrim, swapStadium } from "@/domain/board";
 import { choosePromotion } from "./choices";
 import { knowledgeView } from "./knowledge";
-import { resolveOwnAttackPendings } from "./pending";
+import { resolveBenchTrimForAI, resolveOwnAttackPendings } from "./pending";
 import { IllegalActionError } from "@/shared/errors";
 
 
@@ -69,6 +69,7 @@ function swapSides(state: GameState): GameState {
     })),
     gameResult: state.gameResult === "victory" ? "defeat" : state.gameResult === "defeat" ? "victory" : state.gameResult,
     ...(state.stadium !== undefined && { stadium: swapStadium(state.stadium) }),
+    ...(state.pendingBenchTrim !== undefined && { pendingBenchTrim: swapBenchTrim(state.pendingBenchTrim) }),
   };
 }
 
@@ -100,7 +101,8 @@ export function executeAIAction(state: GameState, action: AIAction): GameState {
       return executeOpponentAttack(state, action);
 
     case "playTrainer":
-      return executeTrainer(state, action);
+      // A Stadium that shrank the Benches: the AI returns its own Benched Pokémon when it is first to answer
+      return resolveBenchTrimForAI(executeTrainer(state, action));
 
     case "usePower":
       return executePower(state, action);

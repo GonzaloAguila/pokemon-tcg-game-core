@@ -25,7 +25,8 @@ import { isBenchFull } from "./bench";
 import { SPECIAL_ENERGY_ATTACH_EFFECTS, type OnAttachFromHand } from "./special-energy";
 
 export { findInPlay, findOwnPokemon, allOwnPokemon, MAX_BENCH_SIZE } from "./locate";
-export { maxBenchSize, isBenchFull } from "./bench";
+export { maxBenchSize, isBenchFull, swapBenchTrim } from "./bench";
+export { requireBenchTrims, getBenchTrimStep, resolveBenchTrim } from "./bench-trim";
 export { getStadium, stadiumNamed, swapStadium } from "./stadium";
 export type { InPlayLocation } from "./locate";
 export { swapSides } from "./swap";
@@ -58,6 +59,7 @@ export function getTurnActionBlocker(state: GameState): string | null {
     return "Primero resuelve el efecto pendiente del ataque";
   }
   if (state.pendingPowerChoice) return "Primero resuelve el Poder Pokémon pendiente";
+  if (state.pendingBenchTrim) return "Primero hay que devolver Pokémon de la Banca a la mano";
   if (state.playerNeedsToPromote || state.opponentNeedsToPromote) {
     return "Primero hay que elegir un nuevo Pokémon activo";
   }

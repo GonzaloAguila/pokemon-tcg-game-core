@@ -39,6 +39,7 @@ import {
   isPowerActive,
 } from "@/domain/powers";
 import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
+import { stadiumIgnoresResistance, stadiumRetreatModifier } from "@/domain/stadiums/rules";
 import type { SelectionStep } from "@/domain/effects/types";
 import { isAttackChoiceEffect, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
 export { resolveAttackChoice, isAttackChoiceEffect } from "./attackChoices";
@@ -161,6 +162,12 @@ export type PendingAttackChoice = {
  */
 export type StadiumInPlay = { card: GameCard; playedBy: "player" | "opponent" };
 
+/**
+ * One player who must return Benched Pokémon to the hand until `keep` are left (a Stadium
+ * lowered the Bench limit below its size). See GameState.pendingBenchTrim.
+ */
+export type BenchTrim = { side: "player" | "opponent"; keep: number };
+
 /** A timed "Pokémon Powers stop working" effect (see GameState.powersSuppressed). */
 export type PowerSuppression = {
   /** Card or attack that caused it, for log messages ("Goop Gas Attack") */
@@ -281,6 +288,14 @@ export type GameState = {
    * with playTrainerCard (playStadium). Kept in sync with domain/match/types.ts (re-export).
    */
   stadium?: StadiumInPlay | null;
+  /**
+   * A Stadium lowered the Bench limit below a Bench's size: each listed player, in order (the opponent of
+   * whoever played it first), returns Benched Pokémon with all their cards to the hand until
+   * `keep` are left. Answer the first entry with resolveBenchTrim (any view; normally that
+   * player's own, where its side is "player"). Swapped by swapSides. Blocks endTurn and every
+   * other action. Kept in sync with domain/match/types.ts (re-export).
+   */
+  pendingBenchTrim?: BenchTrim[];
   /** Prize cards each player set aside at the start (startGame's prizeCount; 6 when absent). */
   prizeCount?: number;
   /**
@@ -665,14 +680,7 @@ export function getTotalEnergyValue(cards: GameCard[]): number {
  */
 export function hasEnoughEnergyToRetreat(pokemon: PokemonInPlay, bench?: PokemonInPlay[], state?: GameState): boolean {
   if (pokemon.pokemon.kind !== CardKind.Pokemon) return false;
-
-  // A transformed Ditto has the copied card's Retreat Cost
-  let retreatCost = (state ? getEffectivePokemonCard(state, pokemon)?.retreatCost : undefined) ?? pokemon.pokemon.retreatCost;
-  if (bench) {
-    retreatCost = Math.max(0, retreatCost - getRetreatCostReduction(bench, state));
-  }
-  // Sticky Goo (Dark Muk as the opposing Active)
-  retreatCost += getRetreatCostIncrease(state, pokemon);
+  const retreatCost = getRetreatCost(pokemon, bench, state);
 
   // Si el coste es 0, siempre puede retirarse
   if (retreatCost === 0) return true;
@@ -694,7 +702,9 @@ export function getRetreatCost(pokemon: PokemonInPlay, bench?: PokemonInPlay[], 
     cost = Math.max(0, cost - getRetreatCostReduction(bench, state));
   }
   // Sticky Goo (Dark Muk as the opposing Active): Retreat Aid first, then the extra cost
-  return cost + getRetreatCostIncrease(state, pokemon);
+  cost += getRetreatCostIncrease(state, pokemon);
+  // The Stadium in play (stadiums/rules.ts)
+  return state ? Math.max(0, cost + stadiumRetreatModifier(state, pokemon)) : cost;
 }
 
 /**
@@ -1884,7 +1894,8 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   // clearPeek) and are discarded below so they can't leak into the next turn.
   if (
     gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch ||
-    gameState.pendingBenchDamageSelection || gameState.pendingAttackChoice || gameState.pendingPowerChoice
+    gameState.pendingBenchDamageSelection || gameState.pendingAttackChoice || gameState.pendingPowerChoice ||
+    gameState.pendingBenchTrim
   ) {
     return gameState;
   }
@@ -3468,7 +3479,9 @@ function executeAttackUnchecked(
   // Sonicboom: "Don't apply Weakness and Resistance for this attack"
   const ignoresWeaknessResistance = attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance) ?? false;
   const hasWeakness = !isMirrorMove && !ignoresWeaknessResistance && defenderWeaknesses.includes(attackerType);
-  const hasResistance = !isMirrorMove && !ignoresWeaknessResistance && defenderResistances.includes(attackerType);
+  // The Stadium in play may cancel Resistance for this attacker (stadiums/rules.ts)
+  const hasResistance = !isMirrorMove && !ignoresWeaknessResistance && !stadiumIgnoresResistance(gameState, attacker) &&
+    defenderResistances.includes(attackerType);
 
   // Aplicar debilidad (x2)
   if (hasWeakness) {

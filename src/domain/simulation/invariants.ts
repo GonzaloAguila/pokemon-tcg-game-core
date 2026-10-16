@@ -96,7 +96,9 @@ export function checkInvariants(state: GameState, context: InvariantContext): st
       else inPlay.push([`${side} bench ${i}`, p]);
     });
     const benchSize = (side === "player" ? state.playerBench : state.opponentBench).length;
-    if (benchSize > maxBenchSize(state, side)) problems.push(`${side} bench has ${benchSize} Pokémon`);
+    // Over the limit only while that player must still return Pokémon (pendingBenchTrim)
+    const trimming = state.pendingBenchTrim?.some((trim) => trim.side === side) ?? false;
+    if (benchSize > maxBenchSize(state, side) && !trimming) problems.push(`${side} bench has ${benchSize} Pokémon`);
   }
   for (const [where, p] of inPlay) {
     const damage = p.currentDamage ?? 0;
@@ -185,6 +187,7 @@ export function checkInvariants(state: GameState, context: InvariantContext): st
       state.pendingBenchDamageSelection && "pendingBenchDamageSelection",
       state.pendingAttackChoice && "pendingAttackChoice",
       state.pendingPowerChoice && "pendingPowerChoice",
+      state.pendingBenchTrim && "pendingBenchTrim",
       state.pendingTypeShift && "pendingTypeShift",
       state.playerCanTakePrize && "playerCanTakePrize",
       state.opponentCanTakePrize && "opponentCanTakePrize",

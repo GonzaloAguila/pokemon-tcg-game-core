@@ -77,6 +77,7 @@ import {
   playPokemonFlute,
 } from "@/domain/trainers";
 import type { CardEffectDef, SelectionOption, SelectionStep } from "./types";
+import { STADIUM_EFFECTS } from "./stadiums";
 
 // ============================================================================
 // Option helpers
@@ -1100,6 +1101,9 @@ Object.assign(TRAINER_EFFECTS, {
     },
   },
 } satisfies Record<string, CardEffectDef>);
+
+// Gym Heroes: Stadiums with an on-play effect (every other Stadium falls back to playStadium)
+Object.assign(TRAINER_EFFECTS, STADIUM_EFFECTS);
 
 /**
  * Trainers printed "play this card as if it were a Basic Pokémon" (`playsAsBasic`: Mysterious

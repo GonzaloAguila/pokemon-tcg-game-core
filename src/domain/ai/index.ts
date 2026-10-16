@@ -46,7 +46,7 @@ export { evaluateBoard } from "./evaluate";
 
 // Executor (apply actions to state)
 export { executeAIAction } from "./executor";
-export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice } from "./pending";
+export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice, chooseBenchTrim, resolveBenchTrimForAI } from "./pending";
 
 // Actions (low-level state transformations)
 export {
