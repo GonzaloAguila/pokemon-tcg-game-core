@@ -239,8 +239,11 @@ export function getEffectiveHp(state: GameState | null | undefined, pokemon: Pok
  * damage actually done.
  */
 export function applyDamageHalving(pokemon: PokemonInPlay, damage: number, state?: GameState): number {
-  if (damage <= 0 || !activePowerOfType(state, pokemon, PokemonPowerType.HalveAttackDamage)) return damage;
-  return Math.floor(damage / 2 / 10) * 10;
+  if (damage <= 0) return damage;
+  // Kabuto Armor, or Deflector used on the previous turn ("whenever it takes damage")
+  const halves = !!activePowerOfType(state, pokemon, PokemonPowerType.HalveAttackDamage) ||
+    (!!state && pokemon.halveDamage?.onTurn === state.turnNumber);
+  return halves ? Math.floor(damage / 2 / 10) * 10 : damage;
 }
 
 /**

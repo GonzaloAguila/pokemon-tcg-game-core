@@ -368,6 +368,19 @@ describe("new effect kinds", () => {
     expect(short.playerDeck).toEqual([]);
   });
 
+  it("HalveDamageNextTurn (Deflector): damage done to it during the opponent's next turn is halved (rounded down to 10)", () => {
+    const deflector = withAttack(inPlay("Exeggcute", { set: "jungle" }), { effects: [{ type: AttackEffectType.HalveDamageNextTurn, target: AttackTarget.Self }] });
+    const used = use(vs(deflector, inPlay("Onix")));
+    expect(used.playerActivePokemon!.halveDamage).toEqual({ onTurn: 4, attackName: "Test" });
+    const exeggcute = inPlay("Exeggcute", { set: "jungle", halveDamage: { onTurn: 4, attackName: "Deflector" } });
+    const hit30 = withAttack(inPlay("Electabuzz"), { damage: 30, effects: [] });
+    expect(use(vs(hit30, exeggcute, { turnNumber: 4 })).opponentActivePokemon!.currentDamage).toBe(10);
+    expect(use(vs(hit30, exeggcute, { turnNumber: 6 })).opponentActivePokemon!.currentDamage).toBe(30);
+    // It ends when the Pokémon goes to the Bench or evolves
+    expect(clearStatusConditionsOnRetreat(exeggcute).halveDamage).toBeUndefined();
+    expect(clearEffectsAsIfEvolved(exeggcute).halveDamage).toBeUndefined();
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {

@@ -200,6 +200,8 @@ export const AttackEffectType = {
   SearchDeckChoice: "searchDeckChoice",
   /** Lava Burst: discard the top `amount` cards of your deck; `extraDamagePerEnergy` per basic Energy card of `energyType` among them */
   MillSelfForDamage: "millSelfForDamage",
+  /** Deflector: during the opponent's next turn, damage done to this Pokémon is halved (rounded down to 10) */
+  HalveDamageNextTurn: "halveDamageNextTurn",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

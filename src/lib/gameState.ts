@@ -136,6 +136,8 @@ export type PokemonInPlay = {
    * turn) it can't attack, or can't use `attackName` only. Cleared on bench/evolve.
    */
   attackLock?: { onTurn: number; attackName?: string };
+  /** Deflector (HalveDamageNextTurn): damage done to it during turn `onTurn` is halved. Cleared on bench/evolve. */
+  halveDamage?: { onTurn: number; attackName: string };
   /** Sand-Attack / SmokeScreen: opponent must flip coin to attack. Clears on bench/evolve. */
   mustFlipToAttack?: boolean;
   /** Turn number when mustFlipToAttack was set (for expiration) */
@@ -616,6 +618,7 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     counterAttack: undefined,
     evadeOnFlip: undefined,
     attackLock: undefined,
+    halveDamage: undefined,
   };
 }
 
@@ -3806,7 +3809,7 @@ function executeAttackUnchecked(
     const barrierPowerName = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.name || "Muro Invisible" : "Muro Invisible";
     damageMessage = ` pero ${defender.pokemon.name} bloqueó el daño con ${barrierPowerName}`;
   } else if (effectiveDamage > 0) {
-    const armorNote = halvedByArmor ? " (la mitad por Armadura Kabuto)" : "";
+    const armorNote = !halvedByArmor ? "" : defender.halveDamage?.onTurn === gameState.turnNumber ? ` (la mitad por ${defender.halveDamage.attackName})` : " (la mitad por Armadura Kabuto)";
     if (halvedByArmor) {
       damageMessage = ` e hizo ${effectiveDamage} de daño${damageMultiplierDescription}${armorNote}`;
     } else if (hasWeakness) {
@@ -4366,6 +4369,12 @@ function executeAttackUnchecked(
       if (effect.type === AttackEffectType.MirrorShell && newPlayerActive && !attackerKnockedOut) {
         newPlayerActive = { ...newPlayerActive, mirrorShellOnTurn: gameState.turnNumber };
         events.push(createGameEvent(`${newPlayerActive.pokemon.name} devolverá el daño que reciba durante el siguiente turno`, "action"));
+      }
+
+      // Deflector: damage halved during the opponent's next turn
+      if (effect.type === AttackEffectType.HalveDamageNextTurn && newPlayerActive && !attackerKnockedOut) {
+        newPlayerActive = { ...newPlayerActive, halveDamage: { onTurn: gameState.turnNumber + 1, attackName: attack.name } };
+        events.push(createGameEvent(`${newPlayerActive.pokemon.name} recibirá la mitad del daño durante el siguiente turno`, "action"));
       }
 
       // Tunneling / Screaming Headbutt: locked during its owner's next turn
