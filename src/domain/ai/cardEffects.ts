@@ -30,10 +30,11 @@
  * | Goop Gas Attack | it will attack and an opposing Pokémon has a working passive power |
  * | Sleep! | the Defending Pokémon isn't Asleep / Paralyzed and can be affected |
  * | Challenge!, Digger, Here Comes Team Rocket! | never (`AI_NEVER_PLAYS`) |
+ * | Celadon City Gym (Stadium action) | its Active is Asleep / Confused / Paralyzed and keeps an attack it can pay after discarding the Energy card |
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
-import { canUseAttack, hasStatusCondition } from "@/lib/gameState";
+import { canUseAttack, getEnergyValue, hasStatusCondition } from "@/lib/gameState";
 import { isBenchFull } from "@/domain/board";
 import { isBasicEnergy, isEnergyCard, isPokemonCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
 import { EnergyType, PokemonStage, StatusCondition } from "@/domain/constants";
@@ -41,6 +42,8 @@ import {
   ACTIVATED_POWER_TYPES,
   canPlayTrainerCard,
   canUsePokemonPower,
+  canUseStadiumAction,
+  getStadiumActionSteps,
   getTrainerSteps,
   type SelectionStep,
 } from "@/domain/effects";
@@ -254,6 +257,29 @@ export function planStepIn(view: GameState): AIAction | null {
   if (activeCanAttack(view) || !view.opponentActivePokemon) return null;
   const dragonite = withUsablePower(view, "Entrada").find((p) => canAttackWith(view, p));
   return dragonite ? usePower(dragonite) : null;
+}
+
+/**
+ * The Stadium action (Celadon City Gym: discard an Energy card from a Pokémon with Erika in its
+ * name to cure it): when the Active is Asleep, Confused or Paralyzed, is offered by the action's
+ * first step, and has a spare Energy card — one it can discard and still pay an attack.
+ * Answers: the Active, then the spare Energy card worth the least.
+ */
+export function planStadiumAction(view: GameState): AIAction | null {
+  const active = view.playerActivePokemon;
+  if (!active || !view.stadium || !view.opponentActivePokemon) return null;
+  const stopped = [StatusCondition.Asleep, StatusCondition.Confused, StatusCondition.Paralyzed].some((c) => hasStatusCondition(active, c));
+  if (!stopped || canUseStadiumAction(view) !== null) return null;
+  const first = getStadiumActionSteps(view, []);
+  if (!first?.options.some((o) => o.id === active.pokemon.id && !o.disabled)) return null;
+  const second = getStadiumActionSteps(view, [[active.pokemon.id]]);
+  const offered = new Set(second?.options.filter((o) => !o.disabled).map((o) => o.id) ?? []);
+  const spare = active.attachedEnergy
+    .filter((e) => offered.has(e.id))
+    .sort((a, b) => getEnergyValue(a) - getEnergyValue(b))
+    .find((e) => canAttackWith(view, { ...active, attachedEnergy: active.attachedEnergy.filter((x) => x.id !== e.id) }));
+  if (!spare) return null;
+  return { type: "useStadium", stadiumName: view.stadium.card.name, selections: [[active.pokemon.id], [spare.id]], delay: 800 };
 }
 
 /** Gather Fire / Strange Behavior uses worth making now (in order). */

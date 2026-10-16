@@ -9,7 +9,8 @@ import type { GameState } from "@/domain/match";
 import { canExecuteAttack, canExecuteMetronome, executeMetronome, canRetreat, flipAttackCoins, getAttackCoinPlan, getRetreatCoinFlips, getRetreatCost, getTotalEnergyValue } from "@/lib/gameState";
 import { executeAttack, endTurn, executeRetreat, createGameEvent, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
-import type { AIAction, AttackAction, PlayTrainerAction, UsePowerAction } from "./types";
+import type { AIAction, AttackAction, PlayTrainerAction, UsePowerAction, UseStadiumAction } from "./types";
+import { canUseVermilionCoin } from "@/domain/stadiums/rules";
 import { getEffectivePokemonCard } from "@/domain/powers";
 import {
   playBasicToActive,
@@ -27,6 +28,9 @@ import {
   getTrainerSteps,
   playTrainerCard,
   usePokemonPower,
+  canUseStadiumAction,
+  getStadiumActionCoinFlips,
+  useStadiumAction,
   type CoinFlipRequirement,
 } from "@/domain/effects";
 import type { CoinFlipResult } from "@/domain/constants";
@@ -106,6 +110,9 @@ export function executeAIAction(state: GameState, action: AIAction): GameState {
 
     case "usePower":
       return executePower(state, action);
+
+    case "useStadium":
+      return executeStadiumAction(state, action);
 
     case "retreat":
       return executeOpponentRetreat(state, action.energyIdsToDiscard, action.benchIndex);
@@ -238,9 +245,14 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
   // The AI flips the attack's coins; the engine resolves every coin effect.
   // skipEndTurn: endTurn runs after the swap back, so its messages have the right perspective.
   // skipDefenderPromotion: the human chooses which Pokémon to promote.
-  const coinResults = flipAttackCoins(getAttackCoinPlan(swappedState, copied ?? attackIndex), () => (Math.random() < 0.5 ? "heads" : "tails"));
+  // Vermilion City Gym: the coin it planned, if the Stadium still offers it
+  const vermilionCoin = !copied && !!action.vermilionCoin && canUseVermilionCoin(swappedState, attackIndex) === null;
+  const coinResults = flipAttackCoins(
+    getAttackCoinPlan(swappedState, copied ?? attackIndex, { vermilionCoin }),
+    () => (Math.random() < 0.5 ? "heads" : "tails")
+  );
   // The AI answers its own attack's choices (switch, deck search, bench damage) in its view.
-  const options = { coinResults, skipEndTurn: true, skipDefenderPromotion: true };
+  const options = { coinResults, skipEndTurn: true, skipDefenderPromotion: true, ...(vermilionCoin && { vermilionCoin }) };
   const resultState = resolveOwnAttackPendings(
     copied
       ? executeMetronome(swappedState, copied, options)
@@ -453,6 +465,16 @@ function executeTrainer(state: GameState, action: PlayTrainerAction): GameState 
           : action.selections;
         return playTrainerCard(s, cardId, selections, { coinResults: coins });
       })
+  );
+}
+
+/** Uses the action of the Stadium in play for the AI with the answers it planned (Celadon City Gym). */
+function executeStadiumAction(state: GameState, action: UseStadiumAction): GameState {
+  return actAs(
+    state,
+    "opponent",
+    (s) => canUseStadiumAction(s),
+    (s) => tryEffect(s, () => useStadiumAction(s, action.selections, { coinResults: flipCoins(getStadiumActionCoinFlips(s)) }))
   );
 }
 

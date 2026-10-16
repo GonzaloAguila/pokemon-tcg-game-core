@@ -21,6 +21,7 @@ export type AIActionType =
   | "retreat"
   | "discardFromPlay"
   | "usePower"
+  | "useStadium"
   | "endTurn";
 
 /** Acción base de la IA */
@@ -66,6 +67,8 @@ export interface AttackAction extends AIActionBase {
   copiedAttackName?: string;
   /** Conversion 1 / 2 (Porygon): the type chosen for the Weakness / Resistance */
   chosenType?: EnergyType;
+  /** Vermilion City Gym: the AI flips the Stadium's optional coin with this attack */
+  vermilionCoin?: boolean;
 }
 
 /** Jugar una carta de entrenador */
@@ -89,6 +92,13 @@ export interface UsePowerAction extends AIActionBase {
   powerName: string;
   /** Answers planned by the AI (powers without coins: Energy Trans, Damage Swap, Curse); otherwise answered when used */
   selections?: string[][];
+}
+
+/** Use the action of the Stadium in play (Celadon City Gym) with the answers planned by the AI */
+export interface UseStadiumAction extends AIActionBase {
+  type: "useStadium";
+  stadiumName: string;
+  selections: string[][];
 }
 
 /** Retirarse (cambiar Pokemon activo) */
@@ -120,6 +130,7 @@ export type AIAction =
   | RetreatAction
   | DiscardFromPlayAction
   | UsePowerAction
+  | UseStadiumAction
   | EndTurnAction;
 
 /** Resultado de la evaluación de un ataque */

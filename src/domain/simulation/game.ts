@@ -98,6 +98,7 @@ export function actionKind(label: string): string {
   if (label.startsWith("playTrainer ") || label.startsWith("greedy playTrainer ")) return label.replace(/^greedy /, "");
   if (label.startsWith("usePower ") || label.startsWith("greedy usePower ")) return label.replace(/^greedy /, "").replace(/ \(.*\)$/, "");
   if (label.startsWith("powerChoice ")) return label;
+  if (label.startsWith("useStadium ") || label.startsWith("greedy useStadium ")) return label.replace(/^greedy /, "");
   if (label.startsWith("greedy ")) return label.split(" ").slice(0, 2).join(" ");
   return label.split(/ #| [A-Z]|\d/)[0].trim();
 }

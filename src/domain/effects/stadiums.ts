@@ -7,11 +7,15 @@
  * played with `playStadium` (see trainerDef in ./index.ts). A Stadium with an on-play effect
  * gets an entry in STADIUM_EFFECTS (merged into TRAINER_EFFECTS) that wraps `playStadium`.
  * Continuous rules live in domain/stadiums/rules.ts; `withHandDiscardCost` applies No Removal
- * Gym's cost to the Trainers it names.
+ * Gym's cost to the Trainers it names. A Stadium the player whose turn it is may use (Celadon
+ * City Gym) has a STADIUM_ACTIONS entry, run by the Stadium action entry points (./index.ts).
  */
 
-import { createGameEvent, type GameState } from "@/lib/gameState";
-import { requireBenchTrims } from "@/domain/board";
+import { createGameEvent, energyCardLabel, type GameState, type PokemonInPlay } from "@/lib/gameState";
+import { allOwnPokemon, requireBenchTrims } from "@/domain/board";
+import { cardOutOfPlay, isEnergyCard } from "@/domain/cards";
+import { hasOwner } from "@/domain/cards/owner";
+import { StatusCondition } from "@/domain/constants";
 import { NARROW_GYM_BENCH_SIZE } from "@/domain/stadiums/rules";
 import type { CardEffectDef } from "./types";
 
@@ -104,3 +108,100 @@ export function withHandDiscardCost(def: CardEffectDef, count: number): CardEffe
     },
   };
 }
+
+// ============================================================================
+// Stadium actions: what the player whose turn it is may do with the Stadium in play
+// ============================================================================
+
+const CURED_CONDITIONS: readonly StatusCondition[] = [
+  StatusCondition.Asleep,
+  StatusCondition.Confused,
+  StatusCondition.Paralyzed,
+  StatusCondition.Poisoned,
+];
+
+const hasSpecialCondition = (pokemon: PokemonInPlay) => (pokemon.statusConditions ?? []).some((c) => CURED_CONDITIONS.includes(c));
+const attachedEnergyCards = (pokemon: PokemonInPlay) => pokemon.attachedEnergy.filter((e) => isEnergyCard(e) || !!e.buzzapEnergyType);
+
+/** Celadon City Gym: the player's Pokémon with Erika in its name, a Special Condition and an Energy card. */
+function celadonTargets(state: GameState): PokemonInPlay[] {
+  return allOwnPokemon(state, "player").filter(
+    (p) => hasOwner(p.pokemon, "Erika") && hasSpecialCondition(p) && attachedEnergyCards(p).length > 0
+  );
+}
+
+/** The same Pokémon (by id) replaced on the player's side. */
+function replaceOwn(state: GameState, pokemonId: string, next: PokemonInPlay): GameState {
+  const swap = (p: PokemonInPlay) => (p.pokemon.id === pokemonId ? next : p);
+  return {
+    ...state,
+    playerActivePokemon: state.playerActivePokemon && swap(state.playerActivePokemon),
+    playerBench: state.playerBench.map(swap),
+  };
+}
+
+/**
+ * Stadiums with an action the player whose turn it is may take (key = card name; sourceId = the
+ * Stadium card's id). Played through the generic entry points in ./index.ts (getStadiumActions,
+ * canUseStadiumAction, getStadiumActionSteps, useStadiumAction), whoever played the Stadium.
+ *
+ * | Stadium | selections |
+ * |---|---|
+ * | Celadon City Gym | [[pokemonId with Erika in its name], [energyCardId attached to it]] — discards it; that Pokémon is no longer Asleep, Confused, Paralyzed or Poisoned. No per-turn limit. |
+ */
+export const STADIUM_ACTIONS: Record<string, CardEffectDef> = {
+  "Celadon City Gym": {
+    canUse(state) {
+      return celadonTargets(state).length > 0
+        ? null
+        : "Necesitas un Pokémon con Erika en su nombre afectado por una Condición Especial y con una carta de Energía unida";
+    },
+    getSteps(state, _sourceId, selections) {
+      if (selections.length === 0) {
+        const targets = celadonTargets(state);
+        return {
+          title: "Celadon City Gym",
+          description: "Selecciona un Pokémon con Erika en su nombre para curarle las Condiciones Especiales",
+          options: targets.map((p) => ({ id: p.pokemon.id, label: p.pokemon.name })),
+          maxSelections: 1,
+          thumbnails: targets.map((p) => p.pokemon),
+        };
+      }
+      if (selections.length === 1) {
+        const target = celadonTargets(state).find((p) => p.pokemon.id === selections[0][0]);
+        const energies = target ? attachedEnergyCards(target) : [];
+        return {
+          title: "Celadon City Gym",
+          description: `Selecciona la carta de Energía de ${target?.pokemon.name ?? "ese Pokémon"} que quieres descartar`,
+          options: energies.map((e) => ({ id: e.id, label: energyCardLabel(e) })),
+          maxSelections: 1,
+          thumbnails: energies,
+        };
+      }
+      return null;
+    },
+    resolve(state, _sourceId, selections) {
+      const target = celadonTargets(state).find((p) => p.pokemon.id === selections[0][0])!;
+      const energy = target.attachedEnergy.find((e) => e.id === selections[1][0])!;
+      const cured: PokemonInPlay = {
+        ...target,
+        attachedEnergy: target.attachedEnergy.filter((e) => e.id !== energy.id),
+        statusConditions: (target.statusConditions ?? []).filter((c) => !CURED_CONDITIONS.includes(c)),
+        paralyzedOnTurn: undefined,
+        // Toxic's 20-damage poison ends with the condition
+        poisonDamage: undefined,
+      };
+      const stadiumName = state.stadium?.card.name ?? "Celadon City Gym";
+      const next = replaceOwn(state, target.pokemon.id, cured);
+      return {
+        ...next,
+        playerDiscard: [...state.playerDiscard, cardOutOfPlay(energy)],
+        events: [
+          ...state.events,
+          createGameEvent(`Descartaste ${energyCardLabel(energy)} de ${target.pokemon.name} (${stadiumName})`, "action"),
+          createGameEvent(`${target.pokemon.name} ya no está Dormido, Confundido, Paralizado ni Envenenado`, "info"),
+        ],
+      };
+    },
+  },
+};

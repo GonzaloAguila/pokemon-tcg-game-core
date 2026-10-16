@@ -11,7 +11,9 @@
  *   const next = playTrainerCard(state, cardId, selections, { coinResults: coins });
  *
  * Same for powers with the id of the Pokémon in play using it (canUsePokemonPower,
- * getPowerCoinFlips, getPowerCoinFlippers, getPowerSteps, usePokemonPower). A step with
+ * getPowerCoinFlips, getPowerCoinFlippers, getPowerSteps, usePokemonPower), and for the action
+ * of the Stadium in play (getStadiumActions, canUseStadiumAction, getStadiumActionCoinFlips,
+ * getStadiumActionSteps, useStadiumAction: no source id, the Stadium in play is the source). A step with
  * `chooser: "opponent"` is asked to the other player: show it with `stepForAnswerer(step)`.
  *
  * Errors: canX returns the Spanish reason; playTrainerCard / usePokemonPower throw
@@ -30,7 +32,7 @@ import type { CardEffectContext, CardEffectDef, CoinFlipper, CoinFlipRequirement
 import { checkCoins, checkSelections, coinRequirement } from "./validate";
 import { TRAINER_EFFECTS } from "./trainers";
 import { POWER_EFFECTS } from "./powers";
-import { playStadium, withHandDiscardCost } from "./stadiums";
+import { playStadium, STADIUM_ACTIONS, withHandDiscardCost } from "./stadiums";
 import { stadiumExtraTrainerDiscards } from "@/domain/stadiums/rules";
 
 export type {
@@ -43,7 +45,7 @@ export type {
 } from "./types";
 export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames, isPlayedAsBasic } from "./trainers";
 export { POWER_EFFECTS, ACTIVATED_POWER_TYPES } from "./powers";
-export { playStadium, STADIUM_EFFECTS, withHandDiscardCost } from "./stadiums";
+export { playStadium, STADIUM_EFFECTS, STADIUM_ACTIONS, withHandDiscardCost } from "./stadiums";
 export { checkSelection, minSelectionsOf, stepForAnswerer } from "./validate";
 
 // ============================================================================
@@ -197,4 +199,54 @@ export function usePokemonPower(
 export function getUsablePowerPokemonIds(state: GameState): string[] {
   const own = [state.playerActivePokemon, ...state.playerBench].filter((p): p is PokemonInPlay => p != null);
   return own.map((p) => p.pokemon.id).filter((id) => canUsePokemonPower(state, id) === null);
+}
+
+// ============================================================================
+// Stadium actions (sourceId = the id of the Stadium card in play)
+// ============================================================================
+
+function stadiumActionDef(state: GameState): { def?: CardEffectDef; sourceId?: string; reason: string | null } {
+  const stadium = state.stadium;
+  if (!stadium) return { reason: "No hay un Estadio en juego" };
+  const def = STADIUM_ACTIONS[stadium.card.name];
+  if (!def) return { reason: `${stadium.card.name} no tiene una acción que usar` };
+  return { def, sourceId: stadium.card.id, reason: null };
+}
+
+/**
+ * The actions of the Stadium in play for the player whose turn it is ("player"), whoever played
+ * it: `available` is null when it can be used now, else the Spanish reason. Empty when there is
+ * no Stadium or it has no action (Celadon City Gym has one).
+ */
+export function getStadiumActions(state: GameState): { name: string; available: string | null }[] {
+  const { def } = stadiumActionDef(state);
+  return def && state.stadium ? [{ name: state.stadium.card.name, available: canUseStadiumAction(state) }] : [];
+}
+
+/** null when the player whose turn it is can use the Stadium's action now, else the Spanish reason. */
+export function canUseStadiumAction(state: GameState): string | null {
+  const blocker = getTurnActionBlocker(state);
+  if (blocker) return blocker;
+  const { def, sourceId, reason } = stadiumActionDef(state);
+  if (!def || !sourceId) return reason;
+  return def.canUse(state, sourceId);
+}
+
+/** Next question to ask before using the Stadium's action (null when ready, or no action). */
+export function getStadiumActionSteps(state: GameState, selections: string[][], coinResults?: CoinFlipResult[]): SelectionStep | null {
+  const { def, sourceId } = stadiumActionDef(state);
+  return def && sourceId ? def.getSteps(state, sourceId, selections, coinResults) : null;
+}
+
+/** Coins to flip before the Stadium action's first step (0 = none; Celadon City Gym flips none). */
+export function getStadiumActionCoinFlips(state: GameState, selections: string[][] = []): CoinFlipRequirement {
+  const { def, sourceId } = stadiumActionDef(state);
+  return def && sourceId ? def.coinFlips?.(state, sourceId, selections) ?? 0 : 0;
+}
+
+/** Use the action of the Stadium in play with the answers to its steps (throws IllegalActionError when it can't). */
+export function useStadiumAction(state: GameState, selections: string[][] = [], context: CardEffectContext = {}): GameState {
+  assertLegal(canUseStadiumAction(state));
+  const { def, sourceId } = stadiumActionDef(state);
+  return runEffect(def!, state, sourceId!, selections, context);
 }

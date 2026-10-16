@@ -39,7 +39,7 @@ import {
   isPowerActive,
 } from "@/domain/powers";
 import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
-import { stadiumIgnoresResistance, stadiumRetreatModifier } from "@/domain/stadiums/rules";
+import { stadiumIgnoresResistance, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
 import type { SelectionStep } from "@/domain/effects/types";
 import { isAttackChoiceEffect, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
 export { resolveAttackChoice, isAttackChoiceEffect } from "./attackChoices";
@@ -48,7 +48,7 @@ import type { PendingPowerChoice } from "./powerChoices";
 import { defenderReduction as attachedDefenderReduction, modifierAppliesTo, releaseOrphanModifiers } from "./modifiers";
 export { resolvePowerChoice, triggerOnPlayPower, ON_PLAY_POWERS } from "./powerChoices";
 export type { PendingPowerChoice, OnPlayPowerDef } from "./powerChoices";
-import { assertLegal } from "@/shared/errors";
+import { assertLegal, IllegalActionError } from "@/shared/errors";
 import { chooseAutoPromotion } from "@/domain/ai/choices";
 
 // ============================================================================
@@ -2869,7 +2869,17 @@ export type ExecuteAttackOptions = {
    * (or pass []) for attacks without coins. The engine resolves every coin effect.
    */
   coinResults?: CoinFlipResult[];
+  /**
+   * Vermilion City Gym: the attacker (a Pokémon with Lt. Surge in its name) chose to flip the
+   * Stadium's coin (`canUseVermilionCoin`); its coin is in `coinResults` as
+   * `getAttackCoinPlan(state, i, { vermilionCoin: true })` lays it out. Refused
+   * (IllegalActionError) when the Stadium doesn't offer it.
+   */
+  vermilionCoin?: boolean;
 };
+
+/** Options of getAttackCoinPlan / getAttackCoinFlipCount: the attacker's optional coins. */
+export type AttackCoinOptions = Pick<ExecuteAttackOptions, "vermilionCoin">;
 
 /** Coins needed by an attack used by `attacker` (shared by all its coin effects). */
 export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?: GameState): number | "untilTails" {
@@ -2900,7 +2910,10 @@ export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?
  *    the attack does nothing (no other coin matters).
  * 2. `attack`: the attack's own coins (all its coin effects share them): a fixed number, or
  *    `"untilTails"` (Stone Barrage): a run of heads ending with the first tails (at least 1 coin).
- * 3. `defender` (0 or 1): Haunter's Transparency on the Defending Pokémon, LAST coin (flipped
+ * 3. `stadium` (absent/0 or 1): the Stadium's coin the attacker opted into (Vermilion City Gym,
+ *    `{ vermilionCoin: true }`): heads = 10 more damage to the Defending Pokémon if the attack
+ *    damaged it (after Weakness and Resistance), tails = 10 damage to the attacker.
+ * 4. `defender` (0 or 1): Haunter's Transparency on the Defending Pokémon, LAST coin (flipped
  *    for the defending player; heads = everything the attack does to Haunter is prevented). Only
  *    counted when the attack can do something to the Defending Pokémon (damage or an effect on
  *    it); it is ignored when the attack ended up doing nothing to it.
@@ -2910,6 +2923,8 @@ export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?
 export type AttackCoinPlan = {
   smokescreen: number;
   attack: number | "untilTails";
+  /** The attacker's optional Stadium coin (Vermilion City Gym); absent = 0 */
+  stadium?: number;
   defender: number;
   /**
    * Who flips the attack's own coins: present ("opponent") only when the defending player flips
@@ -2995,7 +3010,7 @@ export function knockOutRetaliationDamage(
  * @param attack - index of the Active Pokémon's attack (a transformed Ditto's copied attacks),
  *   or an Attack object (the attack copied by Metronome).
  */
-export function getAttackCoinPlan(state: GameState, attack: number | Attack): AttackCoinPlan {
+export function getAttackCoinPlan(state: GameState, attack: number | Attack, options: AttackCoinOptions = {}): AttackCoinPlan {
   const none: AttackCoinPlan = { smokescreen: 0, attack: 0, defender: 0 };
   const attacker = state.playerActivePokemon;
   const card = attacker ? getEffectivePokemonCard(state, attacker) : undefined;
@@ -3008,15 +3023,18 @@ export function getAttackCoinPlan(state: GameState, attack: number | Attack): At
     (defenderFlipsToPrevent(state, defender) && attackCanAffectDefender(resolved)) ||
     (!!defender && !!getKnockOutRetaliation(state, defender) && attackCanDamageDefender(resolved));
   const opponentFlips = (resolved.effects ?? []).some((e) => e.coinFlip && e.coinFlippedBy === "opponent");
+  // Vermilion City Gym, only when the attacker opted in and the Stadium offers it
+  const stadiumCoin = options.vermilionCoin && stadiumOffersAttackCoin(state, attacker);
   return {
     smokescreen: smokescreenCoins(attacker),
     attack: coinFlipCountFor(attacker, resolved, state),
+    ...(stadiumCoin && { stadium: 1 }),
     defender: defenderCoin ? 1 : 0,
     ...(opponentFlips && { attackFlipper: "opponent" as const }),
   };
 }
 
-/** Flip the coins of a plan in order (smokescreen, the attack's own — until tails if so —, defender). */
+/** Flip the coins of a plan in order (smokescreen, the attack's own — until tails if so —, stadium, defender). */
 export function flipAttackCoins(plan: AttackCoinPlan, flip: () => CoinFlipResult): CoinFlipResult[] {
   const coins: CoinFlipResult[] = [];
   for (let i = 0; i < plan.smokescreen; i++) coins.push(flip());
@@ -3029,6 +3047,7 @@ export function flipAttackCoins(plan: AttackCoinPlan, flip: () => CoinFlipResult
   } else {
     for (let i = 0; i < plan.attack; i++) coins.push(flip());
   }
+  for (let i = 0; i < (plan.stadium ?? 0); i++) coins.push(flip());
   for (let i = 0; i < plan.defender; i++) coins.push(flip());
   return coins;
 }
@@ -3038,23 +3057,30 @@ function splitAttackCoins(
   plan: AttackCoinPlan,
   coins: CoinFlipResult[],
   attackName: string
-): { smokescreen: CoinFlipResult[]; attack: CoinFlipResult[]; defender: CoinFlipResult[] } {
+): { smokescreen: CoinFlipResult[]; attack: CoinFlipResult[]; stadium: CoinFlipResult[]; defender: CoinFlipResult[] } {
   const fail = (expected: string): never => {
     throw new Error(`executeAttack: "${attackName}" needs ${expected} coin result(s) (getAttackCoinPlan), got ${coins.length}`);
   };
+  const stadiumCount = plan.stadium ?? 0;
+  const after = stadiumCount + plan.defender;
   const smokescreen = coins.slice(0, plan.smokescreen);
   const rest = coins.slice(plan.smokescreen);
   let attackCount: number;
   if (plan.attack === "untilTails") {
     const tailsAt = rest.indexOf("tails");
-    if (tailsAt === -1) fail(`${plan.smokescreen} + a run ending in tails + ${plan.defender}`);
+    if (tailsAt === -1) fail(`${plan.smokescreen} + a run ending in tails + ${after}`);
     attackCount = tailsAt + 1;
-    if (rest.length !== attackCount + plan.defender) fail(`${plan.smokescreen} + ${attackCount} (until tails) + ${plan.defender}`);
+    if (rest.length !== attackCount + after) fail(`${plan.smokescreen} + ${attackCount} (until tails) + ${after}`);
   } else {
     attackCount = plan.attack;
-    if (coins.length !== plan.smokescreen + attackCount + plan.defender) fail(String(plan.smokescreen + attackCount + plan.defender));
+    if (coins.length !== plan.smokescreen + attackCount + after) fail(String(plan.smokescreen + attackCount + after));
   }
-  return { smokescreen, attack: rest.slice(0, attackCount), defender: rest.slice(attackCount) };
+  return {
+    smokescreen,
+    attack: rest.slice(0, attackCount),
+    stadium: rest.slice(attackCount, attackCount + stadiumCount),
+    defender: rest.slice(attackCount + stadiumCount),
+  };
 }
 
 /**
@@ -3065,11 +3091,11 @@ function splitAttackCoins(
  *   used through Metronome (the copied attack; Energy-based counts use the Metronome user).
  * @returns 0 when the attack has no coin effects (or there is no active Pokémon/attack).
  */
-export function getAttackCoinFlipCount(state: GameState, attack: number | Attack): number {
-  const plan = getAttackCoinPlan(state, attack);
+export function getAttackCoinFlipCount(state: GameState, attack: number | Attack, options: AttackCoinOptions = {}): number {
+  const plan = getAttackCoinPlan(state, attack, options);
   // "untilTails" (Stone Barrage) has no fixed count: the minimum (tails at once) is returned;
   // callers must use getAttackCoinPlan + flipAttackCoins for those
-  return plan.smokescreen + (plan.attack === "untilTails" ? 1 : plan.attack) + plan.defender;
+  return plan.smokescreen + (plan.attack === "untilTails" ? 1 : plan.attack) + (plan.stadium ?? 0) + plan.defender;
 }
 
 /**
@@ -3352,7 +3378,11 @@ function executeAttackUnchecked(
 
   // Coin flips: in the options form the engine resolves coin effects from the caller's coins,
   // laid out as getAttackCoinPlan says (Sand-attack/Smokescreen first, Transparency last).
-  const coinPlan = getAttackCoinPlan(gameState, printedAttack);
+  // Vermilion City Gym's optional coin: only when the Stadium offers it to this attacker
+  if (options?.vermilionCoin && !stadiumOffersAttackCoin(gameState, attacker)) {
+    throw new IllegalActionError("El Estadio en juego no ofrece una moneda a este Pokémon");
+  }
+  const coinPlan = getAttackCoinPlan(gameState, printedAttack, { vermilionCoin: options?.vermilionCoin });
   const allCoins = options ? (options.coinResults ?? []) : undefined;
   const splitCoins = allCoins ? splitAttackCoins(coinPlan, allCoins, printedAttack.name) : undefined;
   if (splitCoins && splitCoins.smokescreen.length > 0) {
@@ -3376,10 +3406,22 @@ function executeAttackUnchecked(
   const coinResolution = coinResults && coinResults.length > 0
     ? resolveCoinFlipEffects(printedAttack.effects ?? [], coinResults)
     : null;
-  const attack: Attack = expandNamedDamage(
+  const expandedAttack: Attack = expandNamedDamage(
     coinResolution ? { ...printedAttack, effects: coinResolution.effects } : printedAttack,
     attacker.pokemon.name
   );
+  // The Stadium's coin the attacker opted into (Vermilion City Gym): heads adds damage below,
+  // tails = damage to the attacker besides whatever the attack does (the self-damage effect)
+  const stadiumCoin = splitCoins?.stadium[0];
+  const attack: Attack = stadiumCoin === "tails"
+    ? {
+        ...expandedAttack,
+        effects: [
+          ...(expandedAttack.effects ?? []),
+          { type: AttackEffectType.SelfDamage, target: AttackTarget.Self, amount: VERMILION_COIN_DAMAGE } as AttackEffect,
+        ],
+      }
+    : expandedAttack;
   // The defending side's coin, last in the list: Transparency (Haunter) or Final Beam (Dark Gyarados)
   const defenderCoin = splitCoins?.defender[0];
   const defenderPowerType = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.type : undefined;
@@ -3493,6 +3535,12 @@ function executeAttackUnchecked(
     damage = Math.max(0, damage - 30);
   }
 
+  // Vermilion City Gym heads: 10 more if the attack does damage to the Defending Pokémon
+  // after Weakness and Resistance (like PlusPower)
+  if (stadiumCoin === "heads" && damage > 0) {
+    damage += VERMILION_COIN_DAMAGE;
+  }
+
   // Aplicar bonus de PlusPower (después de debilidad/resistencia, según reglas TCG)
   // PlusPower only adds damage if the attack does damage to the defending Pokemon after
   // Weakness and Resistance (10 vs Resistance = 0: no PlusPower)
@@ -3565,6 +3613,11 @@ function executeAttackUnchecked(
   if (coinResolution && coinResults) {
     const tokens = coinResults.map((r) => `[coin:${r}]`).join(" ");
     events.push(createGameEvent(coinResults.length === 1 ? `Moneda: ${tokens}` : `Monedas: ${tokens}`, "info"));
+  }
+
+  // The Stadium's coin (Vermilion City Gym), after the attack's own coins
+  if (stadiumCoin) {
+    events.push(createGameEvent(`${gameState.stadium?.card.name ?? "Estadio"} - Moneda: [coin:${stadiumCoin}]`, "info"));
   }
 
   // Add deferred messages for next-turn effects (computed before events array was created)

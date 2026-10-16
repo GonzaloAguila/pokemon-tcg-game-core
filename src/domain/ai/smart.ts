@@ -11,7 +11,9 @@
  *    Fossil / Team Rocket ones of cardEffects.planHandChange).
  * 3. Bench Basics in order of value; with bench snipers around, weak Basics that would only
  *    give away Prizes stay in the hand once the Bench has 3 Pokémon.
- * 4. Evolve (Pokémon Breeder first), choosing the target with the most Energy / the Active.
+ * 4. Evolve (Pokémon Breeder first), choosing the target with the most Energy / the Active;
+ *    then the Stadium's action (Celadon City Gym) on an Active that can't attack
+ *    (cardEffects.planStadiumAction).
  * 5. Tactics: every combination of pivot (stay / retreat / Switch), one Energy attachment
  *    (type-aware, toward an attacker that can use it) and Gust of Wind is scored analytically:
  *    this turn's attack (Weakness, Resistance, coins by expected value), the opponent's
@@ -21,7 +23,8 @@
  *    position after the planned attack improves.
  * 7. Professor Oak / Imposter Professor Oak at the end when worth it (hand change: no attack).
  * 8. Attack: the attack with the best expected evaluation, simulated with the engine for every
- *    coin outcome (confusion included); PlusPower only when it raises the Knock Out chance; no
+ *    coin outcome (confusion included; Vermilion City Gym's optional coin is one more way to
+ *    attack, taken only when its expectation is better); PlusPower only when it raises the Knock Out chance; no
  *    attack when attacking is worse (self Knock Out handing over the last Prize...).
  */
 
@@ -70,7 +73,8 @@ import {
   prizesFor,
   type Threat,
 } from "./evaluate";
-import { canAffordDraws, planHandChange, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
+import { canAffordDraws, planHandChange, planStadiumAction, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
+import { canUseVermilionCoin } from "@/domain/stadiums/rules";
 import { resolveOwnAttackPendings } from "./pending";
 import { choosePromotion } from "./choices";
 import { basicHp, getBasicPokemonInHand } from "./actions";
@@ -148,6 +152,10 @@ function planTurn(state: GameState): AIAction[] {
 
   benchBasics(plan);
   evolveAll(plan);
+
+  // The Stadium's action (Celadon City Gym) cures an Active that can't attack (evolving cured it already)
+  const stadiumAction = planStadiumAction(plan.view);
+  if (stadiumAction) plan.tryAdd(stadiumAction);
 
   const stepIn = planStepIn(plan.view);
   if (stepIn) plan.tryAdd(stepIn);
@@ -779,12 +787,15 @@ function useCurse(plan: Plan): void {
 // 6. Other Trainers, judged by the position after the planned attack
 // ============================================================================
 
-/** One way to attack this turn: the attack, the copied attack (Metronome) or the chosen type (Conversion). */
-type AttackChoice = { index: number; copied?: Attack; chosenType?: EnergyType };
+/**
+ * One way to attack this turn: the attack, the copied attack (Metronome) or the chosen type
+ * (Conversion), with or without Vermilion City Gym's optional coin.
+ */
+type AttackChoice = { index: number; copied?: Attack; chosenType?: EnergyType; vermilionCoin?: boolean };
 
 /** Coin lists of an attack's plan with their probability (every outcome, never a peeked coin). */
-function coinScenarios(v: GameState, attack: number | Attack): { p: number; coins: CoinFlipResult[] }[] {
-  const plan = getAttackCoinPlan(v, attack);
+function coinScenarios(v: GameState, attack: number | Attack, vermilionCoin = false): { p: number; coins: CoinFlipResult[] }[] {
+  const plan = getAttackCoinPlan(v, attack, { vermilionCoin });
   let scenarios: { p: number; coins: CoinFlipResult[] }[] = [{ p: 1, coins: [] }];
   const extend = (options: { p: number; coins: CoinFlipResult[] }[]) => {
     scenarios = scenarios.flatMap((s) => options.map((o) => ({ p: s.p * o.p, coins: [...s.coins, ...o.coins] })));
@@ -810,6 +821,7 @@ function coinScenarios(v: GameState, attack: number | Attack): { p: number; coin
     }
     extend(options);
   }
+  for (let i = 0; i < (plan.stadium ?? 0); i++) extend(oneCoin);
   for (let i = 0; i < plan.defender; i++) extend(oneCoin);
   return scenarios;
 }
@@ -845,8 +857,10 @@ function attackChoices(v: GameState): AttackChoice[] {
     }
     if (canExecuteAttack(v, index) !== null) return;
     const types = conversionTypes(v, attack);
-    if (types.length === 0) choices.push({ index });
-    for (const chosenType of types) choices.push({ index, chosenType });
+    const own: AttackChoice[] = types.length === 0 ? [{ index }] : types.map((chosenType) => ({ index, chosenType }));
+    // Vermilion City Gym: each way also with the Stadium's coin (judged on every outcome like the rest)
+    const withCoin = canUseVermilionCoin(v, index) === null ? own.map((c) => ({ ...c, vermilionCoin: true })) : [];
+    choices.push(...own, ...withCoin);
   });
   return choices;
 }
@@ -855,11 +869,15 @@ function attackChoices(v: GameState): AttackChoice[] {
 function attackValue(v: GameState, choice: AttackChoice): number | null {
   let value = 0;
   try {
-    for (const scenario of coinScenarios(v, choice.copied ?? choice.index)) {
+    for (const scenario of coinScenarios(v, choice.copied ?? choice.index, !!choice.vermilionCoin)) {
       const options = { coinResults: scenario.coins, skipEndTurn: true, skipDefenderPromotion: true };
       const after = choice.copied
         ? executeMetronome(v, choice.copied, options)
-        : executeAttack(v, choice.index, { ...options, ...(choice.chosenType && { chosenType: choice.chosenType }) });
+        : executeAttack(v, choice.index, {
+            ...options,
+            ...(choice.chosenType && { chosenType: choice.chosenType }),
+            ...(choice.vermilionCoin && { vermilionCoin: true }),
+          });
       value += scenario.p * evaluateBoard(resolveOwnAttackPendings(after));
     }
   } catch {
@@ -987,6 +1005,7 @@ function finishWithAttack(plan: Plan): AIAction[] {
       attackIndex: choice.index,
       ...(choice.copied && { copiedAttackName: choice.copied.name }),
       ...(choice.chosenType && { chosenType: choice.chosenType }),
+      ...(choice.vermilionCoin && { vermilionCoin: true }),
       delay: 1000,
     },
   ];

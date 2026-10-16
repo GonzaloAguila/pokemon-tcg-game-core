@@ -28,6 +28,7 @@ export type {
   PendingAttackChoice,
   AttackChoiceContext,
   AttackCoinPlan,
+  AttackCoinOptions,
   PendingPowerChoice,
   OnPlayPowerDef,
   RetreatOptions,
@@ -143,6 +144,9 @@ export {
   stadiumIgnoresResistance,
   stadiumExtraTrainerDiscards,
   stadiumBenchLimit,
+  stadiumOffersAttackCoin,
+  canUseVermilionCoin,
+  VERMILION_COIN_DAMAGE,
 } from "./domain/stadiums/rules";
 
 // =============================================================================
@@ -272,6 +276,12 @@ export {
   getPowerCoinFlippers,
   usePokemonPower,
   getUsablePowerPokemonIds,
+  STADIUM_ACTIONS,
+  getStadiumActions,
+  canUseStadiumAction,
+  getStadiumActionSteps,
+  getStadiumActionCoinFlips,
+  useStadiumAction,
   checkSelection,
   minSelectionsOf,
   stepForAnswerer,

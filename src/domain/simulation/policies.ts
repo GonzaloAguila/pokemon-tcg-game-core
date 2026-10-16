@@ -51,6 +51,10 @@ import {
   minSelectionsOf,
   playTrainerCard,
   usePokemonPower,
+  canUseStadiumAction,
+  getStadiumActionCoinFlips,
+  getStadiumActionSteps,
+  useStadiumAction,
   type CoinFlipRequirement,
   type SelectionStep,
 } from "@/domain/effects";
@@ -67,6 +71,7 @@ import {
 } from "@/domain/ai";
 import { getEffectivePokemonCard } from "@/domain/powers";
 import { maxBenchSize, swapSides } from "@/domain/board";
+import { canUseVermilionCoin } from "@/domain/stadiums/rules";
 import { flipCoin, pick, pickSome, randomInt, shuffled, type Rng } from "./rng";
 
 /** One action for the acting side, applied to ITS view (actor = "player"). */
@@ -185,6 +190,24 @@ export function powerAction(pokemon: PokemonInPlay, rng: Rng, answer: (step: Sel
   };
 }
 
+/** The action of the Stadium in play (Celadon City Gym), with its coins and answers. */
+export function stadiumAction(view: GameState, rng: Rng, answer: (step: SelectionStep) => string[] | null): ViewAction {
+  return {
+    label: `useStadium ${view.stadium?.card.name ?? "?"}`,
+    run: (v) => {
+      const coins = flipFor(getStadiumActionCoinFlips(v), rng);
+      return runEffectWithAnswers(
+        v,
+        rng,
+        answer,
+        coins,
+        (selections) => getStadiumActionSteps(v, selections, coins.length > 0 ? coins : undefined),
+        (selections) => useStadiumAction(v, selections, { coinResults: coins })
+      );
+    },
+  };
+}
+
 const isCopyAttack = (attack: Attack) => attack.effects?.some((e) => e.type === AttackEffectType.CopyAttack) ?? false;
 
 /**
@@ -198,9 +221,9 @@ export function attackName(view: GameState, attackIndex: number): string {
   return card ? `${card.name}: ${card.attacks[attackIndex]?.name ?? `#${attackIndex}`}` : `#${attackIndex}`;
 }
 
-export function attackAction(attackIndex: number, rng: Rng, name = `#${attackIndex}`): ViewAction {
+export function attackAction(attackIndex: number, rng: Rng, name = `#${attackIndex}`, { vermilionCoin = false } = {}): ViewAction {
   return {
-    label: `attack ${name}`,
+    label: `attack ${name}${vermilionCoin ? " +stadium coin" : ""}`,
     run: (view) => {
       let state = view;
       const active = state.playerActivePokemon!;
@@ -218,8 +241,15 @@ export function attackAction(attackIndex: number, rng: Rng, name = `#${attackInd
         const coins = flipAttackCoins(getAttackCoinPlan(state, copied), () => flipCoin(rng));
         return executeMetronome(state, copied, { coinResults: coins, skipEndTurn: true, skipDefenderPromotion: true });
       }
-      const coins = flipAttackCoins(getAttackCoinPlan(state, attackIndex), () => flipCoin(rng));
-      return executeAttack(state, attackIndex, { coinResults: coins, skipEndTurn: true, skipDefenderPromotion: true });
+      // Vermilion City Gym's optional coin (still offered after the confusion flip)
+      const withCoin = vermilionCoin && canUseVermilionCoin(state, attackIndex) === null;
+      const coins = flipAttackCoins(getAttackCoinPlan(state, attackIndex, { vermilionCoin: withCoin }), () => flipCoin(rng));
+      return executeAttack(state, attackIndex, {
+        coinResults: coins,
+        skipEndTurn: true,
+        skipDefenderPromotion: true,
+        ...(withCoin && { vermilionCoin: true }),
+      });
     },
   };
 }
@@ -299,13 +329,17 @@ export function legalActions(view: GameState, rng: Rng, answer: (step: Selection
       add("discardFromPlay", { label: `discardFromPlay ${pokemon.pokemon.name}`, run: (v) => discardFromPlay(v, pokemon.pokemon.id) });
     }
   }
+  if (canUseStadiumAction(view) === null) add("stadium", stadiumAction(view, rng, answer));
   const retreat = retreatAction(view, rng);
   if (retreat) add("retreat", retreat);
   const active = view.playerActivePokemon;
   const activeCard = active ? getEffectivePokemonCard(view, active) : undefined;
   if (activeCard) {
     activeCard.attacks.forEach((_, index) => {
-      if (canExecuteAttack(view, index) === null) add("attack", attackAction(index, rng, attackName(view, index)));
+      if (canExecuteAttack(view, index) !== null) return;
+      add("attack", attackAction(index, rng, attackName(view, index)));
+      // Vermilion City Gym: the same attack with the Stadium's optional coin
+      if (canUseVermilionCoin(view, index) === null) add("attack", attackAction(index, rng, attackName(view, index), { vermilionCoin: true }));
     });
   }
   return categories;
@@ -363,7 +397,7 @@ export function createGreedyPolicy(
   };
   const toAiView = (view: GameState) => swapSides(view);
   const aiViewAction = (action: AIAction, view?: GameState): ViewAction => ({
-    label: `greedy ${action.type}${"trainerName" in action ? ` ${action.trainerName}` : ""}${"powerName" in action ? ` ${action.powerName}` : ""}${
+    label: `greedy ${action.type}${"trainerName" in action ? ` ${action.trainerName}` : ""}${"powerName" in action ? ` ${action.powerName}` : ""}${"stadiumName" in action ? ` ${action.stadiumName}` : ""}${
       action.type === "attack" && view ? ` ${attackName(view, action.attackIndex)}` : ""
     }`,
     run: (view) => swapSides(executeAIAction(toAiView(view), action)),

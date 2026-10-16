@@ -29,6 +29,7 @@ import {
 } from "@/domain/board";
 import { ACTIVATED_POWER_TYPES, minSelectionsOf, type SelectionStep } from "@/domain/effects";
 import { getEffectivePokemonCard } from "@/domain/powers";
+import { canUseVermilionCoin } from "@/domain/stadiums/rules";
 import { attackAction, attackName, legalActions, retreatTo, type Policy, type ViewAction } from "./policies";
 import { pick, randomInt, shuffled, type Rng } from "./rng";
 
@@ -177,12 +178,13 @@ export function createExplorePolicy(memory: ExploreMemory): Policy {
 
   const optionalKey = (label: string) => label.replace(/ \(.*\)$/, "");
 
-  /** Trainers, powers, discards from play: the least used one, taken with a novelty probability */
+  /** Trainers, powers, the Stadium's action, discards from play: the least used one, taken with a novelty probability */
   const optionalAction = (view: GameState, rng: Rng, categories: Record<string, ViewAction[]>): ViewAction | null => {
     if (doneWithOptional) return null;
     const candidates = [
       ...(categories.trainer ?? []),
       ...(categories.power ?? []),
+      ...(categories.stadium ?? []),
       ...(categories.discardFromPlay ?? []),
       ...(categories.bench ?? []).filter((a) => a.label.startsWith("benchTrainer ")),
     ].filter((a) => (usesThisTurn.get(optionalKey(a.label)) ?? 0) < OPTIONAL_REPEATS_PER_TURN);
@@ -222,7 +224,9 @@ export function createExplorePolicy(memory: ExploreMemory): Policy {
       heldThisTurn = true;
       return null;
     }
-    return attackAction(best.index, rng, attackName(view, best.index));
+    // Vermilion City Gym's optional coin, half the time it is offered
+    const vermilionCoin = canUseVermilionCoin(view, best.index) === null && rng() < 0.5;
+    return attackAction(best.index, rng, attackName(view, best.index), { vermilionCoin });
   };
 
   const answer = (step: SelectionStep, rng: Rng): string[] | null => {
@@ -266,7 +270,7 @@ export function createExplorePolicy(memory: ExploreMemory): Policy {
       const bench = (categories.bench ?? []).filter((a) => !a.label.startsWith("benchTrainer "));
       if (bench.length > 0) return pick(rng, bench);
       // Something the run never did (a Trainer, a power...) goes first
-      const novel = [...(categories.trainer ?? []), ...(categories.power ?? []), ...(categories.discardFromPlay ?? [])].filter(
+      const novel = [...(categories.trainer ?? []), ...(categories.power ?? []), ...(categories.stadium ?? []), ...(categories.discardFromPlay ?? [])].filter(
         (a) => memory.count(optionalKey(a.label)) === 0 && (usesThisTurn.get(optionalKey(a.label)) ?? 0) === 0
       );
       if (novel.length > 0) {
