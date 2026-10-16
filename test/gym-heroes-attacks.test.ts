@@ -1200,6 +1200,15 @@ describe("Gym Heroes attacks, card by card", () => {
     expect(dmg(attack(vs(gym(77), dummy({ energy: [Water, Water] })), "Médium"))).toBe(30);
   });
 
+  it("Base Set Mewtwo's Médium (same text, owner decision): +10 per Energy card on the Defending Pokémon", () => {
+    const mewtwo = inPlay("Mewtwo");
+    expect([mewtwo.pokemon.set, mewtwo.pokemon.number]).toEqual(["Base Set", 10]);
+    expect(dmg(attack(vs(mewtwo, dummy()), "Médium"))).toBe(10);
+    expect(dmg(attack(vs(mewtwo, dummy({ energy: [Water, Water] })), "Médium"))).toBe(30);
+    // Energy cards, not units: a Double Colorless Energy counts once
+    expect(dmg(attack(vs(mewtwo, dummy({ energy: [EnergyType.Colorless] })), "Médium"))).toBe(20);
+  });
+
   it("#78 Secar / Esponja Esporádica: 1 counter off (with heads for the second)", () => {
     expect(attack(vs(gym(78, { damage: 20 }), dummy()), "Secar").playerActivePokemon!.currentDamage).toBe(10);
     expect(attack(vs(gym(78, { damage: 20 }), dummy()), "Esponja Esporádica", [H]).playerActivePokemon!.currentDamage).toBe(10);

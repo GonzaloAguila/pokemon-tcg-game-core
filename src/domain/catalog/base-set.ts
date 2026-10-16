@@ -387,9 +387,12 @@ export const baseSetCards: Card[] = [
         {
           name: "Médium",
           cost: [EnergyType.Psychic, EnergyType.Colorless],
-          damage: 10,
+          damage: "10+",
           text:
             "Hace 10 de daño más 10 puntos más por cada carta de Energía unida al Pokémon a la defensa.",
+          effects: [
+            { type: AttackEffectType.BonusDamage, target: AttackTarget.Defender, amount: 10, bonusDamageSource: "defenderEnergyCards" },
+          ],
         },
         {
           name: "Barrera",
