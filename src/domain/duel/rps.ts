@@ -7,14 +7,16 @@
  * with `submitDuelPick(state, side, pick)` — on any view, off-turn included; the round resolves
  * when both picks are in: a tie replays it (`round + 1`, `lastRound` keeps the tied picks for the
  * UI), otherwise the winner shuffles its hand into its deck and draws 5 (fewer when the deck is
- * shorter: no loss, only the draw at the start of the turn loses) and `pendingDuel` is cleared.
+ * shorter: no loss, only the draw at the start of the turn loses), `pendingDuel` is cleared and
+ * `state.lastDuel` keeps both picks and the winner (public: never masked) until the end of the turn.
  * While it is set nothing else can happen (getTurnActionBlocker, endTurn refuses).
  *
  * Who played it is the side whose turn it is (`isPlayerTurn`: relative, flipped by every swap;
  * the duel can't outlive the turn). The picks are relative too: every perspective swap flips them
- * (`swapPendingDuel`: board swapSides and the AI executor's views). Hidden information: a side
- * must not see the other's pick before both are in — consumers send each player
- * `maskDuelFor(view, "player")` (MP), and the AI's knowledge view hides it.
+ * (`swapPendingDuel` / `swapLastDuel`: board swapSides and the AI executor's views). Hidden
+ * information: a side must not see the other's pick before both are in — consumers send each
+ * player `maskDuelFor(view, "player")` (MP; it keeps whether the other side already picked:
+ * `opponentPicked`), and the AI's knowledge view hides it.
  *
  * Consumers:
  * - Single-player: whenever `pendingDuel` is set (the human or the AI played it), show the duel
@@ -23,8 +25,9 @@
  *   { otherPlayerDuels: true })`; after the duel the AI's turn goes on (ask decideOpponentTurn
  *   again, as after any hand change).
  * - Multiplayer: each player's `duelPick` → `submitDuelPick(state, thatPlayersSide, pick)`; send
- *   each player its view masked with `maskDuelFor`. The final picks of a decisive round are in
- *   the log ("Misty's Duel: piedra contra tijera") and known to the server.
+ *   each player its view masked with `maskDuelFor`. A decisive round's picks and winner are in
+ *   `state.lastDuel` (both modes; also in the log: "Misty's Duel: piedra contra tijera"). A
+ *   timed-out pick (answer clock) is the server's `aiDuelPick()`.
  *
  * Log lines are perspective-free: "Misty's Duel: <pick of whoever played it> contra <the other's>",
  * then "Misty's Duel: empate, se juega otra vez" or "Gana quien eligió <pick>: …".
@@ -53,6 +56,22 @@ export type PendingDuel = {
   opponentPick: RpsChoice | null;
   /** The previous round's picks (a tie), for the UI */
   lastRound?: { playerPick: RpsChoice; opponentPick: RpsChoice };
+  /**
+   * Only in a view masked by `maskDuelFor` (never in the real state): whether each side has
+   * picked this round — the hidden pick is null there, its `…Picked` flag says it is in.
+   */
+  playerPicked?: boolean;
+  opponentPicked?: boolean;
+};
+
+/**
+ * The last decisive round of Misty's Duel this turn (`state.lastDuel`): both picks and the
+ * winner, relative to the state's perspective (swapped by every swap). Public once resolved:
+ * never masked. Cleared by endTurn and when another duel starts.
+ */
+export type LastDuel = {
+  picks: { player: RpsChoice; opponent: RpsChoice };
+  winner: Side;
 };
 
 type Side = "player" | "opponent";
@@ -70,10 +89,11 @@ export function aiDuelPick(random: () => number = Math.random): RpsChoice {
   return RPS_CHOICES[Math.min(RPS_CHOICES.length - 1, Math.floor(random() * RPS_CHOICES.length))];
 }
 
-/** Misty's Duel was just played: round 1, no picks. */
+/** Misty's Duel was just played: round 1, no picks (an earlier duel's result this turn is dropped). */
 export function startDuel(state: GameState): GameState {
+  const { lastDuel: _previous, ...rest } = state;
   return {
-    ...state,
+    ...rest,
     pendingDuel: { round: 1, playerPick: null, opponentPick: null },
     events: [...state.events, createGameEvent("Misty's Duel: piedra, papel o tijera", "info")],
   };
@@ -87,19 +107,37 @@ export function swapPendingDuel(duel: PendingDuel | undefined): PendingDuel | un
     playerPick: duel.opponentPick,
     opponentPick: duel.playerPick,
     ...(duel.lastRound && { lastRound: { playerPick: duel.lastRound.opponentPick, opponentPick: duel.lastRound.playerPick } }),
+    ...(duel.opponentPicked !== undefined && { playerPicked: duel.opponentPicked }),
+    ...(duel.playerPicked !== undefined && { opponentPicked: duel.playerPicked }),
   };
+}
+
+/** The same result seen from the other side (swapSides). Absent stays absent. */
+export function swapLastDuel(last: LastDuel | undefined): LastDuel | undefined {
+  if (!last) return last;
+  return { picks: { player: last.picks.opponent, opponent: last.picks.player }, winner: last.winner === "player" ? "opponent" : "player" };
 }
 
 /**
  * `state` as `viewer` may see it: the other side's pick of the current round hidden (null) until
- * both are in (in practice always: a round resolves as soon as both picked). `lastRound` stays.
+ * both are in (in practice always: a round resolves as soon as both picked), and
+ * `playerPicked` / `opponentPicked` set for both sides (so the viewer knows whether the other
+ * side already picked, not what). `lastRound` and `state.lastDuel` stay (public).
  */
 export function maskDuelFor(state: GameState, viewer: Side): GameState {
   const duel = state.pendingDuel;
   if (!duel) return state;
   const hidden = viewer === "player" ? "opponentPick" : "playerPick";
-  if (duel[hidden] === null || (duel.playerPick !== null && duel.opponentPick !== null)) return state;
-  return { ...state, pendingDuel: { ...duel, [hidden]: null } };
+  const bothIn = duel.playerPick !== null && duel.opponentPick !== null;
+  return {
+    ...state,
+    pendingDuel: {
+      ...duel,
+      ...(!bothIn && { [hidden]: null }),
+      playerPicked: duel.playerPick !== null,
+      opponentPicked: duel.opponentPick !== null,
+    },
+  };
 }
 
 /** null when `side` can pick now, else the Spanish reason. */
@@ -119,7 +157,9 @@ export function canSubmitDuelPick(state: GameState, side: Side): string | null {
 export function submitDuelPick(state: GameState, side: Side, pick: RpsChoice): GameState {
   assertLegal(canSubmitDuelPick(state, side));
   assertLegal(RPS_CHOICES.includes(pick) ? null : "Elige piedra, papel o tijera");
-  const duel = { ...state.pendingDuel!, [side === "player" ? "playerPick" : "opponentPick"]: pick };
+  // A masked view's flags never go back into the real state
+  const { playerPicked: _p, opponentPicked: _o, ...current } = state.pendingDuel!;
+  const duel = { ...current, [side === "player" ? "playerPick" : "opponentPick"]: pick };
   if (duel.playerPick === null || duel.opponentPick === null) return { ...state, pendingDuel: duel };
   return resolveRound(state, duel.playerPick, duel.opponentPick, duel.round);
 }
@@ -148,6 +188,7 @@ function resolveRound(state: GameState, playerPick: RpsChoice, opponentPick: Rps
   const { pendingDuel: _done, ...rest } = state;
   return {
     ...rest,
+    lastDuel: { picks: { player: playerPick, opponent: opponentPick }, winner },
     ...(winner === "player" ? { playerHand: hand, playerDeck: deck } : { opponentHand: hand, opponentDeck: deck }),
     events: [
       ...events,

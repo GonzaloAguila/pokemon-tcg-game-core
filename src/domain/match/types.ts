@@ -22,6 +22,7 @@ export type {
   BenchTrim,
   SetAsideHand,
   PendingDuel,
+  LastDuel,
   RpsChoice,
   GameState,
 } from "@/lib/gameState";

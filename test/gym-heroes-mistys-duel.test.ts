@@ -221,27 +221,76 @@ describe("Misty's Duel: perspective", () => {
     expect(swapSides(swapSides(s)).pendingDuel).toEqual(duel);
   });
 
-  it("maskDuelFor hides only the other side's pick; the last round stays visible", () => {
+  it("maskDuelFor hides only the other side's pick but says whether it picked; the last round stays visible", () => {
     const s = { ...playDuel(), pendingDuel: duel };
-    expect(maskDuelFor(s, "player").pendingDuel).toEqual(duel);
-    expect(maskDuelFor(s, "opponent").pendingDuel).toEqual({ ...duel, playerPick: null });
-    expect(maskDuelFor(swapSides(s), "player").pendingDuel).toEqual({ ...swapped, opponentPick: null });
+    const flags = { playerPicked: true, opponentPicked: false };
+    expect(maskDuelFor(s, "player").pendingDuel).toEqual({ ...duel, ...flags });
+    expect(maskDuelFor(s, "opponent").pendingDuel).toEqual({ ...duel, ...flags, playerPick: null });
+    expect(maskDuelFor(swapSides(s), "player").pendingDuel).toEqual({ ...swapped, opponentPick: null, playerPicked: false, opponentPicked: true });
     const none = playDuel();
     expect(maskDuelFor({ ...none, pendingDuel: undefined }, "player").pendingDuel).toBeUndefined();
+    expect(maskDuelFor(none, "player").pendingDuel).toEqual({ round: 1, playerPick: null, opponentPick: null, playerPicked: false, opponentPicked: false });
+  });
+
+  it("the rival picked: the masked view shows that it did, not what", () => {
+    const s = submitDuelPick(playDuel(), "opponent", "scissors");
+    const masked = maskDuelFor(s, "player").pendingDuel!;
+    expect(masked.opponentPick).toBeNull();
+    expect(masked.opponentPicked).toBe(true);
+    expect(masked.playerPicked).toBe(false);
+    expect(JSON.stringify(masked)).not.toContain("scissors");
+    // The real state never carries the flags; a masked view's flags don't leak back through a pick
+    expect(s.pendingDuel).not.toHaveProperty("opponentPicked");
+    expect(submitDuelPick({ ...s, pendingDuel: { ...s.pendingDuel!, playerPicked: false } }, "player", "rock").pendingDuel).toBeUndefined();
   });
 
   it("the AI's knowledge view never shows the other side's pick", () => {
     const s = { ...playDuel(), pendingDuel: { round: 1, playerPick: null, opponentPick: "paper" as const } };
-    expect(knowledgeView(s).pendingDuel).toEqual({ round: 1, playerPick: null, opponentPick: null });
+    expect(knowledgeView(s).pendingDuel).toMatchObject({ round: 1, playerPick: null, opponentPick: null, opponentPicked: true });
   });
 
-  it("the AI executor's attack views swap the picks symmetrically (finishAIAttackAfterReaction round trip)", () => {
-    // The AI's turn in the human's view, the duel pending with asymmetric picks
-    const s: GameState = { ...swapSides(playDuel()), pendingDuel: duel };
+  it("the AI executor's attack views swap the picks and the result symmetrically (finishAIAttackAfterReaction round trip)", () => {
+    // The AI's turn in the human's view, the duel pending with asymmetric picks (pending keeps the turn going)
+    const last = { picks: { player: "rock" as const, opponent: "scissors" as const }, winner: "player" as const };
+    const s: GameState = { ...swapSides(playDuel()), pendingDuel: duel, lastDuel: last };
     expect(s.isPlayerTurn).toBe(false);
     const after = finishAIAttackAfterReaction(s);
     expect(after.pendingDuel).toEqual(duel);
+    expect(after.lastDuel).toEqual(last);
     expect(after.isPlayerTurn).toBe(false); // endTurn refused while pending
+  });
+});
+
+describe("Misty's Duel: lastDuel", () => {
+  it("a decisive round sets both picks and the winner; a tie doesn't", () => {
+    const tie = submitDuelPick(submitDuelPick(playDuel(), "player", "rock"), "opponent", "rock");
+    expect(tie.lastDuel).toBeUndefined();
+    const won = submitDuelPick(submitDuelPick(tie, "player", "paper"), "opponent", "scissors");
+    expect(won.lastDuel).toEqual({ picks: { player: "paper", opponent: "scissors" }, winner: "opponent" });
+    // Public once resolved: masking leaves it
+    expect(maskDuelFor(won, "player").lastDuel).toEqual(won.lastDuel);
+  });
+
+  it("relative to the view that resolved it, and swapped by swapSides (twice = same)", () => {
+    const before = playDuel();
+    // The other player resolves the round on its own view
+    const resolved = submitDuelPick(swapSides(submitDuelPick(before, "player", "rock")), "player", "paper");
+    expect(resolved.lastDuel).toEqual({ picks: { player: "paper", opponent: "rock" }, winner: "player" });
+    expect(swapSides(resolved).lastDuel).toEqual({ picks: { player: "rock", opponent: "paper" }, winner: "opponent" });
+    expect(swapSides(swapSides(resolved)).lastDuel).toEqual(resolved.lastDuel);
+  });
+
+  it("cleared at the end of the turn and when another duel starts", () => {
+    const won = submitDuelPick(submitDuelPick(playDuel(), "player", "rock"), "opponent", "scissors");
+    expect(won.lastDuel).toBeDefined();
+    const ended = endTurn(won);
+    expect(ended.turnNumber).toBe(won.turnNumber + 1);
+    expect(ended.lastDuel).toBeUndefined();
+    // A second Misty's Duel the same turn
+    const card = duelCard();
+    const again = playTrainerCard({ ...won, playerHand: [card, ...won.playerHand] }, card.id);
+    expect(again.lastDuel).toBeUndefined();
+    expect(again.pendingDuel).toEqual({ round: 1, playerPick: null, opponentPick: null });
   });
 });
 

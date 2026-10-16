@@ -53,8 +53,8 @@ import { checkCoins } from "@/domain/effects/validate";
 import { attachedTrainerNamed, expireAttachedTrainers, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
 import { returnSetAsideHand, type SetAsideHand } from "@/domain/trainers/set-aside";
 export type { SetAsideHand } from "@/domain/trainers/set-aside";
-import type { PendingDuel } from "@/domain/duel/rps";
-export type { PendingDuel, RpsChoice } from "@/domain/duel/rps";
+import type { LastDuel, PendingDuel } from "@/domain/duel/rps";
+export type { LastDuel, PendingDuel, RpsChoice } from "@/domain/duel/rps";
 import { isAttackChoiceEffect, matchesDeckCardFilter, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
 export { resolveAttackChoice, getAttackChoiceCoinPlan, isAttackChoiceEffect, matchesDeckCardFilter } from "./attackChoices";
 export type { AttackChoiceContext } from "./attackChoices";
@@ -426,6 +426,11 @@ export type GameState = {
    * in sync with domain/match/types.ts (re-export).
    */
   pendingDuel?: PendingDuel;
+  /**
+   * Misty's Duel: the last decisive round this turn (both picks, the winner; relative, swapped by
+   * swapSides; public). Cleared by endTurn and when another duel starts.
+   */
+  lastDuel?: LastDuel;
   /** BenchDamage: player needs to select bench Pokemon to receive damage */
   pendingBenchDamageSelection?: {
     /** Amount of damage to deal to each selected Pokemon */
@@ -2286,7 +2291,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   const newTurnNumber = currentTurn + 1;
   const events: GameEvent[] = [...gameState.events];
 
-  let updatedState: GameState = { ...gameState, pendingTypeShift: undefined, pendingPeek: undefined };
+  let updatedState: GameState = { ...gameState, pendingTypeShift: undefined, pendingPeek: undefined, lastDuel: undefined };
 
   // The end of the turn, before the between-turns checkup: the ending side's attached Trainers
   // leave (Charity back to the hand, Sabrina's ESP to the discard pile)
