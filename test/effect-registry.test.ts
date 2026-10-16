@@ -17,15 +17,17 @@ import {
 } from "@/domain/effects";
 import { ALL_CARDS } from "@/domain/catalog";
 import { IllegalActionError } from "@/shared/errors";
-import { EnergyType, StatusCondition, PokemonStage } from "@/domain/constants";
+import { EnergyType, StatusCondition, PokemonStage, TrainerType } from "@/domain/constants";
 import { makeState, inPlay, gameCard, energy, energies, deepFreeze, names } from "./helpers/state";
 
 const { Water, Fire, Grass, Lightning, Psychic } = EnergyType;
 
 describe("registry coverage", () => {
   it("every Trainer in the catalog has a TRAINER_EFFECTS entry (except the allow-list)", () => {
+    // Stadiums without an on-play effect need no entry: they fall back to playStadium
+    const isStadium = (name: string) => ALL_CARDS.some((c) => c.kind === "trainer" && c.name === name && c.trainerType === TrainerType.Stadium);
     const missing = catalogTrainerNames().filter(
-      (name) => !TRAINER_EFFECTS[name] && !UNSUPPORTED_TRAINERS.includes(name) && !isPlayedAsBasic(name)
+      (name) => !TRAINER_EFFECTS[name] && !UNSUPPORTED_TRAINERS.includes(name) && !isPlayedAsBasic(name) && !isStadium(name)
     );
     expect(missing).toEqual([]);
     expect(UNSUPPORTED_TRAINERS).toEqual([]);

@@ -31,7 +31,7 @@ import {
 } from "@/domain/effects";
 import type { CoinFlipResult } from "@/domain/constants";
 import { answerPowerStepForAI, answerTrainerStepForAI, collectAnswers } from "./cardEffects";
-import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker } from "@/domain/board";
+import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapStadium } from "@/domain/board";
 import { choosePromotion } from "./choices";
 import { knowledgeView } from "./knowledge";
 import { resolveOwnAttackPendings } from "./pending";
@@ -40,8 +40,8 @@ import { IllegalActionError } from "@/shared/errors";
 
 /**
  * Swap the "player"/"opponent" sides of a state (zones, prize/promotion flags, turn,
- * PlusPower/Defender ownership and the game result), so engine functions that act for
- * "player" can run for the AI.
+ * PlusPower/Defender ownership, the Stadium's player and the game result), so engine
+ * functions that act for "player" can run for the AI.
  */
 function swapSides(state: GameState): GameState {
   return {
@@ -68,6 +68,7 @@ function swapSides(state: GameState): GameState {
       playerId: m.playerId === "player" ? "opponent" as const : "player" as const,
     })),
     gameResult: state.gameResult === "victory" ? "defeat" : state.gameResult === "defeat" ? "victory" : state.gameResult,
+    ...(state.stadium !== undefined && { stadium: swapStadium(state.stadium) }),
   };
 }
 
@@ -229,6 +230,7 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
     playerNeedsToPromote: false, // Reset en el estado swapped
     opponentNeedsToPromote: false,
     activeModifiers: swappedModifiers,
+    ...(state.stadium !== undefined && { stadium: swapStadium(state.stadium) }),
   };
 
   // The AI flips the attack's coins; the engine resolves every coin effect.
@@ -328,6 +330,7 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
     playerNeedsToPromote,
     opponentNeedsToPromote: false,
     activeModifiers: finalModifiers,
+    ...(resultState.stadium !== undefined && { stadium: swapStadium(resultState.stadium) }),
     events: correctedEvents,
     // Swap game result (victory <-> defeat)
     gameResult: resultState.gameResult === "victory"

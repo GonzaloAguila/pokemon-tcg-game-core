@@ -22,6 +22,7 @@ export type { PokemonOwner } from "./domain/cards";
 export type {
   ExecuteAttackOptions,
   PowerSuppression,
+  StadiumInPlay,
   PendingResolutionOptions,
   PendingAttackChoice,
   AttackChoiceContext,
@@ -127,6 +128,9 @@ export {
   maxBenchSize,
   isBenchFull,
   swapSides,
+  // Gym Heroes Stadium in play
+  getStadium,
+  stadiumNamed,
 } from "./domain/board";
 
 // =============================================================================

@@ -4,10 +4,12 @@
  */
 
 import type { GameState } from "@/lib/gameState";
+import { swapStadium } from "./stadium";
 
 /**
  * Swap the "player"/"opponent" sides of a state: zones, ready/prize/promotion flags, turn
- * ownership, PlusPower/Defender owner, starting player and the game result. Swapping twice
+ * ownership, PlusPower/Defender owner, starting player, who played the Stadium and the game
+ * result. Swapping twice
  * returns an equal state. Pending attack flags (pendingForceSwitch...) and power prompts are
  * NOT swapped: they belong to the acting side and must be resolved in that perspective.
  */
@@ -39,5 +41,6 @@ export function swapSides(state: GameState): GameState {
       playerId: modifier.playerId === "player" ? ("opponent" as const) : ("player" as const),
     })),
     gameResult: state.gameResult === "victory" ? "defeat" : state.gameResult === "defeat" ? "victory" : state.gameResult,
+    ...(state.stadium !== undefined && { stadium: swapStadium(state.stadium) }),
   };
 }

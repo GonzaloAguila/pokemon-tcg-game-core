@@ -26,6 +26,7 @@ import { SPECIAL_ENERGY_ATTACH_EFFECTS, type OnAttachFromHand } from "./special-
 
 export { findInPlay, findOwnPokemon, allOwnPokemon, MAX_BENCH_SIZE } from "./locate";
 export { maxBenchSize, isBenchFull } from "./bench";
+export { getStadium, stadiumNamed, swapStadium } from "./stadium";
 export type { InPlayLocation } from "./locate";
 export { swapSides } from "./swap";
 

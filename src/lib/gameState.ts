@@ -154,6 +154,13 @@ export type PendingAttackChoice = {
   queue: AttackEffect[];
 };
 
+/**
+ * The Stadium card in play (Gym Heroes): shared by both players; `playedBy` is relative like
+ * every side of the state (swapSides flips it) and says whose discard pile it goes to when
+ * another Stadium replaces it. Plain data (serialized by the API).
+ */
+export type StadiumInPlay = { card: GameCard; playedBy: "player" | "opponent" };
+
 /** A timed "Pokémon Powers stop working" effect (see GameState.powersSuppressed). */
 export type PowerSuppression = {
   /** Card or attack that caused it, for log messages ("Goop Gas Attack") */
@@ -269,6 +276,11 @@ export type GameState = {
    * the game (read it with arePrizesRevealed; consumers must not hide the Prizes then).
    */
   prizesFaceUp?: boolean;
+  /**
+   * The Stadium in play (null / absent = none). Read it with getStadium / stadiumNamed; played
+   * with playTrainerCard (playStadium). Kept in sync with domain/match/types.ts (re-export).
+   */
+  stadium?: StadiumInPlay | null;
   /** Prize cards each player set aside at the start (startGame's prizeCount; 6 when absent). */
   prizeCount?: number;
   /**

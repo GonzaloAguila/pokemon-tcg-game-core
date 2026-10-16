@@ -74,6 +74,7 @@ Must stay `"module": "CommonJS"` in tsconfig (ESNext output breaks Node with `ER
 - **A special Energy**: card data (`provides`, `providesAllTypes`), and `SPECIAL_ENERGY_ATTACH_EFFECTS[name]` (board/special-energy.ts) for on-attach-from-hand effects (Knock Outs are checked after).
 - **A "when you play it from your hand" power**: `PokemonPowerType.OnPlayFromHand` on the card and an `ON_PLAY_POWERS[powerName]` entry (`step` / `resolve`, lib/powerChoices.ts); the board actions and Pokémon Breeder trigger it.
 - **A chosen-target attack** ("choose 1 of your opponent's Pokémon"): `ChooseTargetDamage` data (`targetScope`, `applyWeaknessResistance`, `switchWithDefender`, `suppressTargetPower`, `optionalEnergyDiscard`); the damage goes through `dealChosenTargetDamage` (PlusPower/Defender on the Active, Kabuto Armor, protection, Strikes Back, Mirror Shell, Destiny Bond, Final Beam).
+- **A Stadium**: card data with `trainerType: TrainerType.Stadium` is enough — every Stadium without a TRAINER_EFFECTS entry is played with `playStadium` (effects/stadiums.ts: stays in `state.stadium` `{ card, playedBy }`, a new one sends the old one to the discard pile of whoever played it, never two with the same name). Rules read it with `getStadium` / `stadiumNamed`; a Stadium with an on-play effect gets an entry that wraps `playStadium`.
 - **A "play as a Basic" Trainer**: `playsAsBasic: { hp }` on the card data (same rules as Mysterious Fossil); it needs no TRAINER_EFFECTS entry (`isPlayedAsBasic`).
 
 ## TCG rules to respect (classic era)

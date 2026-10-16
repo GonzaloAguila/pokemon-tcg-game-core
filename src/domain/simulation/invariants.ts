@@ -30,6 +30,8 @@ export function ownedCardIds(state: GameState, side: "player" | "opponent"): str
   for (const modifier of state.activeModifiers) {
     if (modifier.playerId === side) addCard(modifier.card);
   }
+  // The Stadium in play belongs to whoever played it (it goes to that discard pile)
+  if (state.stadium?.playedBy === side) addCard(state.stadium.card);
   return ids;
 }
 

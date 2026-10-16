@@ -21,7 +21,7 @@
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
 import { checkKnockouts } from "@/lib/gameState";
-import type { CoinFlipResult } from "@/domain/constants";
+import { TrainerType, type CoinFlipResult } from "@/domain/constants";
 import { isPokemonCard } from "@/domain/cards";
 import { canUsePower } from "@/domain/powers";
 import { findInPlay, getTrainerBlocker, getTurnActionBlocker } from "@/domain/board";
@@ -30,6 +30,7 @@ import type { CardEffectContext, CardEffectDef, CoinFlipper, CoinFlipRequirement
 import { checkCoins, checkSelections, coinRequirement } from "./validate";
 import { TRAINER_EFFECTS } from "./trainers";
 import { POWER_EFFECTS } from "./powers";
+import { playStadium } from "./stadiums";
 
 export type {
   SelectionOption,
@@ -41,6 +42,7 @@ export type {
 } from "./types";
 export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames, isPlayedAsBasic } from "./trainers";
 export { POWER_EFFECTS, ACTIVATED_POWER_TYPES } from "./powers";
+export { playStadium } from "./stadiums";
 export { checkSelection, minSelectionsOf, stepForAnswerer } from "./validate";
 
 // ============================================================================
@@ -73,7 +75,8 @@ function trainerDef(state: GameState, cardId: string): { def?: CardEffectDef; re
   if (!card) return { reason: "La carta no está en tu mano" };
   if (card.kind !== "trainer") return { reason: "Esa carta no es un Entrenador" };
   if (card.playsAsBasic) return { reason: `${card.name} se juega como un Pokémon Básico: ponlo en tu Banca` };
-  const def = TRAINER_EFFECTS[card.name];
+  // Stadiums without an on-play effect have no entry: they are all played the same way
+  const def = TRAINER_EFFECTS[card.name] ?? (card.trainerType === TrainerType.Stadium ? playStadium : undefined);
   if (!def) return { reason: `${card.name} todavía no se puede jugar` };
   return { def, reason: null };
 }
