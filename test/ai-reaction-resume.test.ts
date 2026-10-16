@@ -29,8 +29,10 @@ describe("finishAIAttackAfterReaction", () => {
   it("Flee: the human flees, the AI's attack completes and the turn passes to the human (log in the human's perspective)", () => {
     const machop = inPlay("Machop", { energy: [Fighting] });
     const abra = inPlay("Abra");
+    // The AI went first: the first-turn rules read startingPlayer, it must survive the resume
     const state = makeState({
       isPlayerTurn: false,
+      startingPlayer: "opponent",
       player: { active: gym("Misty's Tentacruel"), bench: [abra] },
       opponent: { active: machop },
     });
@@ -43,6 +45,7 @@ describe("finishAIAttackAfterReaction", () => {
 
     const done = humanAnswers(paused, [abra.pokemon.id]);
     expect(done.pendingAttackChoice).toBeUndefined();
+    expect(done.startingPlayer).toBe("opponent");
     expect(done.turnNumber).toBe(state.turnNumber + 1);
     expect(done.isPlayerTurn).toBe(true);
     expect(done.playerActivePokemon!.pokemon.name).toBe("Abra");
@@ -84,5 +87,23 @@ describe("finishAIAttackAfterReaction", () => {
     expect(log).toContain("El rival puede tomar un premio");
     expect(log).not.toContain("¡Puedes tomar un premio!");
     expect(log).not.toContain("El rival tomó un premio");
+    expect(done.startingPlayer).toBe(state.startingPlayer);
+  });
+
+  it("keeps the fields the AI's attack never swaps: startingPlayer and a pending Bench trim stay in the human's view", () => {
+    const machop = inPlay("Machop", { energy: [Fighting] });
+    const abra = inPlay("Abra");
+    for (const startingPlayer of ["player", "opponent"] as const) {
+      const state = makeState({ isPlayerTurn: false, startingPlayer, player: { active: gym("Misty's Tentacruel"), bench: [abra] }, opponent: { active: machop } });
+      const paused = executeAIAction(state, { type: "attack", attackIndex: attackIndex(machop, "Patada baja"), delay: 0 } as never);
+      const resolved = swapSides(resolveAttackChoice(swapSides(paused), [], { skipEndTurn: true }));
+      expect(finishAIAttackAfterReaction(resolved).startingPlayer).toBe(startingPlayer);
+      // A Bench trim the human owes (side "player" in the human's view) is kept as it is (and holds the turn)
+      const trim = [{ side: "player" as const, keep: 3 }];
+      const withTrim = finishAIAttackAfterReaction({ ...resolved, pendingBenchTrim: trim });
+      expect(withTrim.pendingBenchTrim).toEqual(trim);
+      expect(withTrim.startingPlayer).toBe(startingPlayer);
+      expect(withTrim.turnNumber).toBe(state.turnNumber);
+    }
   });
 });

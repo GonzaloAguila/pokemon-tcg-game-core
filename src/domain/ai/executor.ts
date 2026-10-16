@@ -212,14 +212,38 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
     }
   }
 
-  // Swap perspective: intercambiar player/opponent temporalmente
+  const swappedState = toAIAttackView(state);
+
+  // The AI flips the attack's coins; the engine resolves every coin effect.
+  // skipEndTurn: endTurn runs after the swap back, so its messages have the right perspective.
+  // skipDefenderPromotion: the human chooses which Pokémon to promote.
+  // Vermilion City Gym: the coin it planned, if the Stadium still offers it
+  const vermilionCoin = !copied && !!action.vermilionCoin && canUseVermilionCoin(swappedState, attackIndex) === null;
+  const coinResults = flipAttackCoins(
+    getAttackCoinPlan(swappedState, copied ?? attackIndex, { vermilionCoin }),
+    () => (Math.random() < 0.5 ? "heads" : "tails")
+  );
+  const options = { coinResults, skipEndTurn: true, skipDefenderPromotion: true, ...(vermilionCoin && { vermilionCoin }) };
+  const attacked = copied
+    ? executeMetronome(swappedState, copied, options)
+    : executeAttack(swappedState, attackIndex, { ...options, ...(action.chosenType && { chosenType: action.chosenType }) });
+  return completeAIAttack(attacked, state.events.length);
+}
+
+/**
+ * The human's view (the AI's turn) as the AI's attacking view, for the engine's attack functions
+ * that act for "player": zones, Prize flags, PlusPower / Defender owners and the Stadium's player
+ * swapped; promotion flags reset; everything else (startingPlayer, pendingBenchTrim...) kept, as
+ * completeAIAttack's swap back expects. Used both to run the attack and to finish it after the
+ * human answered (finishAIAttackAfterReaction), so the swap in and the swap back stay symmetric.
+ */
+function toAIAttackView(state: GameState): GameState {
   // También intercambiar playerId en los modifiers para que PlusPower funcione correctamente
   const swappedModifiers = state.activeModifiers.map(m => ({
     ...m,
     playerId: m.playerId === "player" ? "opponent" as const : "player" as const,
   }));
-
-  const swappedState: GameState = {
+  return {
     ...state,
     playerActivePokemon: state.opponentActivePokemon,
     playerBench: state.opponentBench,
@@ -241,21 +265,6 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
     activeModifiers: swappedModifiers,
     ...(state.stadium !== undefined && { stadium: swapStadium(state.stadium) }),
   };
-
-  // The AI flips the attack's coins; the engine resolves every coin effect.
-  // skipEndTurn: endTurn runs after the swap back, so its messages have the right perspective.
-  // skipDefenderPromotion: the human chooses which Pokémon to promote.
-  // Vermilion City Gym: the coin it planned, if the Stadium still offers it
-  const vermilionCoin = !copied && !!action.vermilionCoin && canUseVermilionCoin(swappedState, attackIndex) === null;
-  const coinResults = flipAttackCoins(
-    getAttackCoinPlan(swappedState, copied ?? attackIndex, { vermilionCoin }),
-    () => (Math.random() < 0.5 ? "heads" : "tails")
-  );
-  const options = { coinResults, skipEndTurn: true, skipDefenderPromotion: true, ...(vermilionCoin && { vermilionCoin }) };
-  const attacked = copied
-    ? executeMetronome(swappedState, copied, options)
-    : executeAttack(swappedState, attackIndex, { ...options, ...(action.chosenType && { chosenType: action.chosenType }) });
-  return completeAIAttack(attacked, state.events.length);
 }
 
 /** Event that marks a choice of the AI's attack left to the human (Flee, Bench Guard, Terror Strike): "<name>: el defensor debe elegir". */
@@ -284,7 +293,8 @@ export function finishAIAttackAfterReaction(state: GameState, eventsBefore?: num
     });
     start = marker === -1 ? state.events.length : marker + 1;
   }
-  return completeAIAttack(swapSides(state), start);
+  // The same swap as the AI's attack (completeAIAttack swaps exactly those fields back)
+  return completeAIAttack(toAIAttackView(state), start);
 }
 
 /**
