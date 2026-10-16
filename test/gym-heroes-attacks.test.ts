@@ -140,7 +140,8 @@ import {
   getAttackCoinPlan,
   resolveAttackChoice,
 } from "@/lib/gameState";
-import type { GameState, PokemonInPlay } from "@/lib/gameState";
+import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
+import { gymHeroesCards } from "@/domain/catalog";
 import type { Attack, AttackEffect, PokemonCard } from "@/domain/cards";
 import { AttackEffectType, AttackTarget, BenchDamageTarget, EnergyType, StatusCondition } from "@/domain/constants";
 import { makeState, inPlay, gameCard, energy, armedFor, attackIndex, names, deepFreeze } from "./helpers/state";
@@ -733,5 +734,500 @@ describe("new effect kinds", () => {
       expect(done.opponentActivePokemon!.currentDamage).toBe(20);
       expect(done.opponentActivePokemon!.evadeOnFlip).toBeUndefined();
     });
+  });
+});
+
+// ============================================================================
+// Card by card: every Gym Heroes attack with text (damage + effect)
+// ============================================================================
+
+let uid = 0;
+/** A Gym Heroes card in play, by printed number (several cards share a name). */
+function gym(number: number, opts: Parameters<typeof inPlay>[1] = {}): PokemonInPlay {
+  const card = structuredClone(gymHeroesCards.find((c) => c.number === number)!);
+  uid += 1;
+  return { ...inPlay("Abra", opts), pokemon: { ...card, id: `${card.id}#g${uid}` } as GameCard };
+}
+const gymHand = (number: number): GameCard => gym(number).pokemon;
+/** A 120 HP Defending Pokémon without Weakness, Resistance or power (Chansey without W/R). */
+function dummy(opts: Parameters<typeof inPlay>[1] = {}): PokemonInPlay {
+  const p = inPlay("Chansey", opts);
+  return { ...p, pokemon: { ...(p.pokemon as PokemonCard), weaknesses: [], resistances: [] } };
+}
+/** The state with the attacker armed for `name` (attacks are only legal when paid). */
+function armedState(state: GameState, name: string): GameState {
+  return { ...state, playerActivePokemon: armedFor(state.playerActivePokemon!, name) };
+}
+/** Attack by name with these coins (the attacker gets the Energy it needs), without ending the turn. */
+function attack(state: GameState, name: string, coins: Coin[] = [], extra: Record<string, unknown> = {}): GameState {
+  const armed = armedState(state, name);
+  return executeAttack(armed, attackIndex(armed.playerActivePokemon!, name), { coinResults: coins, skipEndTurn: true, ...extra });
+}
+const dmg = (state: GameState) => state.opponentActivePokemon!.currentDamage;
+const statuses = (state: GameState) => state.opponentActivePokemon!.statusConditions;
+
+describe("Gym Heroes attacks, card by card", () => {
+  const { Asleep, Confused, Paralyzed, Poisoned, CannotAttack } = StatusCondition;
+
+  it.each([
+    [21, "Atadura", 20, Paralyzed],
+    [32, "Luz Misteriosa", 0, Asleep],
+    [47, "Polvo Veneno", 20, Poisoned],
+    [50, "Pulso Confuso", 20, Confused],
+    [56, "Rayo Burbuja", 30, Paralyzed],
+    [65, "Abanico de Cola", 20, Confused],
+    [69, "Bramido", 0, Paralyzed],
+    [74, "Colmillo Veneno", 20, Poisoned],
+    [75, "Enredadera Venenosa", 10, Poisoned],
+    [80, "Impactrueno", 10, Paralyzed],
+    [81, "Cola Relámpago", 20, Paralyzed],
+    [85, "Supersónico", 0, Confused],
+    [92, "Sugestión", 0, CannotAttack],
+  ] as const)("#%i %s: %i damage; heads = %s", (number, name, damage, condition) => {
+    const state = deepFreeze(vs(gym(number), dummy()));
+    const heads = attack(state, name, [H]);
+    expect([dmg(heads), statuses(heads)]).toEqual([damage, [condition]]);
+    expect(statuses(attack(state, name, [T]))).toEqual([]);
+  });
+
+  it.each([
+    [10, "Veneno de Medusa", 30, Poisoned, Confused],
+    [87, "Mirada Hipnótica", 0, Paralyzed, Asleep],
+  ] as const)("#%i %s: %i damage; heads = %s, tails = %s", (number, name, damage, onHeads, onTails) => {
+    const state = vs(gym(number), dummy());
+    expect([dmg(attack(state, name, [H])), statuses(attack(state, name, [H]))]).toEqual([damage, [onHeads]]);
+    expect(statuses(attack(state, name, [T]))).toEqual([onTails]);
+  });
+
+  it("#23 Agujas: heads = Paralyzed and Poisoned; Tormenta de Arena: Smokescreen", () => {
+    const state = vs(gym(23), dummy());
+    expect([...statuses(attack(state, "Agujas", [H]))!].sort()).toEqual([Paralyzed, Poisoned].sort());
+    expect(statuses(attack(state, "Agujas", [T]))).toEqual([]);
+    expect(attack(state, "Tormenta de Arena").opponentActivePokemon!.mustFlipToAttack).toBe(true);
+  });
+
+  it("#23 Agujas: the paralysis still wears off (Poisoned applied after it keeps its turn)", () => {
+    const next = attack(vs(gym(23), dummy()), "Agujas", [H]);
+    expect(next.opponentActivePokemon!.paralyzedOnTurn).toBe(3);
+  });
+
+  it("fixed Special Conditions: #59 Buenas Noches, #96 Antenas Venenosas, #49 Veneno Somnífero, #46 Danza del Sueño / Olor Vil, #33 Desplome, #95 Ataque Perezoso", () => {
+    expect(statuses(attack(vs(gym(59), dummy()), "Buenas Noches"))).toEqual([Asleep]);
+    expect(statuses(attack(vs(gym(96), dummy()), "Antenas Venenosas"))).toEqual([Poisoned]);
+    expect([...statuses(attack(vs(gym(49), dummy()), "Veneno Somnífero"))!].sort()).toEqual([Asleep, Poisoned].sort());
+    const dream = attack(vs(gym(46), dummy()), "Danza del Sueño");
+    expect([dmg(dream), statuses(dream), dream.playerActivePokemon!.statusConditions]).toEqual([10, [Asleep], [Asleep]]);
+    const vile = attack(vs(gym(46), dummy()), "Olor Vil");
+    expect([dmg(vile), statuses(vile), vile.playerActivePokemon!.statusConditions]).toEqual([30, [Confused], [Confused]]);
+    const collapse = attack(vs(gym(33), dummy()), "Desplome");
+    expect([dmg(collapse), collapse.playerActivePokemon!.statusConditions]).toEqual([20, [Asleep]]);
+    const lazy = attack(vs(gym(95), dummy()), "Ataque Perezoso");
+    expect([dmg(lazy), lazy.playerActivePokemon!.statusConditions]).toEqual([30, [Asleep]]);
+  });
+
+  it.each([
+    [7, "Taladro Repetido", [H, T, H, H, T], 30],
+    [25, "Bofetón Cometa", [H, H, T], 20],
+    [29, "Triple Cañón", [H, H, H], 60],
+    [40, "Lanzar Roca", [H, T, T], 20],
+    [41, "Portazo", [H, H], 60],
+    [64, "Cola Tridente", [T, T, H], 10],
+    [84, "Bola Giratoria", [H], 20],
+    [84, "Doble Giro", [H, T], 20],
+    [85, "Ataque Furia", [H, H], 20],
+    [87, "Golpe Caudal", [T, H], 20],
+  ] as const)("#%i %s: coins %j → %i damage", (number, name, coins, damage) => {
+    expect(dmg(attack(vs(gym(number), dummy()), name, [...coins]))).toBe(damage);
+  });
+
+  it.each([
+    [36, "Uno-Dos", 30, 10],
+    [37, "Aliento de Fuego", 10, 10],
+    [42, "Golpe de Cola", 10, 20],
+    [44, "Pisotón", 30, 10],
+    [73, "Ataque Rápido", 10, 20],
+  ] as const)("#%i %s: %i, +%i on heads", (number, name, base, bonus) => {
+    const state = vs(gym(number), dummy());
+    expect([dmg(attack(state, name, [H])), dmg(attack(state, name, [T]))]).toEqual([base + bonus, base]);
+  });
+
+  it.each([
+    [2, "Lariat", 70],
+    [30, "Azar Cuerno", 30],
+    [36, "Puño Infantil", 10],
+    [83, "Viento Cortante", 40],
+  ] as const)("#%i %s: %i, tails = nothing", (number, name, damage) => {
+    const state = vs(gym(number), dummy());
+    expect([dmg(attack(state, name, [H])), dmg(attack(state, name, [T]))]).toEqual([damage, 0]);
+  });
+
+  it("#70 Placaje Taladro: 70 only with 2 heads; #89 Tenaza: heads 20 + Paralyzed, tails nothing", () => {
+    const rhyhorn = vs(gym(70), dummy());
+    expect([dmg(attack(rhyhorn, "Placaje Taladro", [H, H])), dmg(attack(rhyhorn, "Placaje Taladro", [H, T]))]).toEqual([70, 0]);
+    const shellder = vs(gym(89), dummy());
+    const heads = attack(shellder, "Tenaza", [H]);
+    expect([dmg(heads), statuses(heads)]).toEqual([20, [Paralyzed]]);
+    expect([dmg(attack(shellder, "Tenaza", [T])), statuses(attack(shellder, "Tenaza", [T]))]).toEqual([0, []]);
+  });
+
+  it.each([
+    [22, "Derribo", 40, 10],
+    [35, "Placaje Ígneo", 30, 10],
+    [76, "Placaje Descuidado", 20, 10],
+  ] as const)("#%i %s: %i damage and %i to itself", (number, name, damage, self) => {
+    const next = attack(vs(gym(number), dummy()), name);
+    expect([dmg(next), next.playerActivePokemon!.currentDamage]).toEqual([damage, self]);
+  });
+
+  it("#8 Megadescarga: 50; tails = 20 to itself", () => {
+    const state = vs(gym(8), dummy());
+    expect(attack(state, "Megadescarga", [H]).playerActivePokemon!.currentDamage).toBe(0);
+    const tails = attack(state, "Megadescarga", [T]);
+    expect([dmg(tails), tails.playerActivePokemon!.currentDamage]).toEqual([50, 20]);
+  });
+
+  it("can't retreat next turn: #7 Agarre, #72 Foso de Arena, #93 Espanto", () => {
+    for (const [number, name, damage] of [[7, "Agarre", 30], [72, "Foso de Arena", 20], [93, "Espanto", 20]] as const) {
+      const next = attack(vs(gym(number), dummy()), name);
+      expect([dmg(next), next.opponentActivePokemon!.retreatPrevented]).toEqual([damage, true]);
+    }
+  });
+
+  it("#86 Pantalla de Humo: 20 + Smokescreen", () => {
+    const next = attack(vs(gym(86), dummy()), "Pantalla de Humo");
+    expect([dmg(next), next.opponentActivePokemon!.mustFlipToAttack]).toEqual([20, true]);
+  });
+
+  it("the opponent chooses the new Defending Pokémon after the damage: #22 Cuerno Lanzador, #35 Sacudida, #83 Remolino", () => {
+    for (const [number, name, damage] of [[22, "Cuerno Lanzador", 20], [35, "Sacudida", 10], [83, "Remolino", 10]] as const) {
+      const benched = inPlay("Machop");
+      const next = attack(vs(gym(number), dummy(), { opponent: { bench: [benched] } }), name);
+      expect(dmg(next)).toBe(damage);
+      expect(next.pendingAttackChoice!.step.chooser).toBe("opponent");
+      expect(choose(next, [benched.pokemon.id]).opponentActivePokemon!.pokemon.name).toBe("Machop");
+    }
+  });
+
+  it("#67 Provocación: the attacker chooses the new Defending Pokémon", () => {
+    const next = attack(vs(gym(67), dummy(), { opponent: { bench: [inPlay("Machop")] } }), "Provocación");
+    expect(next.pendingForceSwitch).toBe(true);
+  });
+
+  it("heads = discard 1 Energy of the Defending Pokémon: #50 Pulso Eliminador, #53 Rápidos, #96 Rayo Eliminador", () => {
+    for (const [number, name, damage] of [[50, "Pulso Eliminador", 10], [53, "Rápidos", 20], [96, "Rayo Eliminador", 20]] as const) {
+      const defender = dummy({ energy: [Water] });
+      const state = vs(gym(number), defender);
+      expect(attack(state, name, [T]).pendingAttackChoice).toBeUndefined();
+      const heads = attack(state, name, [H]);
+      expect(dmg(heads)).toBe(damage);
+      const done = choose(heads, [defender.attachedEnergy[0].id]);
+      expect(done.opponentActivePokemon!.attachedEnergy).toEqual([]);
+      expect(names(done.opponentDiscard)).toEqual(["Water Energy"]);
+    }
+  });
+
+  it("choose Benched Pokémon: #20 Avalancha (up to 3), #79 Enredadera Elástica (1), #21 Túnel (up to 2, then can't attack)", () => {
+    const bench = () => [inPlay("Machop"), inPlay("Abra"), inPlay("Pikachu"), inPlay("Onix")];
+    const slide = attack(vs(gym(20), dummy(), { opponent: { bench: bench() } }), "Avalancha");
+    expect([dmg(slide), slide.pendingBenchDamageSelection!.maxTargets, slide.pendingBenchDamageSelection!.damageAmount]).toEqual([20, 3, 10]);
+    const vine = attack(vs(gym(79), dummy(), { opponent: { bench: bench() } }), "Enredadera Elástica");
+    expect([dmg(vine), vine.pendingBenchDamageSelection!.maxTargets, vine.pendingBenchDamageSelection!.damageAmount]).toEqual([0, 1, 20]);
+    const tunnel = attack(vs(gym(21), dummy(), { opponent: { bench: bench() } }), "Túnel");
+    expect([tunnel.pendingBenchDamageSelection!.maxTargets, tunnel.pendingBenchDamageSelection!.damageAmount]).toEqual([2, 20]);
+    expect(tunnel.playerActivePokemon!.attackLock).toEqual({ onTurn: 5 });
+  });
+
+  it("#1 Llama Fénix: 90; tails = Blaine's Moltres and its cards into the deck", () => {
+    const state = vs(gym(1), dummy(), { player: { bench: [inPlay("Abra")], deck: [] } });
+    expect(attack(state, "Llama Fénix", [H]).playerActivePokemon!.pokemon.name).toBe("Blaine's Moltres");
+    const tails = attack(state, "Llama Fénix", [T]);
+    expect([dmg(tails), tails.playerActivePokemon, names(tails.playerDeck).sort()]).toEqual([
+      90,
+      null,
+      ["Blaine's Moltres", "Fire Energy", "Fire Energy", "Fire Energy", "Fire Energy", "Fire Energy"],
+    ]);
+  });
+
+  it("#3 Poder Hada: heads = return your Pokémon to the hand; Impacto Lunar 30", () => {
+    const abra = inPlay("Abra");
+    const next = attack(vs(gym(3), dummy(), { player: { bench: [abra] } }), "Poder Hada", [H]);
+    expect(names(choose(next, [abra.pokemon.id]).playerHand)).toEqual(["Abra"]);
+    expect(dmg(attack(vs(gym(3), dummy()), "Impacto Lunar"))).toBe(30);
+  });
+
+  it("#4 Ventisca: heads = 10 to each of the opponent's Benched Pokémon, tails = to each of yours; Llevarse: both Actives into their decks", () => {
+    const state = vs(gym(4), dummy(), { player: { bench: [inPlay("Abra")] }, opponent: { bench: [inPlay("Machop")] } });
+    const heads = attack(state, "Ventisca", [H]);
+    expect([dmg(heads), heads.opponentBench[0].currentDamage, heads.playerBench[0].currentDamage]).toEqual([30, 10, 0]);
+    const tails = attack(state, "Ventisca", [T]);
+    expect([tails.opponentBench[0].currentDamage, tails.playerBench[0].currentDamage]).toEqual([0, 10]);
+    const away = attack(state, "Llevarse");
+    expect([away.playerActivePokemon, away.opponentActivePokemon]).toEqual([null, null]);
+    expect(names(away.playerDeck)).toContain("Erika's Dragonair");
+    expect(names(away.opponentDeck)).toContain("Chansey");
+    expect([away.playerNeedsToPromote, away.opponentNeedsToPromote]).toEqual([true, true]);
+  });
+
+  it("#5 Megaagotar: 30, heals half the damage done rounded up", () => {
+    const next = attack(vs(gym(5, { damage: 40 }), dummy()), "Megaagotar");
+    expect([dmg(next), next.playerActivePokemon!.currentDamage]).toEqual([30, 20]);
+  });
+
+  it("#6 / #27 Carga: up to 2 Lightning Energy from the discard pile; #81 Carga: 1", () => {
+    const discard = [energy(Lightning), energy(Lightning), energy(Lightning)];
+    for (const number of [6, 27]) {
+      const next = attack(vs(gym(number), dummy(), { player: { discard } }), "Carga");
+      expect(next.pendingAttackChoice!.step.maxSelections).toBe(2);
+      expect(choose(next, [discard[0].id, discard[1].id]).playerActivePokemon!.attachedEnergy).toHaveLength(3);
+    }
+    const pikachu = attack(vs(gym(81), dummy(), { player: { discard } }), "Carga");
+    expect([pikachu.pendingAttackChoice!.step.minSelections, pikachu.pendingAttackChoice!.step.maxSelections]).toEqual([1, 1]);
+  });
+
+  it("#6 Descarga: discard every Lightning Energy, a coin for each, 30 per heads", () => {
+    const next = attack(vs(gym(6, { energy: [Lightning, Lightning, Lightning] }), dummy()), "Descarga", [H, T, H]);
+    expect([dmg(next), next.playerActivePokemon!.attachedEnergy, names(next.playerDiscard)]).toEqual([
+      60,
+      [],
+      ["Lightning Energy", "Lightning Energy", "Lightning Energy"],
+    ]);
+  });
+
+  it("#9 Aguja Noqueadora: 30, 90 with 2 heads", () => {
+    const state = vs(gym(9), dummy());
+    expect([dmg(attack(state, "Aguja Noqueadora", [H, H])), dmg(attack(state, "Aguja Noqueadora", [H, T]))]).toEqual([90, 30]);
+  });
+
+  it("#11 Contraataque Cruzado and #12 Muro de Fuego: remembered for the opponent's next turn", () => {
+    expect(attack(vs(gym(11), dummy()), "Contraataque Cruzado").playerActivePokemon!.counterAttack).toMatchObject({ damageMultiplier: 2, retaliationCoin: true });
+    const wall = attack(vs(gym(12), dummy()), "Muro de Fuego");
+    expect([dmg(wall), wall.playerActivePokemon!.counterAttack]).toEqual([40, { onTurn: 3, attackName: "Muro de Fuego", amount: 10, applyWeaknessResistance: true }]);
+    expect(dmg(attack(vs(gym(11), dummy()), "Puño Magnum"))).toBe(50);
+  });
+
+  it("#13 Imágenes Sombra sets the effect; Guadaña Cegadora 40", () => {
+    expect(attack(vs(gym(13), dummy()), "Imágenes Sombra").playerActivePokemon!.evadeOnFlip).toEqual({ attackName: "Imágenes Sombra" });
+    expect(dmg(attack(vs(gym(13), dummy()), "Guadaña Cegadora"))).toBe(40);
+  });
+
+  it("#14 Amplificador de Dolor and Llamada de la Noche (2 heads: the Defending Pokémon into the deck)", () => {
+    const pain = attack(vs(gym(14), dummy({ damage: 10 }), { opponent: { bench: [inPlay("Machop", { damage: 10 }), inPlay("Abra")] } }), "Amplificador de Dolor");
+    expect([dmg(pain), pain.opponentBench.map((p) => p.currentDamage)]).toEqual([20, [20, 0]]);
+    const state = vs(gym(14), dummy(), { opponent: { bench: [inPlay("Machop")] } });
+    const night = attack(state, "Llamada de la Noche", [H, H]);
+    expect(night.opponentActivePokemon).toBeNull();
+    expect(names(night.opponentDeck)).toContain("Chansey");
+    expect(dmg(attack(state, "Llamada de la Noche", [H, T]))).toBe(40);
+  });
+
+  it("#24 Alerta: draw a card, then switch; needs a Bench", () => {
+    expect(canExecuteAttack(vs(armedFor(gym(24), "Alerta"), dummy()), 0)).toMatch(/Banca/);
+    const next = attack(vs(gym(24), dummy(), { player: { bench: [inPlay("Abra")] } }), "Alerta");
+    expect([next.playerHand.length, next.pendingSelfSwitch]).toEqual([1, true]);
+  });
+
+  it("#25 Observar la Luna: a basic Energy card of the deck to the hand", () => {
+    const deck = [gameCard("Abra"), energy(Water)];
+    const next = attack(vs(gym(25), dummy(), { player: { deck } }), "Observar la Luna");
+    expect(names(choose(next, [deck[1].id]).playerHand)).toEqual(["Water Energy"]);
+  });
+
+  it("#27 Corriente Eléctrica: 20 and 1 Lightning Energy to a Benched Pokémon", () => {
+    const abra = inPlay("Abra");
+    const next = attack(vs(gym(27, { energy: [Lightning, Lightning] }), dummy(), { player: { bench: [abra] } }), "Corriente Eléctrica");
+    expect(dmg(next)).toBe(20);
+    expect(names(choose(next, [abra.pokemon.id]).playerBench[0].attachedEnergy)).toEqual(["Lightning Energy"]);
+  });
+
+  it("#28 Rayo: 100, discard every Energy attached; Mega Puño 30", () => {
+    const next = attack(vs(gym(28), dummy()), "Rayo");
+    expect([dmg(next), next.playerActivePokemon!.attachedEnergy, next.playerDiscard.length]).toEqual([100, [], 4]);
+    expect(dmg(attack(vs(gym(28), dummy()), "Mega Puño"))).toBe(30);
+  });
+
+  it("#31 Anillo de Agua: 30 and 10 to each non-Water Benched Pokémon of both players", () => {
+    const next = attack(
+      vs(gym(31), dummy(), { player: { bench: [inPlay("Squirtle"), inPlay("Abra")] }, opponent: { bench: [inPlay("Machop"), inPlay("Seel")] } }),
+      "Anillo de Agua"
+    );
+    expect([dmg(next), next.playerBench.map((p) => p.currentDamage), next.opponentBench.map((p) => p.currentDamage)]).toEqual([30, [0, 10], [10, 0]]);
+  });
+
+  it("#32 Banco de Medusas: any number of Tentacool / Tentacruel (any owner) to the hand", () => {
+    const deck = [gymHand(57), gameCard("Tentacruel", "fossil"), gameCard("Abra")];
+    const next = attack(vs(gym(32), dummy(), { player: { deck } }), "Banco de Medusas");
+    expect(names(next.pendingAttackChoice!.step.cards!)).toEqual(["Misty's Tentacool", "Tentacruel"]);
+  });
+
+  it("#34 Polen Curativo: 10 per heads from each of your Pokémon; Distorsión Sónica: confused with 1 heads", () => {
+    const pollen = attack(vs(gym(34, { damage: 30 }), dummy(), { player: { bench: [inPlay("Abra", { damage: 20 })] } }), "Polen Curativo", [H, H, T]);
+    expect([pollen.playerActivePokemon!.currentDamage, pollen.playerBench[0].currentDamage]).toEqual([10, 0]);
+    const state = vs(gym(34), dummy());
+    expect([dmg(attack(state, "Distorsión Sónica", [T, H])), statuses(attack(state, "Distorsión Sónica", [T, H]))]).toEqual([10, [Confused]]);
+    expect(statuses(attack(state, "Distorsión Sónica", [T, T]))).toEqual([]);
+  });
+
+  it("#37 Estallido de Lava: 20 per Fire Energy among the top 5 cards discarded", () => {
+    const deck = [energy(Fire), energy(Fire), gameCard("Abra"), energy(Water), energy(Fire), energy(Fire)];
+    const next = attack(vs(gym(37), dummy(), { player: { deck } }), "Estallido de Lava");
+    expect([dmg(next), next.playerDeck.length]).toEqual([60, 1]);
+  });
+
+  it("#38 Tiro de Suerte: needs a Bench; heads = 30 to the chosen Benched Pokémon", () => {
+    expect(canExecuteAttack(vs(armedFor(gym(38), "Tiro de Suerte"), dummy()), 1)).toMatch(/Banca/);
+    const machop = inPlay("Machop");
+    const state = vs(gym(38), dummy(), { opponent: { bench: [machop] } });
+    expect(attack(state, "Tiro de Suerte", [T]).pendingAttackChoice).toBeUndefined();
+    expect(choose(attack(state, "Tiro de Suerte", [H]), [machop.pokemon.id]).opponentBench[0].currentDamage).toBe(30);
+  });
+
+  it("#39 Picado en Espiral: 10 to each of the opponent's Pokémon, no Weakness / Resistance", () => {
+    // Machop is weak to Psychic, not Grass; Onix is weak to Grass: still 10
+    const next = attack(vs(gym(39), inPlay("Onix"), { opponent: { bench: [inPlay("Abra"), inPlay("Machop")] } }), "Picado en Espiral");
+    expect([dmg(next), next.opponentBench.map((p) => p.currentDamage)]).toEqual([10, [10, 10]]);
+  });
+
+  it("#43 Deflector halves the damage next turn; Bomba Huevo: tails = nothing to the defender and 20 to itself", () => {
+    expect(attack(vs(gym(43), dummy()), "Deflector").playerActivePokemon!.halveDamage).toEqual({ onTurn: 4, attackName: "Deflector" });
+    const tails = attack(vs(gym(43), dummy()), "Bomba Huevo", [T]);
+    expect([dmg(tails), tails.playerActivePokemon!.currentDamage]).toEqual([0, 20]);
+    expect(dmg(attack(vs(gym(43), dummy()), "Bomba Huevo", [H]))).toBe(40);
+  });
+
+  it("#44 Intercambio Psíquico: the hand into the deck, draw 5", () => {
+    const next = attack(vs(gym(44), dummy(), { player: { hand: [gameCard("Abra")] } }), "Intercambio Psíquico");
+    expect([next.playerHand.length, next.playerDeck.length]).toEqual([5, 6]);
+  });
+
+  it("#45 Polen Curativo: heads = 4 counters off; Polen Mágico: heads = the attacker picks the Special Condition", () => {
+    expect(attack(vs(gym(45, { damage: 50 }), dummy()), "Polen Curativo", [H]).playerActivePokemon!.currentDamage).toBe(10);
+    const pollen = attack(vs(gym(45), dummy()), "Polen Mágico", [H]);
+    expect(dmg(pollen)).toBe(30);
+    expect(statuses(choose(pollen, [Asleep]))).toEqual([Asleep]);
+  });
+
+  it("#48 Atrapamoscas: a Benched Pokémon is switched in first and takes 20", () => {
+    const machop = inPlay("Machop");
+    const next = attack(vs(gym(48), dummy(), { opponent: { bench: [machop] } }), "Atrapamoscas");
+    const done = choose(next, [machop.pokemon.id]);
+    expect([done.opponentActivePokemon!.pokemon.name, done.opponentActivePokemon!.currentDamage, done.opponentBench[0].currentDamage]).toEqual(["Machop", 20, 0]);
+  });
+
+  it("#51 Supercolmillo: half the remaining HP, rounded up to 10", () => {
+    expect(dmg(attack(vs(gym(51), dummy({ damage: 10 })), "Supercolmillo"))).toBe(10 + 60);
+  });
+
+  it("#54 / #66 Llamar a un Amigo: heads = a Basic with the owner's name onto the Bench", () => {
+    const deck = [gymHand(85), gymHand(69), gymHand(55)];
+    const misty = attack(vs(gym(54), dummy(), { player: { deck } }), "Llamar a un Amigo", [H]);
+    expect(names(misty.pendingAttackChoice!.step.cards!)).toEqual(["Misty's Goldeen"]);
+    const brock = attack(vs(gym(66), dummy(), { player: { deck } }), "Llamar a un Amigo", [H]);
+    expect(names(choose(brock, [deck[1].id]).playerBench.map((p) => p.pokemon))).toEqual(["Brock's Onix"]);
+    expect(attack(vs(gym(66), dummy(), { player: { deck } }), "Llamar a un Amigo", [T]).pendingAttackChoice).toBeUndefined();
+  });
+
+  it("#55 Chapoteo de Barro: 30; heads = 10 to a chosen Benched Pokémon", () => {
+    const machop = inPlay("Machop");
+    const next = attack(vs(gym(55), dummy(), { opponent: { bench: [machop] } }), "Chapoteo de Barro", [H]);
+    expect(dmg(next)).toBe(30);
+    expect(choose(next, [machop.pokemon.id]).opponentBench[0].currentDamage).toBe(10);
+  });
+
+  it("#56 Pistola de Agua: 10 + 10 per extra Water Energy (at most +20)", () => {
+    expect(dmg(attack(vs(gym(56, { energy: [Water, Water, Water, Water] }), dummy()), "Pistola de Agua"))).toBe(30);
+  });
+
+  it("#57 Rayo Cristal: 20; heads = no Energy attached to the Defending Pokémon next turn", () => {
+    const heads = attack(vs(gym(57), dummy()), "Rayo Cristal", [H]);
+    expect([dmg(heads), heads.opponentActivePokemon!.energyAttachBlockedOnTurn]).toEqual([20, 4]);
+    expect(attack(vs(gym(57), dummy()), "Rayo Cristal", [T]).opponentActivePokemon!.energyAttachBlockedOnTurn).toBeUndefined();
+  });
+
+  it("#58 Espíritus Nocturnos: a coin per Sabrina's Gastly / Haunter / Gengar you have in play", () => {
+    const state = vs(gym(58), dummy(), { player: { bench: [gym(93), inPlay("Gastly")] } });
+    expect(getAttackCoinPlan(armedState(state, "Espíritus Nocturnos"), 0).attack).toBe(2);
+    expect(dmg(attack(state, "Espíritus Nocturnos", [H, H]))).toBe(60);
+  });
+
+  it("#59 Buenos Días: 20, an Asleep Defending Pokémon wakes up", () => {
+    const next = attack(vs(gym(59), dummy({ statuses: [Asleep] })), "Buenos Días");
+    expect([dmg(next), statuses(next)]).toEqual([20, []]);
+  });
+
+  it("#60 Hora de la Siesta: heads = 3 counters off and Asleep; Cabezazo Chillón: 40, not next turn", () => {
+    const nap = attack(vs(gym(60, { damage: 50 }), dummy()), "Hora de la Siesta", [H]);
+    expect([nap.playerActivePokemon!.currentDamage, nap.playerActivePokemon!.statusConditions]).toEqual([20, [Asleep]]);
+    expect(attack(vs(gym(60, { damage: 50 }), dummy()), "Hora de la Siesta", [T]).playerActivePokemon!.currentDamage).toBe(50);
+    const headbutt = attack(vs(gym(60), dummy()), "Cabezazo Chillón");
+    expect([dmg(headbutt), headbutt.playerActivePokemon!.attackLock]).toEqual([40, { onTurn: 5, attackName: "Cabezazo Chillón" }]);
+  });
+
+  it("#61 Encender: discard 1 Energy card, then 1 Energy of the Defending Pokémon", () => {
+    const defender = dummy({ energy: [Water] });
+    const next = attack(vs(gym(61), defender), "Encender");
+    expect([dmg(next), next.playerActivePokemon!.attachedEnergy]).toEqual([10, []]);
+    expect(choose(next, [defender.attachedEnergy[0].id]).opponentActivePokemon!.attachedEnergy).toEqual([]);
+  });
+
+  it("#62 Fuego Vivo: 20 and 10 to each Grass Pokémon on the opponent's Bench", () => {
+    const next = attack(vs(gym(62), dummy(), { opponent: { bench: [inPlay("Bulbasaur"), inPlay("Abra")] } }), "Fuego Vivo");
+    expect([dmg(next), next.opponentBench.map((p) => p.currentDamage)]).toEqual([20, [10, 0]]);
+  });
+
+  it("#63 Agilidad / #71 Rizo Defensa: protection on heads", () => {
+    expect(attack(vs(gym(63), dummy()), "Agilidad", [H]).playerActivePokemon!.protection?.type).toBe("damageAndEffects");
+    expect(attack(vs(gym(63), dummy()), "Agilidad", [T]).playerActivePokemon!.protection).toBeUndefined();
+    expect(attack(vs(gym(71), dummy()), "Rizo Defensa", [H]).playerActivePokemon!.protection?.type).toBe("damageOnly");
+  });
+
+  it("#64 Carga a Toda Velocidad: 20 per heads to the defender, 20 per tails to itself", () => {
+    const next = attack(vs(gym(64), dummy()), "Carga a Toda Velocidad", [H, T, H, T]);
+    expect([dmg(next), next.playerActivePokemon!.currentDamage]).toEqual([40, 40]);
+  });
+
+  it("#66 Gancho: no Resistance", () => {
+    // Pidgey resists Fighting
+    expect(dmg(attack(vs(gym(66), inPlay("Pidgey")), "Gancho"))).toBe(20);
+  });
+
+  it("#68 Inquietud shuffles the deck; Golpe Karate: 40 minus 10 per counter", () => {
+    expect(attack(vs(gym(68), dummy()), "Inquietud").events.at(-1)!.message).toMatch(/mezcló/);
+    expect(dmg(attack(vs(gym(68, { damage: 20 }), dummy()), "Golpe Karate"))).toBe(20);
+  });
+
+  it("#77 Explosión de Huevos: a coin per Energy, 10 per heads; Médium: +10 per Energy card on the Defending Pokémon", () => {
+    expect(dmg(attack(vs(gym(77, { energy: [Grass, Grass, Grass] }), dummy()), "Explosión de Huevos", [H, H, T]))).toBe(20);
+    expect(dmg(attack(vs(gym(77), dummy({ energy: [Water, Water] })), "Médium"))).toBe(30);
+  });
+
+  it("#78 Secar / Esponja Esporádica: 1 counter off (with heads for the second)", () => {
+    expect(attack(vs(gym(78, { damage: 20 }), dummy()), "Secar").playerActivePokemon!.currentDamage).toBe(10);
+    expect(attack(vs(gym(78, { damage: 20 }), dummy()), "Esponja Esporádica", [H]).playerActivePokemon!.currentDamage).toBe(10);
+    expect(attack(vs(gym(78, { damage: 20 }), dummy()), "Esponja Esporádica", [T]).playerActivePokemon!.currentDamage).toBe(20);
+  });
+
+  it("#82 Foco Energía: Roer does 40 during the next turn", () => {
+    const rattata = armedFor(armedFor(gym(82), "Foco Energía"), "Roer");
+    const focus = executeAttack(vs(rattata, dummy()), 0, { coinResults: [] });
+    const back = endTurn(focus);
+    expect(dmg(executeAttack(back, 1, { coinResults: [], skipEndTurn: true }))).toBe(40);
+  });
+
+  it("#90 Rapidez: 20 whatever the Defending Pokémon's Weakness or effects", () => {
+    // Magmar is weak to Water
+    expect(dmg(attack(vs(gym(90), inPlay("Magmar")), "Rapidez"))).toBe(20);
+  });
+
+  it("#91 Bucle de Energía: 20, a Psychic Energy back to the hand", () => {
+    const next = attack(vs(gym(91), dummy()), "Bucle de Energía");
+    expect([dmg(next), names(next.playerHand), next.playerActivePokemon!.attachedEnergy]).toEqual([20, ["Psychic Energy"], []]);
+  });
+
+  it("#94 Juego de Manos: up to 3 cards of the hand on top of the deck, then that many basic Energy to the hand", () => {
+    const hand = [gameCard("Abra")];
+    const deck = [energy(Water), gameCard("Machop")];
+    const next = attack(vs(gym(94), dummy(), { player: { hand, deck } }), "Juego de Manos");
+    const second = choose(next, [hand[0].id]);
+    expect(names(choose(second, [deck[0].id]).playerHand)).toEqual(["Water Energy"]);
   });
 });

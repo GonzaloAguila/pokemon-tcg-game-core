@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ownerOf, hasOwner } from "@/domain/cards";
-import { findCardByName, findValidEvolutionTargets } from "@/index";
+import { findValidEvolutionTargets } from "@/index";
 import { inPlay, makeState, gameCard } from "./helpers/state";
 
 describe("owner's Pokémon", () => {
@@ -13,8 +13,7 @@ describe("owner's Pokémon", () => {
     expect(hasOwner({ name: "Misty's Seel" }, "Misty")).toBe(true);
   });
 
-  // Needs the Gym Heroes catalog (Task 7).
-  it.skipIf(!findCardByName("Brock's Graveler"))("evolves only within the same owner, both ways", () => {
+  it("evolves only within the same owner, both ways", () => {
     const s = makeState({
       turnNumber: 2,
       player: {

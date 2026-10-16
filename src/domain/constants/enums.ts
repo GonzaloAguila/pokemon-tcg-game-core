@@ -296,6 +296,29 @@ export const PokemonPowerType = {
   GatherEnergy: "gatherEnergy",
   /** Drowzee / Dark Gloom: once per turn, flip; heads = Defending Pokémon gets `status`, tails = your Active does */
   StatusFlip: "statusFlip",
+  // ---------------------------------------------------------------- Gym Heroes (data only: behavior in a later task)
+  /** Brock's Rhydon's Bench Guard: from the Bench, may take `amount` of the damage done to each of your other Benched Pokémon */
+  RedirectBenchDamage: "redirectBenchDamage",
+  /** Erika's Vileplume's Pollen Defense: damaged by an attack while Active → flip; heads = the attacker gets `status` (works while statused) */
+  DamagedStatusFlip: "damagedStatusFlip",
+  /** Lt. Surge's Magneton's Energy Charge: while Active, as often as you like, move an `energyType` Energy card from your other Pokémon to it */
+  TakeEnergyToActive: "takeEnergyToActive",
+  /** Misty's Tentacruel's Flee: damaged by an attack while Active → may switch with a Benched Pokémon (the attack's other effects on it are prevented) */
+  SwitchWhenDamaged: "switchWhenDamaged",
+  /** Rocket's Moltres' Rebirth: when Knocked Out, may return it to the hand after discarding it */
+  ReturnToHandOnKnockOut: "returnToHandOnKnockOut",
+  /** Erika's Victreebel's Fragrance Trap: once per turn, flip; heads = switch 1 of the opponent's Benched Pokémon with their Active */
+  SwitchOpponentOnFlip: "switchOpponentOnFlip",
+  /** Misty's Cloyster's Shell Armor: damage done to it by attacks is reduced by `amount` (after Weakness and Resistance) */
+  ReduceAttackDamage: "reduceAttackDamage",
+  /** Rocket's Snorlax's Restless Sleep: damaged by an opponent's attack while Asleep → `amount` damage to the attacker */
+  AsleepDamageReaction: "asleepDamageReaction",
+  /** Erika's Dratini's Strange Barrier: 20 or more damage from a Basic Pokémon's attack is reduced to `amount` */
+  BasicAttackDamageCap: "basicAttackDamageCap",
+  /** Erika's Oddish's Photosynthesis: every Energy attached provides `energyType` (works while statused) */
+  EnergyTypeOverride: "energyTypeOverride",
+  /** Blaine's Vulpix's Natural Healing: once per turn, remove 1 damage counter from itself */
+  SelfHeal: "selfHeal",
 } as const;
 export type PokemonPowerType = (typeof PokemonPowerType)[keyof typeof PokemonPowerType];
 
