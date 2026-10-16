@@ -4493,11 +4493,17 @@ function executeAttackUnchecked(
       }
 
       // Vanish: the attacker goes into its owner's deck, the cards attached to the discard pile
+      // (Phoenix Flame / Take Away: the cards attached go into the deck too)
       if (effect.type === AttackEffectType.ShuffleSelfIntoDeck && newPlayerActive && !attackerKnockedOut) {
         const leaving = newPlayerActive;
-        newPlayerDeck = shuffle([...newPlayerDeck, ...[leaving.pokemon, ...(leaving.previousEvolutions ?? [])].map(cardOutOfPlay)]);
-        newPlayerDiscard.push(...[...leaving.attachedEnergy, ...(leaving.attachedTrainers ?? [])].map(cardOutOfPlay));
-        events.push(createGameEvent(`¡${leaving.pokemon.name} se barajó en el mazo de su dueño!`, "action"));
+        if (effect.withAttachedCards) {
+          newPlayerDeck = shuffle([...newPlayerDeck, ...cardsLeavingPlay(leaving)]);
+          events.push(createGameEvent(`¡${leaving.pokemon.name} y todas sus cartas se barajaron en el mazo de su dueño!`, "action"));
+        } else {
+          newPlayerDeck = shuffle([...newPlayerDeck, ...[leaving.pokemon, ...(leaving.previousEvolutions ?? [])].map(cardOutOfPlay)]);
+          newPlayerDiscard.push(...[...leaving.attachedEnergy, ...(leaving.attachedTrainers ?? [])].map(cardOutOfPlay));
+          events.push(createGameEvent(`¡${leaving.pokemon.name} se barajó en el mazo de su dueño!`, "action"));
+        }
         newPlayerActive = null;
         attackerLeftPlay = true;
         attackerNeedsToPromote = newPlayerBench.length > 0;

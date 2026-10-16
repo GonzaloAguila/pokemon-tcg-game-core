@@ -64,6 +64,8 @@ export type AttackEffect = {
   names?: string[];
   /** SelfSwitch: "you may switch" — the attacker may decline (Teleport Blast), asked as a pending attack choice */
   optional?: boolean;
+  /** ShuffleSelfIntoDeck: the cards attached go into the deck too (Phoenix Flame, Take Away); default: discarded (Vanish) */
+  withAttachedCards?: boolean;
   /** ChooseTargetDamage: who can be chosen ("opponentAny": Active or Benched; "opponentBench") */
   targetScope?: "opponentAny" | "opponentBench";
   /** ChooseTargetDamage: apply Weakness and Resistance (Drag Off). Default: don't (Stare, Flitter...) */

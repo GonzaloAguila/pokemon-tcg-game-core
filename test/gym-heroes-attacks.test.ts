@@ -1,0 +1,180 @@
+/**
+ * Gym Heroes attack effects (texts in data/pokemontcg/gym1.json).
+ *
+ * Every Gym Heroes attack with text and the effect data it runs on. "existing" = the
+ * AttackEffectType vocabulary already had it (same wording in Base Set / Jungle / Fossil /
+ * Team Rocket); "NEW" = a new effect kind or a new option of an existing one (each tested in
+ * "new effect kinds" below with a test-only attack, then card by card).
+ *
+ * | # | Card | Attack | Effect data | Kind |
+ * |---|---|---|---|---|
+ * | 1 | Blaine's Moltres | Phoenix Flame | ShuffleSelfIntoDeck `withAttachedCards`, coin onTails | NEW (option) |
+ * | 2 | Brock's Rhydon | Lariat | AttackFails onTails | existing |
+ * | 3 | Erika's Clefable | Fairy Power | ReturnPokemonToHand (attack choice), coin onHeads | NEW |
+ * | 4 | Erika's Dragonair | Blizzard | BenchDamage opponent (heads) / own (tails) | existing |
+ * | 4 | Erika's Dragonair | Take Away | ShuffleSelfIntoDeck `withAttachedCards` + ShuffleDefenderIntoDeck | NEW (option) + existing |
+ * | 5 | Erika's Vileplume | Mega Drain | Heal `healFromDamage: "halfRoundedUp"` | existing |
+ * | 6, 27 | Lt. Surge's Electabuzz | Charge | AttachEnergyFromDiscard (attack choice, up to 2 Lightning) | NEW |
+ * | 6 | Lt. Surge's Electabuzz | Discharge | Discard `discardAll` + `energyType` + CoinFlipDamage `coinCountFromEnergyType` | NEW (option) + existing |
+ * | 7 | Lt. Surge's Fearow | Repeating Drill | CoinFlipDamage ×5 | existing |
+ * | 7 | Lt. Surge's Fearow | Clutch | PreventRetreat | existing |
+ * | 8 | Lt. Surge's Magneton | Mega Shock | SelfDamage onTails | existing |
+ * | 9 | Misty's Seadra | Knockout Needle | CoinFlipDamage ×2 `minHits: 2` | existing |
+ * | 10 | Misty's Tentacruel | Jellyfish Poison | ApplyStatus heads Poisoned / tails Confused | existing |
+ * | 11 | Rocket's Hitmonchan | Crosscounter | CounterAttack (coin, ×2) | NEW |
+ * | 12 | Rocket's Moltres | Fire Wall | CounterAttack (10, W/R) | NEW |
+ * | 13 | Rocket's Scyther | Shadow Images | EvadeOnFlip | NEW |
+ * | 14 | Sabrina's Gengar | Pain Amplifier | DamageCountersOnDamaged | NEW |
+ * | 14 | Sabrina's Gengar | Call of the Night | ShuffleDefenderIntoDeck, 2 coins `minHits: 2` | existing |
+ * | 20 | Brock's Golem | Rock Slide | BenchDamage opponent up to 3 | existing |
+ * | 21 | Brock's Onix | Bind | ApplyStatus Paralyzed (coin) | existing |
+ * | 21 | Brock's Onix | Tunneling | BenchDamage opponent up to 2 + CantAttackNextTurn | existing + NEW |
+ * | 22 | Brock's Rhyhorn | Horn Toss | ForceSwitch `switchChosenBy: "opponent"` | existing |
+ * | 22 | Brock's Rhyhorn | Take Down | SelfDamage | existing |
+ * | 23 | Brock's Sandslash | Needles | ApplyStatus Paralyzed + `additionalStatuses` Poisoned (coin) | existing |
+ * | 23 | Brock's Sandslash | Sandstorm | SandAttack | existing |
+ * | 24 | Brock's Zubat | Alert | RequireOwnBench + Draw + SelfSwitch | NEW + existing |
+ * | 25 | Erika's Clefairy | Moonwatching | SearchDeckChoice (1 basic Energy → hand) | NEW |
+ * | 25 | Erika's Clefairy | Comet Slap | CoinFlipDamage ×3 | existing |
+ * | 27 | Lt. Surge's Electabuzz | Electric Current | MoveAllEnergyToBench `energyType` + `amount: 1` | NEW (option) |
+ * | 28 | Lt. Surge's Raichu | Thunderbolt | Discard `discardAll` | existing |
+ * | 29 | Misty's Cloyster | Triple Cannon | CoinFlipDamage ×3 | existing |
+ * | 30 | Misty's Goldeen | Horn Hazard | AttackFails onTails | existing |
+ * | 31 | Misty's Poliwrath | Water Ring | BenchDamage both `benchExcludeTypes: [Water]` | NEW (option) |
+ * | 32 | Misty's Tentacool | Mysterious Light | ApplyStatus Asleep (coin) | existing |
+ * | 32 | Misty's Tentacool | Jellyfish Pod | SearchDeckChoice (any number of named Pokémon → hand) | NEW |
+ * | 33 | Rocket's Snorlax | Collapse | ApplyStatus Self Asleep | existing |
+ * | 34 | Sabrina's Venomoth | Healing Pollen | Heal `healAllOwn`, 3 coins (10 per heads) | NEW (option) |
+ * | 34 | Sabrina's Venomoth | Sonic Distortion | ApplyStatus Confused, 2 coins | existing |
+ * | 35 | Blaine's Growlithe | Shake | ForceSwitch `switchChosenBy: "opponent"` | existing |
+ * | 35 | Blaine's Growlithe | Fire Tackle | SelfDamage | existing |
+ * | 36 | Blaine's Kangaskhan | Child's Punch | AttackFails onTails | existing |
+ * | 36 | Blaine's Kangaskhan | One-Two Punch | CoinFlipDamage (+10) | existing |
+ * | 37 | Blaine's Magmar | Firebreathing | CoinFlipDamage (+10) | existing |
+ * | 37 | Blaine's Magmar | Lava Burst | MillSelfForDamage | NEW |
+ * | 38 | Brock's Geodude | Lucky Shot | RequireOpponentBench + ChooseTargetDamage bench (coin) | existing |
+ * | 39 | Brock's Golbat | Spiral Dive | BonusDamage 10 + IgnoreWeaknessResistance + BenchDamage opponent | existing |
+ * | 40 | Brock's Graveler | Rock Toss | CoinFlipDamage ×3 | existing |
+ * | 41 | Brock's Lickitung | Slam | CoinFlipDamage ×2 | existing |
+ * | 42 | Erika's Dratini | Tail Strike | CoinFlipDamage (+20) | existing |
+ * | 43 | Erika's Exeggcute | Deflector | HalveDamageNextTurn | NEW |
+ * | 43 | Erika's Exeggcute | Egg Bomb | AttackFails `defenderOnly` onTails + SelfDamage onTails | NEW (option) + existing |
+ * | 44 | Erika's Exeggutor | Psychic Exchange | ShuffleHandDraw | NEW |
+ * | 44 | Erika's Exeggutor | Stomp | CoinFlipDamage (+10) | existing |
+ * | 45 | Erika's Gloom | Healing Pollen | Heal Self 40 (coin) | existing |
+ * | 45 | Erika's Gloom | Magic Pollen | ChooseStatus (attack choice, coin) | NEW |
+ * | 46 | Erika's Gloom | Dream Dance | ApplyStatus Asleep, Defender and Self | existing |
+ * | 46 | Erika's Gloom | Vile Smell | ApplyStatus Confused, Defender and Self | existing |
+ * | 47 | Erika's Oddish | Poisonpowder | ApplyStatus Poisoned (coin) | existing |
+ * | 48 | Erika's Weepinbell | Flytrap | RequireOpponentBench + ChooseTargetDamage `switchWithDefender` | existing |
+ * | 49 | Erika's Weepinbell | Sleep Poison | ApplyStatus Asleep + `additionalStatuses` Poisoned | existing |
+ * | 50 | Lt. Surge's Magnemite | Removal Pulse | Discard Defender (attack choice, coin) | existing |
+ * | 50 | Lt. Surge's Magnemite | Confusion Pulse | ApplyStatus Confused (coin) | existing |
+ * | 51 | Lt. Surge's Raticate | Super Fang | HalfHPDamage | existing |
+ * | 53 | Misty's Poliwhirl | Rapids | Discard Defender (attack choice, coin) | existing |
+ * | 53 | Misty's Poliwhirl | Water Punch | CoinFlipDamage `coinCountFromEnergyType: Water` | existing |
+ * | 54 | Misty's Psyduck | Call for Friend | SearchDeckChoice (Basic "Misty" → Bench, coin) | NEW |
+ * | 55 | Misty's Seaking | Mud Splash | ChooseTargetDamage bench (coin) | existing |
+ * | 56 | Misty's Starmie | Water Gun | ExtraEnergy Water (+20 max) | existing |
+ * | 56 | Misty's Starmie | Bubblebeam | ApplyStatus Paralyzed (coin) | existing |
+ * | 57 | Misty's Tentacool | Crystal Beam | BlockEnergyAttach (coin) | NEW |
+ * | 58 | Sabrina's Haunter | Night Spirits | CoinFlipDamage `coinCountSource: "ownNamedInPlay"` | NEW (option) |
+ * | 59 | Sabrina's Jynx | Good Night | ApplyStatus Asleep | existing |
+ * | 59 | Sabrina's Jynx | Good Morning | RemoveStatus Asleep | NEW |
+ * | 60 | Sabrina's Slowbro | Naptime | Heal Self 30 + ApplyStatus Self Asleep (coin) | existing |
+ * | 60 | Sabrina's Slowbro | Screaming Headbutt | CantAttackNextTurn `thisAttackOnly` | NEW |
+ * | 61 | Blaine's Charmander | Kindle | Discard cost `[Colorless]` (any Energy card) + Discard Defender | NEW (option) + existing |
+ * | 62 | Blaine's Growlithe | Blaze | BenchDamage opponent `benchTypes: [Grass]` | NEW (option) |
+ * | 63 | Blaine's Ponyta | Agility | Protection damageAndEffects (coin) | existing |
+ * | 64 | Blaine's Tauros | 3-Pronged Tail | CoinFlipDamage ×3 | existing |
+ * | 64 | Blaine's Tauros | Full Speed Charge | CoinFlipDamage ×4 + SelfDamage per tails | existing |
+ * | 65 | Blaine's Vulpix | Tail Fan | ApplyStatus Confused (coin) | existing |
+ * | 66 | Brock's Geodude | Call for Friend | SearchDeckChoice (Basic "Brock" → Bench, coin) | NEW |
+ * | 66 | Brock's Geodude | Hook Shot | IgnoreWeaknessResistance `resistanceOnly` | NEW (option) |
+ * | 67 | Brock's Mankey | Taunt | ForceSwitch (attacker chooses) | existing |
+ * | 68 | Brock's Mankey | Fidget | ShuffleOwnDeck | NEW |
+ * | 68 | Brock's Mankey | Karate Chop | SelfDamageReduction | existing |
+ * | 69 | Brock's Onix | Bellow | ApplyStatus Paralyzed (coin) | existing |
+ * | 70 | Brock's Rhyhorn | Drill Tackle | AttackFails, 2 coins onTails | existing |
+ * | 71 | Brock's Sandshrew | Defense Curl | Protection damageOnly (coin) | existing |
+ * | 72 | Brock's Sandshrew | Sand Pit | PreventRetreat | existing |
+ * | 73 | Brock's Vulpix | Quick Attack | CoinFlipDamage (+20) | existing |
+ * | 74 | Brock's Zubat | Poison Fang | ApplyStatus Poisoned (coin) | existing |
+ * | 75 | Erika's Bellsprout | Poison Vine | ApplyStatus Poisoned (coin) | existing |
+ * | 76 | Erika's Bellsprout | Careless Tackle | SelfDamage | existing |
+ * | 77 | Erika's Exeggcute | Eggsplosion | CoinFlipDamage `coinCountFromEnergy` | existing |
+ * | 77 | Erika's Exeggcute | Psychic | BonusDamage `bonusDamageSource: "defenderEnergyCards"` | NEW (option) |
+ * | 78 | Erika's Oddish | Blot | Heal Self 10 `ignorePrevention` | NEW (option) |
+ * | 78 | Erika's Oddish | Sporadic Sponging | Heal Self 10 `ignorePrevention` (coin) | NEW (option) |
+ * | 79 | Erika's Tangela | Stretch Vine | BenchDamage opponent, 1 chosen | existing |
+ * | 80 | Lt. Surge's Magnemite | Thundershock | ApplyStatus Paralyzed (coin) | existing |
+ * | 81 | Lt. Surge's Pikachu | Charge | AttachEnergyFromDiscard (1 Lightning) | NEW |
+ * | 81 | Lt. Surge's Pikachu | Lightning Tail | ApplyStatus Paralyzed (coin) | existing |
+ * | 82 | Lt. Surge's Rattata | Focus Energy | BonusDamage Self 20 next turn (Gnaw 20 → 40) | existing |
+ * | 83 | Lt. Surge's Spearow | Whirlwind | ForceSwitch `switchChosenBy: "opponent"` | existing |
+ * | 83 | Lt. Surge's Spearow | Razor Wind | AttackFails onTails | existing |
+ * | 84 | Lt. Surge's Voltorb | Spin Ball / Double Spin | CoinFlipDamage ×1 / ×2 | existing |
+ * | 85 | Misty's Goldeen | Fury Attack | CoinFlipDamage ×2 | existing |
+ * | 85 | Misty's Goldeen | Supersonic | ApplyStatus Confused (coin) | existing |
+ * | 86 | Misty's Horsea | Smokescreen | SandAttack | existing |
+ * | 87 | Misty's Poliwag | Hypnotic Stare | ApplyStatus heads Paralyzed / tails Asleep | existing |
+ * | 87 | Misty's Poliwag | Tail Rap | CoinFlipDamage ×2 | existing |
+ * | 89 | Misty's Shellder | Clamp | ApplyStatus Paralyzed (heads) + AttackFails (tails) | existing |
+ * | 90 | Misty's Staryu | Swift | IgnoreDefenderEffects | NEW |
+ * | 91 | Sabrina's Abra | Energy Loop | Discard cost `[Psychic]` `discardTo: "hand"` | NEW (option) |
+ * | 92 | Sabrina's Drowzee | Suggestion | ApplyStatus CannotAttack (coin) | existing |
+ * | 93 | Sabrina's Gastly | Spook | PreventRetreat | existing |
+ * | 94 | Sabrina's Mr. Mime | Sleight of Hand | SearchDeckChoice `putBackFromHand: 3` (basic Energy → hand) | NEW |
+ * | 95 | Sabrina's Slowpoke | Lazy Attack | ApplyStatus Self Asleep | existing |
+ * | 96 | Sabrina's Venonat | Poison Antennae | ApplyStatus Poisoned | existing |
+ * | 96 | Sabrina's Venonat | Removal Beam | Discard Defender (attack choice, coin) | existing |
+ */
+import { describe, it, expect } from "vitest";
+import {
+  canExecuteAttack,
+  endTurn,
+  executeAttack,
+  getAttackCoinPlan,
+  resolveAttackChoice,
+} from "@/lib/gameState";
+import type { GameState, PokemonInPlay } from "@/lib/gameState";
+import type { Attack, AttackEffect, PokemonCard } from "@/domain/cards";
+import { AttackEffectType, AttackTarget, BenchDamageTarget, EnergyType, StatusCondition } from "@/domain/constants";
+import { makeState, inPlay, gameCard, energy, armedFor, attackIndex, names, deepFreeze } from "./helpers/state";
+
+const { Water, Fire, Grass, Lightning, Psychic, Fighting, Colorless } = EnergyType;
+const H = "heads" as const;
+const T = "tails" as const;
+type Coin = typeof H | typeof T;
+
+const vs = (attacker: PokemonInPlay, defender: PokemonInPlay, extra: Parameters<typeof makeState>[0] = {}) =>
+  makeState({ ...extra, player: { active: attacker, ...(extra.player ?? {}) }, opponent: { active: defender, ...(extra.opponent ?? {}) } });
+const choose = (state: GameState, selection: string[]) => resolveAttackChoice(state, selection, { skipEndTurn: true });
+const optionIds = (state: GameState) => state.pendingAttackChoice!.step.options.map((o) => o.id);
+
+/** The same Pokémon with only this (test-only) attack. */
+function withAttack(pokemon: PokemonInPlay, attack: Partial<Attack> & { effects: AttackEffect[] }): PokemonInPlay {
+  const card = pokemon.pokemon as PokemonCard;
+  return { ...pokemon, pokemon: { ...card, attacks: [{ name: "Test", cost: [], damage: 0, ...attack }] } };
+}
+/** Use the attacker's only (test) attack with these coins, without ending the turn. */
+const use = (state: GameState, coins: Coin[] = [], extra: Record<string, unknown> = {}) =>
+  executeAttack(state, 0, { coinResults: coins, skipEndTurn: true, ...extra });
+
+describe("new effect kinds", () => {
+  it("ShuffleSelfIntoDeck withAttachedCards: the attacker and every card attached go into the deck (after the damage)", () => {
+    const moltres = withAttack(inPlay("Moltres", { set: "fossil", energy: [Fire, Fire] }), {
+      damage: 30,
+      effects: [{ type: AttackEffectType.ShuffleSelfIntoDeck, target: AttackTarget.Self, withAttachedCards: true, coinFlip: { count: 1, onTails: "damage" } }],
+    });
+    const state = deepFreeze(vs(moltres, inPlay("Machop"), { player: { bench: [inPlay("Abra")], deck: [] } }));
+    const heads = use(state, [H]);
+    expect(heads.playerActivePokemon!.pokemon.name).toBe("Moltres");
+    const tails = use(state, [T]);
+    expect(tails.opponentActivePokemon!.currentDamage).toBe(30);
+    expect(tails.playerActivePokemon).toBeNull();
+    expect(tails.playerNeedsToPromote).toBe(true);
+    expect(names(tails.playerDeck).sort()).toEqual(["Fire Energy", "Fire Energy", "Moltres"]);
+    expect(tails.playerDiscard).toEqual([]);
+  });
+});
