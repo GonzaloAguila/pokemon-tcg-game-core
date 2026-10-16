@@ -152,3 +152,22 @@ The 91 Pokémon's attacks run on effect data (new kinds tabled at the top of `te
 - **Energy Charge (Lt. Surge's Magneton)**: any number of times; a Rainbow Energy on another Pokémon counts as a Lightning Energy card.
 - **Fragrance Trap (Erika's Victreebel)**: offered only when the opponent has Benched Pokémon (the flip would do nothing otherwise); the switched Active loses its Special Conditions like any switch. The smart AI doesn't use it.
 - **Natural Healing (Blaine's Vulpix)**: works from the Bench (the text sets no position).
+
+### Gym Heroes Trainers (2026-10-16)
+
+- **Names**: Trainers and Stadiums keep their printed English names ("Brock", "Narrow Gym"), Spanish text only (the spec listed Spanish Stadium names as a doubt; English chosen, like every other Trainer).
+- **Brock**: needs at least one damaged Pokémon to be played (like Potion).
+- **Lt. Surge**: a Mysterious Fossil / Clefairy Doll in the hand is a Trainer card, not a "Basic Pokémon card": not offered. The old Active goes to the Bench like a Switch (Special Conditions and attack effects end). The new Active was played from the hand: a "when you play it from your hand" power triggers.
+- **Misty**: the card goes to the discard pile when played (with the 2 discarded cards); the +20 is a turn-long `misty` modifier, added at PlusPower's step (after Weakness / Resistance, only if the attack does damage to the Defending Pokémon; Defender and other reductions after it). Several Mistys add up (+20 each). It also applies to a chosen-target attack's damage to the Defending Pokémon, never to the Bench.
+- **The Rocket's Trap**: "up to 3 at random" = as many as possible (3, or the whole hand if it has fewer); the engine picks them at random (the server in multiplayer), the log doesn't name them.
+- **Blaine's Last Resort**: other copies of Blaine's Last Resort in the hand are allowed; the shown hand is listed in the log.
+- **Erika's Maids**: "trade" = the 2 cards are shuffled into the deck (as Pokémon Trader); the deck is searched before they go in; "up to 2" lets the player take none. The traded cards aren't named in the log (only the 2 found ones are shown).
+- **Erika's Perfume**: Basic Pokémon cards only (not Clefairy Doll / Mysterious Fossil). The Pokémon put on the opponent's Bench were not "played from the hand" by their owner: no on-play power triggers.
+- **Good Manners**: needs a non-empty deck; the shown hand is listed in the log.
+- **Minion of Team Rocket**: playable with an empty opposing Bench (the coins still matter for the turn). A tails ends the turn through `endTurn` (between-turns checkup as usual); with `skipEndTurn` the caller ends it (AI, simulator). A Defender attached to the returned Pokémon goes back to the hand too; a Buzzap Electrode attached as Energy goes back as an Electrode.
+- **Misty's Wrath**: a deck shorter than 7: look at what there is, keep 2 (1 with a 1-card deck); not playable with an empty deck.
+- **Secret Mission**: discarding none is allowed; draws as many as the deck still has. With an empty opposing hand there is nothing to look at (no look step).
+- **Blaine's Gamble**: the coin is flipped AFTER the discards are chosen (the effect protocol now lets a Trainer ask for its coins once its steps are answered: `getTrainerCoinFlips(state, id, selections)`); with no discard the coin is still flipped (and draws nothing).
+- **Energy Flow**: a Buzzap Electrode attached as Energy is an Energy card here and goes back as an Electrode; needs at least one Energy card attached to play.
+- **Sabrina's Gaze / Trash Exchange**: the played card isn't counted (it goes to the discard pile after its effect, like every Trainer here): Sabrina's Gaze redraws the other cards of the hand; Trash Exchange counts the discard pile without itself.
+- **AI**: simple rules (cardEffects.ts table); Minion of Team Rocket only as the last action of a turn without an attack. Stadiums are still not planned by the smart AI (Task 15).
