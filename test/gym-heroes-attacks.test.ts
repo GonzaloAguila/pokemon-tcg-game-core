@@ -478,6 +478,17 @@ describe("new effect kinds", () => {
     expect(use(state, [H, T, H]).opponentActivePokemon!.currentDamage).toBe(60);
   });
 
+  it("RemoveStatus (Good Morning): an Asleep Defending Pokémon wakes up (after the damage)", () => {
+    const goodMorning = withAttack(inPlay("Jynx"), {
+      damage: 20,
+      effects: [{ type: AttackEffectType.RemoveStatus, target: AttackTarget.Defender, status: StatusCondition.Asleep }],
+    });
+    const next = use(deepFreeze(vs(goodMorning, inPlay("Onix", { statuses: [StatusCondition.Asleep, StatusCondition.Poisoned] }))));
+    expect(next.opponentActivePokemon!.statusConditions).toEqual([StatusCondition.Poisoned]);
+    expect(next.opponentActivePokemon!.currentDamage).toBe(20);
+    expect(use(vs(goodMorning, inPlay("Onix", { statuses: [StatusCondition.Confused] }))).opponentActivePokemon!.statusConditions).toEqual([StatusCondition.Confused]);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {

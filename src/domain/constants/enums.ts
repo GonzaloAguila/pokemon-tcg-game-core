@@ -210,6 +210,8 @@ export const AttackEffectType = {
   ChooseStatus: "chooseStatus",
   /** Crystal Beam: the opponent can't attach Energy cards to the Defending Pokémon during their next turn */
   BlockEnergyAttach: "blockEnergyAttach",
+  /** Good Morning: if the Defending Pokémon has `status`, it no longer does */
+  RemoveStatus: "removeStatus",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

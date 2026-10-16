@@ -3003,6 +3003,7 @@ const DEFENDER_EFFECT_TYPES: ReadonlySet<string> = new Set([
   AttackEffectType.DamageCountersOnDamaged,
   AttackEffectType.ChooseStatus,
   AttackEffectType.BlockEnergyAttach,
+  AttackEffectType.RemoveStatus,
 ]);
 
 /** Can the attack do anything to the Defending Pokémon (damage, or an effect on it)? */
@@ -4742,6 +4743,14 @@ function executeAttackUnchecked(
               )
             );
           }
+        }
+      }
+
+      // Good Morning: the Defending Pokémon is no longer Asleep
+      if (effect.type === AttackEffectType.RemoveStatus && !effect.coinFlip && effect.status && newOpponentActive && !isKnockedOut && !defenderBlocksEffects) {
+        if (hasStatusCondition(newOpponentActive, effect.status)) {
+          newOpponentActive = removeStatusCondition(newOpponentActive, effect.status);
+          events.push(createGameEvent(`${newOpponentActive.pokemon.name} ya no está ${effect.status === StatusCondition.Asleep ? "dormido" : effect.status}`, "action"));
         }
       }
 
