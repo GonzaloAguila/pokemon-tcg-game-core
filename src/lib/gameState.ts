@@ -4762,6 +4762,21 @@ function executeAttackUnchecked(
         if (attackerNeedsToPromote) events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
       }
 
+      // Psychic Exchange: the hand is shuffled into the deck, then `amount` cards are drawn
+      if (effect.type === AttackEffectType.ShuffleHandDraw) {
+        let deck = shuffle([...newPlayerDeck, ...newPlayerHand]);
+        let hand: GameCard[] = [];
+        for (let i = 0; i < (effect.amount ?? 0); i++) {
+          const drawn = drawCard(deck, hand);
+          if (!drawn.success) break;
+          deck = drawn.newDeck;
+          hand = drawn.newHand;
+        }
+        newPlayerDeck = deck;
+        newPlayerHand = hand;
+        events.push(createGameEvent(`${attack.name}: la mano se barajó en el mazo y se robaron ${hand.length} cartas`, "action"));
+      }
+
       // Mischief: shuffle the opponent's deck
       if (effect.type === AttackEffectType.ShuffleOpponentDeck) {
         newOpponentDeck = shuffle(newOpponentDeck);

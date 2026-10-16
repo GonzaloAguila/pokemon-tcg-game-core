@@ -202,6 +202,8 @@ export const AttackEffectType = {
   MillSelfForDamage: "millSelfForDamage",
   /** Deflector: during the opponent's next turn, damage done to this Pokémon is halved (rounded down to 10) */
   HalveDamageNextTurn: "halveDamageNextTurn",
+  /** Psychic Exchange: shuffle your hand into your deck, then draw `amount` cards */
+  ShuffleHandDraw: "shuffleHandDraw",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

@@ -397,6 +397,18 @@ describe("new effect kinds", () => {
     expect(tails.attackedThisTurn).toBe(true);
   });
 
+  it("ShuffleHandDraw (Psychic Exchange): the hand goes into the deck, the deck is shuffled, then 5 cards are drawn", () => {
+    const exchange = withAttack(inPlay("Exeggutor", { set: "jungle" }), { effects: [{ type: AttackEffectType.ShuffleHandDraw, target: AttackTarget.Self, amount: 5 }] });
+    const hand = [gameCard("Abra"), gameCard("Machop")];
+    const deck = [energy(Fire), energy(Water), energy(Grass), energy(Fire), energy(Water), energy(Psychic)];
+    const next = use(deepFreeze(vs(exchange, inPlay("Onix"), { player: { hand, deck } })));
+    expect(next.playerHand).toHaveLength(5);
+    expect(next.playerDeck).toHaveLength(3);
+    expect(names([...next.playerHand, ...next.playerDeck]).sort()).toEqual(names([...hand, ...deck]).sort());
+    // Fewer than 5 cards in all: every card is drawn
+    expect(use(vs(exchange, inPlay("Onix"), { player: { hand, deck: [energy(Fire)] } })).playerHand).toHaveLength(3);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {
