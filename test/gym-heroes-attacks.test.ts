@@ -133,6 +133,7 @@ import { describe, it, expect } from "vitest";
 import { canAttachEnergy, clearEffectsAsIfEvolved, swapSides } from "@/domain/board";
 import {
   canExecuteAttack,
+  canUseAttack,
   clearStatusConditionsOnRetreat,
   endTurn,
   executeAttack,
@@ -487,6 +488,21 @@ describe("new effect kinds", () => {
     expect(next.opponentActivePokemon!.statusConditions).toEqual([StatusCondition.Poisoned]);
     expect(next.opponentActivePokemon!.currentDamage).toBe(20);
     expect(use(vs(goodMorning, inPlay("Onix", { statuses: [StatusCondition.Confused] }))).opponentActivePokemon!.statusConditions).toEqual([StatusCondition.Confused]);
+  });
+
+  it("Discard cost [Colorless] (Kindle): any Energy card attached pays it", () => {
+    const kindle = (types: EnergyType[]) => withAttack(inPlay("Charmander", { energy: types }), {
+      cost: [Fire],
+      damage: 10,
+      effects: [{ type: AttackEffectType.Discard, target: AttackTarget.Self, discardCostRequirement: [Colorless] }],
+    });
+    const next = use(vs(kindle([Fire]), inPlay("Onix")));
+    expect(names(next.playerDiscard)).toEqual(["Fire Energy"]);
+    expect(next.playerActivePokemon!.attachedEnergy).toEqual([]);
+    const two = use(vs(kindle([Water, Fire]), inPlay("Onix")));
+    expect(two.playerDiscard).toHaveLength(1);
+    expect(canUseAttack(kindle([Fire]), 0)).toBe(true);
+    expect(canUseAttack(kindle([]), 0)).toBe(false);
   });
 
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {

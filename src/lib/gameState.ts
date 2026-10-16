@@ -2727,14 +2727,21 @@ export function canUseAttack(
         }
 
         let wildCardsLeft = wildCards;
+        let typedUsed = 0;
         for (const [type, required] of Object.entries(discardCount)) {
+          // Colorless (Kindle: "discard 1 Energy card"): any card, checked below
+          if (type === EnergyTypeEnum.Colorless) continue;
           const available = energyCardCount[type] || 0;
+          typedUsed += Math.min(required, available);
           if (available < required) {
             const missing = required - available;
             if (wildCardsLeft < missing) return false;
             wildCardsLeft -= missing;
           }
         }
+        const anyRequired = discardCount[EnergyTypeEnum.Colorless] || 0;
+        const totalCards = Object.values(energyCardCount).reduce((sum, n) => sum + n, 0) - typedUsed + wildCardsLeft;
+        if (totalCards < anyRequired) return false;
       }
     }
   }
@@ -4512,11 +4519,13 @@ function executeAttackUnchecked(
               }
             }
 
-            for (const reqType of discardReq) {
+            // Typed requirements first; Colorless (Kindle) = any Energy card, last
+            const ordered = [...discardReq.filter((t) => t !== EnergyTypeEnum.Colorless), ...discardReq.filter((t) => t === EnergyTypeEnum.Colorless)];
+            for (const reqType of ordered) {
               const matches = (e: GameCard): boolean => {
                 if (e.kind !== CardKind.Energy && !e.buzzapEnergyType) return false;
                 // With Energy Burn, all energy counts as the converted type
-                if (energyConversionType) return true;
+                if (energyConversionType || reqType === EnergyTypeEnum.Colorless) return true;
                 // Buzzap energy uses its chosen type; Rainbow Energy any basic type
                 return energyProvidesType(e, reqType);
               };
