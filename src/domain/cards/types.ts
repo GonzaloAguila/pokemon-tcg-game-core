@@ -109,7 +109,7 @@ export type AttackEffect = {
   /** Skip this effect entirely if the defender is Colorless */
   skipIfColorless?: boolean;
   /** For BonusDamage: source of the multiplier count */
-  bonusDamageSource?: "benchCount" | "namedPokemon" | "namedOnBench" | "namedInPlay";
+  bonusDamageSource?: "benchCount" | "namedPokemon" | "namedOnBench" | "namedInPlay" | "defenderEnergyCards";
   /** For BonusDamage with namedPokemon: the Pokemon name to count (e.g., "Nidoking") */
   bonusDamageNameMatch?: string;
   /** For CoinFlipDamage: derive coin count from attached energy count instead of fixed */

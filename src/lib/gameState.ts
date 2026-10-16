@@ -2830,6 +2830,9 @@ export function calculateBaseDamage(
       } else if (effect.bonusDamageSource === "namedInPlay" && effect.names) {
         // Mass Explosion: each named Pokémon in play, both sides (Actives included)
         multiplier = [attacker, defender, ...attackerBench, ...defenderBench].filter((p) => p && effect.names!.includes(p.pokemon.name)).length;
+      } else if (effect.bonusDamageSource === "defenderEnergyCards") {
+        // Psychic: each Energy card attached to the Defending Pokémon
+        multiplier = defender.attachedEnergy.filter((e) => e.kind === CardKind.Energy || !!e.buzzapEnergyType).length;
       }
       baseDamage += effect.amount * multiplier;
     }

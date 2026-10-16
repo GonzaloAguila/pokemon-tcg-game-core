@@ -515,6 +515,17 @@ describe("new effect kinds", () => {
     expect(use(vs(hookShot, inPlay("Pikachu", { set: "jungle" }))).opponentActivePokemon!.currentDamage).toBe(40);
   });
 
+  it("BonusDamage defenderEnergyCards (Psychic): +10 per Energy card attached to the Defending Pokémon", () => {
+    const psychic = withAttack(inPlay("Exeggcute", { set: "jungle" }), {
+      damage: "10+",
+      effects: [{ type: AttackEffectType.BonusDamage, target: AttackTarget.Defender, amount: 10, bonusDamageSource: "defenderEnergyCards" }],
+    });
+    // Double Colorless Energy is 1 card
+    const defender = inPlay("Machop", { energy: [Fighting, Colorless, Fighting] });
+    expect(use(vs(psychic, defender)).opponentActivePokemon!.currentDamage).toBe(40);
+    expect(use(vs(psychic, inPlay("Machop"))).opponentActivePokemon!.currentDamage).toBe(10);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {
