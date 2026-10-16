@@ -131,6 +131,11 @@ export type PokemonInPlay = {
    * takes damage from an attack; cleared on bench/evolve.
    */
   evadeOnFlip?: { attackName: string };
+  /**
+   * Tunneling / Screaming Headbutt (CantAttackNextTurn): during turn `onTurn` (its owner's next
+   * turn) it can't attack, or can't use `attackName` only. Cleared on bench/evolve.
+   */
+  attackLock?: { onTurn: number; attackName?: string };
   /** Sand-Attack / SmokeScreen: opponent must flip coin to attack. Clears on bench/evolve. */
   mustFlipToAttack?: boolean;
   /** Turn number when mustFlipToAttack was set (for expiration) */
@@ -610,6 +615,7 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     mirrorShellOnTurn: undefined,
     counterAttack: undefined,
     evadeOnFlip: undefined,
+    attackLock: undefined,
   };
 }
 
@@ -3245,6 +3251,11 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   if (hasStatusCondition(attacker, StatusCondition.Asleep)) return `${name} está dormido y no puede atacar`;
   if (hasStatusCondition(attacker, StatusCondition.Paralyzed)) return `${name} está paralizado y no puede atacar`;
   if (hasStatusCondition(attacker, StatusCondition.CannotAttack)) return `${name} no puede atacar este turno`;
+  // Tunneling / Screaming Headbutt used on its previous turn
+  if (attacker.attackLock?.onTurn === state.turnNumber && !attacker.attackLock.attackName) return `${name} no puede atacar este turno`;
+  if (attacker.attackLock?.onTurn === state.turnNumber && attacker.attackLock.attackName === attack.name) {
+    return `${name} no puede usar ${attack.name} este turno`;
+  }
   const requirement = getAttackRequirementFailure(attack, defender, attacker, state.opponentBench);
   if (requirement) return requirement;
   const isUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
@@ -4286,6 +4297,20 @@ function executeAttackUnchecked(
       if (effect.type === AttackEffectType.MirrorShell && newPlayerActive && !attackerKnockedOut) {
         newPlayerActive = { ...newPlayerActive, mirrorShellOnTurn: gameState.turnNumber };
         events.push(createGameEvent(`${newPlayerActive.pokemon.name} devolverá el daño que reciba durante el siguiente turno`, "action"));
+      }
+
+      // Tunneling / Screaming Headbutt: locked during its owner's next turn
+      if (effect.type === AttackEffectType.CantAttackNextTurn && newPlayerActive && !attackerKnockedOut) {
+        newPlayerActive = {
+          ...newPlayerActive,
+          attackLock: { onTurn: gameState.turnNumber + 2, ...(effect.thisAttackOnly && { attackName: attack.name }) },
+        };
+        events.push(createGameEvent(
+          effect.thisAttackOnly
+            ? `${newPlayerActive.pokemon.name} no podrá usar ${attack.name} durante el próximo turno de su dueño`
+            : `${newPlayerActive.pokemon.name} no podrá atacar durante el próximo turno de su dueño`,
+          "action"
+        ));
       }
 
       // Shadow Images: until it takes damage

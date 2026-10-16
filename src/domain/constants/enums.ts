@@ -187,6 +187,8 @@ export const AttackEffectType = {
   EvadeOnFlip: "evadeOnFlip",
   /** Pain Amplifier: `amount` (a damage counter) on each of the opponent's Pokémon that already has damage counters */
   DamageCountersOnDamaged: "damageCountersOnDamaged",
+  /** Tunneling: this Pokémon can't attack during your next turn (`thisAttackOnly`: only this attack, Screaming Headbutt) */
+  CantAttackNextTurn: "cantAttackNextTurn",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

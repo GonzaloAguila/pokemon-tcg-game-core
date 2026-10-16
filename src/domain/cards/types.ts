@@ -70,6 +70,8 @@ export type AttackEffect = {
   targetScope?: "opponentAny" | "opponentBench";
   /** ChooseTargetDamage: apply Weakness and Resistance (Drag Off). Default: don't (Stare, Flitter...). CounterAttack: to its damage (Fire Wall) */
   applyWeaknessResistance?: boolean;
+  /** CantAttackNextTurn: only this attack is locked (Screaming Headbutt); default: every attack (Tunneling) */
+  thisAttackOnly?: boolean;
   /** CounterAttack: the damage done back is the damage taken × this (Crosscounter: 2) */
   damageMultiplier?: number;
   /** CounterAttack: only if the defending player's coin is heads (the attack's defender coin, Crosscounter) */

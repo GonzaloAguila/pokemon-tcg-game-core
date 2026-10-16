@@ -331,6 +331,38 @@ describe("new effect kinds", () => {
     expect(ko.playerCanTakePrize).toBe(true);
   });
 
+  describe("CantAttackNextTurn (Tunneling, Screaming Headbutt)", () => {
+    const lockAll: AttackEffect = { type: AttackEffectType.CantAttackNextTurn, target: AttackTarget.Self };
+    const lockThis: AttackEffect = { ...lockAll, thisAttackOnly: true };
+    const twoAttacks = (lock: AttackEffect) => {
+      const p = inPlay("Electabuzz");
+      const card = p.pokemon as PokemonCard;
+      return { ...p, pokemon: { ...card, attacks: [{ name: "Lock", cost: [], damage: 10, effects: [lock] }, { name: "Other", cost: [], damage: 10 }] } };
+    };
+    /** Use attack 0 (it ends the turn), then the opponent's turn passes: the attacker's next turn */
+    const nextOwnTurn = (lock: AttackEffect) => endTurn((executeAttack(vs(twoAttacks(lock), inPlay("Onix")), 0, { coinResults: [] })));
+
+    it("Tunneling: no attack at all during your next turn, then it can attack again", () => {
+      const next = nextOwnTurn(lockAll);
+      expect(next.isPlayerTurn).toBe(true);
+      expect(canExecuteAttack(next, 0)).toMatch(/no puede atacar/);
+      expect(canExecuteAttack(next, 1)).toMatch(/no puede atacar/);
+      expect(canExecuteAttack(endTurn(endTurn(next)), 0)).toBeNull();
+    });
+
+    it("Screaming Headbutt: only that attack is locked", () => {
+      const next = nextOwnTurn(lockThis);
+      expect(canExecuteAttack(next, 0)).toMatch(/Lock/);
+      expect(canExecuteAttack(next, 1)).toBeNull();
+    });
+
+    it("ends when the Pokémon goes to the Bench or evolves", () => {
+      const locked = { ...inPlay("Electabuzz"), attackLock: { onTurn: 5 } };
+      expect(clearStatusConditionsOnRetreat(locked).attackLock).toBeUndefined();
+      expect(clearEffectsAsIfEvolved(locked).attackLock).toBeUndefined();
+    });
+  });
+
   describe("EvadeOnFlip (Shadow Images)", () => {
     const shadowImages: AttackEffect = { type: AttackEffectType.EvadeOnFlip, target: AttackTarget.Self };
     const scyther = () => inPlay("Scyther", { set: "jungle", evadeOnFlip: { attackName: "Imágenes Sombra" } });
