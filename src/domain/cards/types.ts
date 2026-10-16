@@ -112,8 +112,11 @@ export type AttackEffect = {
   bonusDamageNameMatch?: string;
   /** For CoinFlipDamage: derive coin count from attached energy count instead of fixed */
   coinCountFromEnergy?: boolean;
-  /** Coin count from the board instead of `coinFlip.count` ("opponentBench": one coin per opponent's Benched Pokémon, Thunderstorm) */
-  coinCountSource?: "opponentBench";
+  /**
+   * Coin count from the board instead of `coinFlip.count` ("opponentBench": one coin per opponent's
+   * Benched Pokémon, Thunderstorm; "ownNamedInPlay": one per Pokémon named in `names` you have in play, Night Spirits)
+   */
+  coinCountSource?: "opponentBench" | "ownNamedInPlay";
   /** BenchDamage with a coin per Benched Pokémon: coin i decides the i-th Benched Pokémon of the target side (Thunderstorm) */
   perCoinBenchTarget?: boolean;
   /** BenchDamage with maxBenchTargets: exactly that many must be chosen (all of them when there are fewer, Gigashock) */

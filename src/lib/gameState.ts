@@ -2921,6 +2921,12 @@ export type ExecuteAttackOptions = {
 /** Options of getAttackCoinPlan / getAttackCoinFlipCount: the attacker's optional coins. */
 export type AttackCoinOptions = Pick<ExecuteAttackOptions, "vermilionCoin">;
 
+/** Night Spirits: the attacker's side's Pokémon in play (Active and Benched) with one of these names. */
+function ownNamedInPlay(state: GameState | undefined, attacker: PokemonInPlay, names: string[]): number {
+  const bench = state?.playerActivePokemon?.pokemon.id === attacker.pokemon.id ? state.playerBench : [];
+  return [attacker, ...bench].filter((p) => names.includes(p.pokemon.name)).length;
+}
+
 /** Coins needed by an attack used by `attacker` (shared by all its coin effects). */
 export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?: GameState): number | "untilTails" {
   let count = 0;
@@ -2937,7 +2943,9 @@ export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?
       ? getTotalEnergyValue(attacker.attachedEnergy)
       : effect.coinCountSource === "opponentBench"
         ? (state?.opponentBench.length ?? 0)
-        : effect.coinFlip.count;
+        : effect.coinCountSource === "ownNamedInPlay"
+          ? ownNamedInPlay(state, attacker, effect.names ?? [])
+          : effect.coinFlip.count;
     count = Math.max(count, n);
   }
   return count;

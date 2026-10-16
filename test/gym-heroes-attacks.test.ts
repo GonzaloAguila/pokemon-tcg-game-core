@@ -465,6 +465,19 @@ describe("new effect kinds", () => {
     expect(clearStatusConditionsOnRetreat(theirTurn.opponentActivePokemon!).energyAttachBlockedOnTurn).toBeUndefined();
   });
 
+  it("coinCountSource ownNamedInPlay (Night Spirits): a coin per named Pokémon you have in play", () => {
+    const spirits = withAttack(inPlay("Haunter"), {
+      damage: "30x",
+      effects: [{
+        type: AttackEffectType.CoinFlipDamage, target: AttackTarget.Defender, amount: 30,
+        coinFlip: { count: 1, onHeads: "damage" }, coinCountSource: "ownNamedInPlay", names: ["Gastly", "Haunter", "Gengar"],
+      }],
+    });
+    const state = vs(spirits, inPlay("Onix"), { player: { bench: [inPlay("Gastly"), inPlay("Abra"), inPlay("Gengar", { set: "fossil" })] }, opponent: { bench: [inPlay("Gastly")] } });
+    expect(getAttackCoinPlan(state, 0).attack).toBe(3);
+    expect(use(state, [H, T, H]).opponentActivePokemon!.currentDamage).toBe(60);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {
