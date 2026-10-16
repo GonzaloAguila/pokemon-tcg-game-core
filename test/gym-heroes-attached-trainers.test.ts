@@ -292,14 +292,14 @@ describe("Sabrina's ESP: attached to a Pokémon with Sabrina in its name, re-fli
 
 describe("log", () => {
   it("every new line is perspective-free (the AI's view and the API's neutral log read it right)", () => {
-    const relative = /(tu|tus|Tu|Tus|te|rival|Rival)/;
+    const relative = /\b(tu|tus|Tu|Tus|te|rival|Rival)\b/;
     const card = esp();
     const haunter = gym("Sabrina's Haunter", { energy: [Psychic, Psychic] });
     const start = vs(withTrainer(haunter), inPlay("Onix"), { player: { hand: [card], bench: [gym("Sabrina's Gastly")] } });
     const played = playTrainerCard(start, card.id, [[haunter.pokemon.id]]);
     const reflipped = resolveAttackChoice(attack(played, "Espíritus Nocturnos", [T, T]), ["reflip"], { skipEndTurn: true, coinResults: [H, T] });
     const done = endTurn(resolveAttackChoice(reflipped, ["10"], { skipEndTurn: true }));
-    const lines = done.events.map((e) => e.message).filter((m) => !/^Jugaste [^:]*$/.test(m) && !/^Turno d+|^Fin de tu turno|robó una carta/.test(m));
+    const lines = done.events.map((e) => e.message).filter((m) => !/^Jugaste [^:]*$/.test(m) && !/^Turno \d+|^Fin de tu turno|robó una carta/.test(m));
     expect(lines.filter((m) => relative.test(m))).toEqual([]);
     expect(lines).toEqual(expect.arrayContaining([
       "Sabrina's ESP se unió a Sabrina's Haunter",
