@@ -169,6 +169,9 @@ export const AttackEffectType = {
   ShuffleOpponentDeck: "shuffleOpponentDeck",
   /** Afternoon Nap: search the deck for a basic Energy card of `energyType` and attach it to this Pokémon */
   AttachEnergyFromDeck: "attachEnergyFromDeck",
+  // ---------------------------------------------------------------- Gym Heroes
+  /** Charge: up to `amount` (at least `minAmount`) basic Energy cards of `energyType` from the discard pile onto this Pokémon */
+  AttachEnergyFromDiscard: "attachEnergyFromDiscard",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

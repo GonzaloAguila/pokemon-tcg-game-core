@@ -18,6 +18,7 @@
  * | `DiscardEnergyToDraw` | Third Eye (Dark Golduck) | self | step 1: 1 attached Energy card; step 2: how many cards to draw, "0".."3" |
  * | `EvolveFromDeck` | Rapid Evolution (Magikarp) | self | 1 Gyarados / Dark Gyarados card of the deck |
  * | `AttachEnergyFromDeck` | Afternoon Nap (Slowpoke) | self | 1 basic Psychic Energy card of the deck |
+ * | `AttachEnergyFromDiscard` | Charge (Lt. Surge's Electabuzz / Pikachu) | self | `minAmount`..`amount` basic Energy cards of `energyType` in the discard pile |
  *
  * Damage done by a choice (ChooseTargetDamage) is attack damage: PlusPower and Defender when the
  * target is the Defending Pokémon, Kabuto Armor, protection / Invisible Wall, Strikes Back,
@@ -93,6 +94,7 @@ export function isAttackChoiceEffect(effect: AttackEffect): boolean {
     case AttackEffectType.DiscardEnergyToDraw:
     case AttackEffectType.EvolveFromDeck:
     case AttackEffectType.AttachEnergyFromDeck:
+    case AttackEffectType.AttachEnergyFromDiscard:
       return true;
     case AttackEffectType.SelfSwitch:
       return !!effect.optional;
@@ -273,6 +275,22 @@ function stepFor(
         description: `Elige una carta de Energía ${getEnergyTypeInSpanish(effect.energyType ?? "")} de tu mazo para unirla a ${attacker.pokemon.name}`,
         options: cards.map((c) => ({ id: c.id, label: energyLabel(c) })),
         maxSelections: 1,
+        cards,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.AttachEnergyFromDiscard: {
+      const attacker = attackerOf(state, context);
+      const cards = state.playerDiscard.filter((c) => isEnergyCard(c) && c.isBasic && c.energyType === effect.energyType);
+      if (!attacker || cards.length === 0) return null;
+      const max = Math.min(effect.amount ?? 1, cards.length);
+      const typeName = getEnergyTypeInSpanish(effect.energyType ?? "");
+      return {
+        title,
+        description: `Elige ${max === 1 ? "1 carta" : `hasta ${max} cartas`} de Energía ${typeName} de tu pila de descartes para unirlas a ${attacker.pokemon.name}`,
+        options: cards.map((c) => ({ id: c.id, label: energyLabel(c) })),
+        maxSelections: max,
+        minSelections: Math.min(effect.minAmount ?? 0, max),
         cards,
         chooser: "self",
       };
@@ -518,6 +536,17 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
         playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== card.id)),
       };
       return { state: log(next, `${name}: unió ${energyLabel(card)} a ${attacker.pokemon.name}. Se mezcló el mazo`) };
+    }
+    case AttackEffectType.AttachEnergyFromDiscard: {
+      if (selection.length === 0) return { state: log(state, `${name}: no se unió ninguna Energía`) };
+      const attacker = state.playerActivePokemon!;
+      const taken = state.playerDiscard.filter((c) => selection.includes(c.id));
+      const next: GameState = {
+        ...state,
+        playerActivePokemon: { ...attacker, attachedEnergy: [...attacker.attachedEnergy, ...taken] },
+        playerDiscard: state.playerDiscard.filter((c) => !selection.includes(c.id)),
+      };
+      return { state: log(next, `${name}: unió ${taken.map(energyLabel).join(", ")} de la pila de descartes a ${attacker.pokemon.name}`) };
     }
     case AttackEffectType.Discard: {
       const defender = state.opponentActivePokemon!;

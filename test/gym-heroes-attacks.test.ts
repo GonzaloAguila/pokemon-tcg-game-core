@@ -193,4 +193,23 @@ describe("new effect kinds", () => {
     expect(names(next.playerDiscard)).toEqual(["Lightning Energy", "Lightning Energy"]);
     expect(names(next.playerActivePokemon!.attachedEnergy)).toEqual(["Water Energy"]);
   });
+
+  it("AttachEnergyFromDiscard: up to N basic Energy cards of the type from the discard pile go onto the attacker", () => {
+    const charge: AttackEffect = { type: AttackEffectType.AttachEnergyFromDiscard, target: AttackTarget.Self, energyType: Lightning, amount: 2, minAmount: 0 };
+    const discard = [energy(Lightning), energy(Water), energy(Lightning), energy(Lightning)];
+    const state = deepFreeze(vs(withAttack(inPlay("Electabuzz"), { effects: [charge] }), inPlay("Onix"), { player: { discard } }));
+    const next = use(state);
+    const step = next.pendingAttackChoice!.step;
+    expect(step.options.map((o) => o.label)).toEqual(["Energía Eléctrica", "Energía Eléctrica", "Energía Eléctrica"]);
+    expect([step.minSelections, step.maxSelections]).toEqual([0, 2]);
+    const done = choose(next, [discard[0].id, discard[2].id]);
+    expect(names(done.playerActivePokemon!.attachedEnergy)).toEqual(["Lightning Energy", "Lightning Energy"]);
+    expect(names(done.playerDiscard)).toEqual(["Water Energy", "Lightning Energy"]);
+    expect(choose(next, []).playerActivePokemon!.attachedEnergy).toEqual([]);
+    // Nothing of that type in the discard pile: nothing to choose
+    expect(use(vs(withAttack(inPlay("Electabuzz"), { effects: [charge] }), inPlay("Onix"))).pendingAttackChoice).toBeUndefined();
+    // "Take 1 Lightning Energy card": exactly one when there is one
+    const one = use(vs(withAttack(inPlay("Pikachu"), { effects: [{ ...charge, amount: 1, minAmount: 1 }] }), inPlay("Onix"), { player: { discard } }));
+    expect([one.pendingAttackChoice!.step.minSelections, one.pendingAttackChoice!.step.maxSelections]).toEqual([1, 1]);
+  });
 });
