@@ -118,3 +118,22 @@ Five agents tested card combinations across the 4 sets (≈380 new tests, ≈133
 - **Invisible Wall / Harden** are checked after PlusPower, Defender and Kabuto Armor; **Leech Seed** still heals when Resistance (not prevention) brings damage to 0.
 - **Sudden death** isn't modelled: when both players lose at once the result depends on the order (kept as a skipped test).
 - **AI damage estimates** ignore PlusPower, Kabuto Armor, Conversion-changed W/R and Swords Dance (play quality only).
+
+### Gym Heroes (Pokémon catalog, 2026-10-16)
+
+The 91 Pokémon's attacks run on effect data (new kinds tabled at the top of `test/gym-heroes-attacks.test.ts`); their 11 Pokémon Powers are data only for now. Every image URL answers 200 (pkmncards keeps the dot: `lt.-surges-…`, `sabrinas-mr.-mime-…`, and has no set code in Gym Heroes file names). Judgment calls on ambiguous text:
+
+- **Crosscounter (Rocket's Hitmonchan)**: "attacks your opponent's Active Pokémon for double that amount" — no Weakness / Resistance applied (the text doesn't say; Fire Wall says "Apply Weakness and Resistance" and gets them). Its coin is the attack's defender coin, flipped only when the attack can damage it.
+- **Shadow Images (Rocket's Scyther)**: the coin (flipped by the attacking player, `plan.defenderFlipper: "attacker"`) is only asked when the attack can damage the Defending Scyther; "until it takes damage" = until an attack does damage to it (confusion self-damage and Poison don't end it). Chosen-target attacks on it use the same coin.
+- **Fairy Power (Erika's Clefable)**: the Active Pokémon is only offered when the Bench isn't empty (returning your last Pokémon would lose the game); returning everything still loses.
+- **Lava Burst (Blaine's Magmar)**: counts basic Fire Energy cards only (Rainbow Energy isn't a "Fire Energy card" outside play). **Discharge** counts / discards a Rainbow Energy attached as Lightning (it provides Lightning in play). **Charge** takes basic Lightning Energy cards. **Electric Current** moves a basic Lightning Energy before a Rainbow one.
+- **Crystal Beam (Misty's Tentacool)**: blocks attaching Energy cards to that Pokémon (from the hand, Rain Dance included); powers that move Energy already in play (Energy Trans, Gather Fire, Energy Charge) still can.
+- **Deflector (Erika's Exeggcute)**: halves every attack damage done to it during the opponent's next turn (bench damage and its own self-damage included, through the Kabuto Armor hook); Poison isn't halved.
+- **Sleight of Hand (Sabrina's Mr. Mime)** must take as many basic Energy as cards were put back when the deck has them; **Moonwatching** must take one if there is one (a search may "fail" by the rules; kept strict so the AI doesn't waste them). **Call for Friend** may take none.
+- **Swift (Misty's Staryu)**: ignores Weakness, Resistance, Defender, Minimize-like reductions, Kabuto Armor / Deflector, protection (Agility, Harden…), Invisible Wall, Transparency and Shadow Images; PlusPower and Vermilion City Gym still add. The Gym Heroes damage powers (Strange Barrier, Shell Armor) must honor it when implemented.
+- **Pain Amplifier (Sabrina's Gengar)**: damage counters, not damage (Defender, halving and barriers don't apply); only what prevents every effect of the attack on the Defending Pokémon (Agility, Transparency) stops it there.
+- **Tunneling / Screaming Headbutt**: the "next turn" lock ends if the Pokémon is Benched or evolves (like other effects of attacks).
+- **Focus Energy (Lt. Surge's Rattata)**: modelled like Swords Dance (+20 to its next attack = Gnaw's base 20 doubled).
+- **Spanish names**: Base Set / Jungle left some attack names in English (Stomp, Drill Peck, Horn Attack, Razor Leaf, Call for Friend, Aurora Beam, Mega Drain); Gym Heroes translates them (Pisotón, Pico Taladro, Cornada, Hoja Afilada, Llamar a un Amigo, Rayo Aurora, Megaagotar) instead of reusing the English name. Lariat keeps its name.
+- **Base Set Mewtwo's Psychic** (`Médium`, "+10 per Energy card on the Defending Pokémon") has no effect data; Erika's Exeggcute's Psychic now uses `bonusDamageSource: "defenderEnergyCards"`, which Mewtwo could reuse.
+- **Vermilion City Gym**: no Lt. Surge's Pokémon has a chosen-target attack, so its +10 (normal damage step only) never misses one.
