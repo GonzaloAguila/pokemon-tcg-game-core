@@ -113,7 +113,9 @@ describe("Tickling Machine: heads", () => {
     const { machine, state } = setup({ opponent: { active: inPlay("Onix"), hand: [] } });
     const next = playTrainerCard(state, machine.id, [], { coinResults: [H] });
     expect(next.setAsideHands).toBeUndefined();
-    expect(newLines(state, next)).toContain("Tickling Machine: el otro jugador aparta boca abajo 0 cartas de la mano hasta el final de su próximo turno");
+    // Never "0 cartas"
+    expect(newLines(state, next)).toContain("Tickling Machine: el otro jugador no tiene cartas en la mano");
+    expect(newLines(state, next).filter((m) => m.includes("0 cartas"))).toEqual([]);
   });
 
   it("the opponent may set the player's hand aside on their turn while their own is aside: each comes back at its owner's turn end", () => {

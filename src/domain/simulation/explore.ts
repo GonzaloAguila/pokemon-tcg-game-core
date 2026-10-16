@@ -221,7 +221,7 @@ export function createExplorePolicy(memory: ExploreMemory): Policy {
     if (!best) return null;
     // Now and then wait a turn for a less-used attack that still needs Energy
     const waiting = unpaidTarget(view, active);
-    if (!heldThisTurn && waiting && waiting.count < memory.count(attackKey(card, best.attack)) && rng() < 0.5) {
+    if (!heldThisTurn && waiting && waiting.count < memory.count(`attack ${attackName(view, best.index)}`) && rng() < 0.5) {
       heldThisTurn = true;
       return null;
     }

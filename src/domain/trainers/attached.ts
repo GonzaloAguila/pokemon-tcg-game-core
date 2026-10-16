@@ -2,7 +2,8 @@
  * Trainers attached to a Pokémon in play until a trigger (Gym Heroes: Charity, Sabrina's ESP),
  * kept in `PokemonInPlay.attachedTrainers` so they move with the Pokémon (Bench, swapSides, the
  * AI's view) and leave play with it (`cardsLeavingPlay`: a Knock Out sends them to the discard
- * pile, Scoop Up to the hand). PlusPower / Defender are older attached Trainers kept as
+ * pile; Scoop Up discards them like every other card attached to the Pokémon it returns).
+ * PlusPower / Defender are older attached Trainers kept as
  * `GameModifier`s instead (lib/modifiers.ts).
  *
  * | Card | Attached to | Effect (engine) | End of its owner's turn |

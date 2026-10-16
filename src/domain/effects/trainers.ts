@@ -1491,13 +1491,11 @@ Object.assign(TRAINER_EFFECTS, {
       // "Nobody may look at those cards": the log only counts them. Back at the end of the
       // opponent's next turn (endTurn)
       const aside = setAsideHand(played, "opponent", state.turnNumber + 1);
-      return {
-        ...aside,
-        events: [
-          ...aside.events,
-          createGameEvent(`Tickling Machine: el otro jugador aparta boca abajo ${cardsCount(played.opponentHand.length)} de la mano hasta el final de su próximo turno`, "action"),
-        ],
-      };
+      const line =
+        played.opponentHand.length === 0
+          ? "Tickling Machine: el otro jugador no tiene cartas en la mano"
+          : `Tickling Machine: el otro jugador aparta boca abajo ${cardsCount(played.opponentHand.length)} de la mano hasta el final de su próximo turno`;
+      return { ...aside, events: [...aside.events, createGameEvent(line, "action")] };
     },
   },
 

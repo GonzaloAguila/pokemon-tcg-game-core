@@ -3571,8 +3571,9 @@ function defenderCoinKind(
 
 /**
  * Coin plan of an attack used now by the side whose turn it is ("player"): see AttackCoinPlan.
- * @param attack - index of the Active Pokémon's attack (a transformed Ditto's copied attacks),
- *   or an Attack object (the attack copied by Metronome).
+ * @param attack - index into getAvailableAttacks(state, active) (its own attacks — a transformed
+ *   Ditto's copied ones — then, with Recall, the attacks of the cards under it), or an Attack
+ *   object (the attack copied by Metronome).
  */
 export function getAttackCoinPlan(state: GameState, attack: number | Attack, options: AttackCoinOptions = {}): AttackCoinPlan {
   const none: AttackCoinPlan = { smokescreen: 0, attack: 0, defender: 0 };
@@ -3648,8 +3649,9 @@ function splitAttackCoins(
  * How many coins the side whose turn it is ("player") must flip before using an attack:
  * pass the result to executeAttack / executeMetronome as `coinResults`.
  *
- * @param attack - index of the active Pokémon's attack, or an Attack object for an attack
- *   used through Metronome (the copied attack; Energy-based counts use the Metronome user).
+ * @param attack - index into getAvailableAttacks(state, active) (Recall's attacks follow the own
+ *   ones), or an Attack object for an attack used through Metronome (the copied attack;
+ *   Energy-based counts use the Metronome user).
  * @returns 0 when the attack has no coin effects (or there is no active Pokémon/attack).
  */
 export function getAttackCoinFlipCount(state: GameState, attack: number | Attack, options: AttackCoinOptions = {}): number {
@@ -3889,6 +3891,9 @@ export function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipR
 /**
  * Uses an attack of the active Pokémon of the side whose turn it is ("player") against the
  * opponent's active Pokémon, resolving damage, effects, knockouts and (by default) endTurn.
+ * `attackIndex` indexes getAvailableAttacks(state, active): the Active's own attacks first (a
+ * transformed Ditto's copied ones), then — the turn Recall was played — the attacks of the cards
+ * under it.
  *
  * Two call forms:
  *
