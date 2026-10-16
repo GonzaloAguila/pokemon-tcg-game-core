@@ -401,6 +401,12 @@ export type GameState = {
    * next turn). Dropped by endTurn once that turn is over.
    */
   noTrainersOnTurn?: number;
+  /**
+   * Recall (Gym Heroes): played during this turn number. While it equals `turnNumber`, the Active
+   * Pokémon of the side whose turn it is may also use the attacks of the cards under it
+   * (getAvailableAttacks: indices after its own attacks). Dropped by endTurn.
+   */
+  recallActiveOnTurn?: number;
   /** BenchDamage: player needs to select bench Pokemon to receive damage */
   pendingBenchDamageSelection?: {
     /** Amount of damage to deal to each selected Pokemon */
@@ -2533,6 +2539,8 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   if (updatedState.noTrainersOnTurn !== undefined && updatedState.noTrainersOnTurn < newTurnNumber) {
     updatedState.noTrainersOnTurn = undefined;
   }
+  // Recall: only for the attack of the turn it was played
+  if (updatedState.recallActiveOnTurn !== undefined) delete updatedState.recallActiveOnTurn;
 
 
   // =====================================================================
@@ -2919,6 +2927,57 @@ function benchOfActive(state: GameState, pokemon: PokemonInPlay | null | undefin
   return undefined;
 }
 
+/** One attack a Pokémon in play can choose (see getAvailableAttacks). */
+export type AvailableAttack = {
+  attack: Attack;
+  /** Name of the card the attack comes from: the Pokémon itself (a transformed Ditto too), or the card under it (Recall). */
+  fromCard: string;
+  /** The index every attack entry point takes (canExecuteAttack, getAttackCoinPlan, executeAttack...). */
+  index: number;
+  /** A lower stage's attack, usable through Recall. */
+  recalled: boolean;
+};
+
+/** Recall is in effect for `pokemon`: played this turn, and it is the Active of the side whose turn it is. */
+function recallAppliesTo(state: GameState, pokemon: PokemonInPlay): boolean {
+  if (state.recallActiveOnTurn !== state.turnNumber) return false;
+  const active = state.isPlayerTurn ? state.playerActivePokemon : state.opponentActivePokemon;
+  return active?.pokemon.id === pokemon.pokemon.id;
+}
+
+function listAttacks(state: GameState, pokemon: PokemonInPlay, withRecall: boolean): AvailableAttack[] {
+  const card = getEffectivePokemonCard(state, pokemon);
+  if (!card) return [];
+  const own = card.attacks.map((attack, index) => ({ attack, fromCard: card.name, index, recalled: false }));
+  if (!withRecall) return own;
+  // The cards under it, Basic first (a Mysterious Fossil under Kabuto has no attacks)
+  const under = (pokemon.previousEvolutions ?? []).flatMap((c) =>
+    isPokemonCard(c) ? (c.attacks ?? []).map((attack) => ({ attack, fromCard: c.name })) : []
+  );
+  return [...own, ...under.map((u, k) => ({ ...u, index: own.length + k, recalled: true }))];
+}
+
+/**
+ * The attacks `pokemon` can choose from now, in index order — the indices every attack entry
+ * point takes. Its own attacks come first with their printed indices (a transformed Ditto: the
+ * copied card's, getEffectivePokemonCard); while Recall is in effect (played this turn, and
+ * `pokemon` is the Active of the side whose turn it is) the attacks of the cards under it follow,
+ * Basic first (previousEvolutions order), indices continuing after its own. Consumers list
+ * attacks with this instead of `card.attacks`.
+ */
+export function getAvailableAttacks(state: GameState, pokemon: PokemonInPlay): AvailableAttack[] {
+  return listAttacks(state, pokemon, recallAppliesTo(state, pokemon));
+}
+
+/** The attack `index` of `pokemon` now (getAvailableAttacks), or undefined. */
+function attackAt(state: GameState, pokemon: PokemonInPlay, index: number): Attack | undefined {
+  const own = getEffectivePokemonCard(state, pokemon)?.attacks;
+  if (!own) return undefined;
+  // Own attacks (the hot path: no list built); past them only Recall's
+  if (index < own.length) return own[index];
+  return recallAppliesTo(state, pokemon) ? listAttacks(state, pokemon, true)[index]?.attack : undefined;
+}
+
 /**
  * Verifica si un Pokémon puede usar un ataque específico
  * @param pokemonInPlay - El Pokémon en juego con sus energías adjuntas
@@ -2937,7 +2996,8 @@ export function canUseAttack(
   const pokemon = (state ? getEffectivePokemonCard(state, pokemonInPlay) : undefined) ?? pokemonInPlay.pokemon;
   if (pokemon.kind !== CardKind.Pokemon) return false;
 
-  const attack = pokemon.attacks[attackIndex];
+  // With the state, Recall's attacks too (getAvailableAttacks indices)
+  const attack = state ? attackAt(state, pokemonInPlay, attackIndex) : pokemon.attacks[attackIndex];
   if (!attack) return false;
 
   if (defender !== undefined && !meetsAttackRequirements(attack, defender, pokemonInPlay, state ? benchOfActive(state, defender) : undefined, state ? benchOfActive(state, pokemonInPlay) : undefined)) {
@@ -3084,11 +3144,12 @@ export function canUseAttack(
  * Get the discard requirement for an attack (if any)
  * Returns the energy types that must be discarded, or null if no discard needed
  */
-export function getAttackDiscardRequirement(pokemonInPlay: PokemonInPlay, attackIndex: number): EnergyType[] | null {
+export function getAttackDiscardRequirement(pokemonInPlay: PokemonInPlay, attackIndex: number, state?: GameState): EnergyType[] | null {
   const pokemon = pokemonInPlay.pokemon;
   if (pokemon.kind !== CardKind.Pokemon) return null;
 
-  const attack = pokemon.attacks[attackIndex];
+  // With the state: getAvailableAttacks indices (a transformed Ditto's, Recall's)
+  const attack = state ? attackAt(state, pokemonInPlay, attackIndex) : pokemon.attacks[attackIndex];
   if (!attack || !attack.effects) return null;
 
   for (const effect of attack.effects) {
@@ -3481,7 +3542,7 @@ export function getAttackCoinPlan(state: GameState, attack: number | Attack, opt
   const attacker = state.playerActivePokemon;
   const card = attacker ? getEffectivePokemonCard(state, attacker) : undefined;
   if (!attacker || !card) return none;
-  const resolved = typeof attack === "number" ? card.attacks[attack] : attack;
+  const resolved = typeof attack === "number" ? attackAt(state, attacker, attack) : attack;
   if (!resolved) return none;
   const defenderCoin = defenderCoinKind(state, state.opponentActivePokemon, resolved);
   const opponentFlips = (resolved.effects ?? []).some((e) => e.coinFlip && e.coinFlippedBy === "opponent");
@@ -3637,8 +3698,12 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   // A transformed Ditto uses the Defending Pokémon's attacks
   const attackerCard = getEffectivePokemonCard(state, attacker);
   if (!attackerCard) return "Tu Pokémon activo no puede atacar";
-  const attack = attackerCard.attacks[attackIndex];
-  if (!attack) return "Ese ataque no existe";
+  const attack = attackAt(state, attacker, attackIndex);
+  if (!attack) {
+    // A lower stage's attack without Recall
+    const recallable = !recallAppliesTo(state, attacker) && listAttacks(state, attacker, true)[attackIndex];
+    return recallable ? `Para usar los ataques de las cartas que ${attacker.pokemon.name} tiene debajo debes jugar Recall este turno` : "Ese ataque no existe";
+  }
   const name = attacker.pokemon.name;
   if (hasStatusCondition(attacker, StatusCondition.Asleep)) return `${name} está dormido y no puede atacar`;
   if (hasStatusCondition(attacker, StatusCondition.Paralyzed)) return `${name} está paralizado y no puede atacar`;
@@ -3667,7 +3732,7 @@ function copyAttackIndex(state: GameState): number {
   const attacker = state.playerActivePokemon;
   const card = attacker ? getEffectivePokemonCard(state, attacker) : undefined;
   if (!card) return -1;
-  return card.attacks.findIndex((a) => a.effects?.some((e) => e.type === AttackEffectType.CopyAttack));
+  return getAvailableAttacks(state, attacker!).findIndex(({ attack }) => attack.effects?.some((e) => e.type === AttackEffectType.CopyAttack));
 }
 
 /**
@@ -3864,7 +3929,8 @@ function executeAttackUnchecked(
   const attackerView: PokemonInPlay = { ...attacker, pokemon: attackerCard };
   const defenderView: PokemonInPlay = { ...defender, pokemon: defenderCard };
 
-  const printedAttack = attackerCard.attacks[attackIndex];
+  // getAvailableAttacks indices: Recall's attacks follow the Active's own
+  const printedAttack = attackAt(gameState, attacker, attackIndex);
   if (!printedAttack) return gameState;
 
   // Coin flips: in the options form the engine resolves coin effects from the caller's coins,

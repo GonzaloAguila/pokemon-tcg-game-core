@@ -32,6 +32,7 @@
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import {
   canExecuteAttack,
+  getAvailableAttacks,
   canExecuteMetronome,
   executeMetronome,
   canRetreat,
@@ -514,7 +515,8 @@ function comboScore(s: GameState, combo: Combo): number {
   if (card && canAttackNow) {
     const theirHp = hpLeft(s, theirs);
     const lastPrize = s.playerPrizes.length <= prizesFor(theirs) || s.opponentBench.length === 0;
-    card.attacks.forEach((attack, index) => {
+    // Recall's attacks too, when it was played this turn
+    getAvailableAttacks(s, mine).forEach(({ attack, index }) => {
       if (missingEnergy(s, "player", mine, index) > 0) return;
       if (attack.effects?.some((e) => e.type === AttackEffectType.CopyAttack)) return;
       const outcomes = attackDamage(s, "player", mine, attack, theirs);
@@ -857,7 +859,8 @@ function attackChoices(v: GameState): AttackChoice[] {
   const card = active ? cardOf(v, active) : undefined;
   if (!active || !card || !defender) return [];
   const choices: AttackChoice[] = [];
-  card.attacks.forEach((attack, index) => {
+  // Recall's attacks too (indices after the own ones), when it was played this turn
+  getAvailableAttacks(v, active).forEach(({ attack, index }) => {
     if (attack.effects?.some((e) => e.type === AttackEffectType.CopyAttack)) {
       for (const copied of cardOf(v, defender)?.attacks ?? []) {
         if (canExecuteMetronome(v, copied) === null) choices.push({ index, copied });
@@ -931,6 +934,8 @@ function trainerCandidates(v: GameState): AIAction[] {
       })
   );
   if (v.playerActivePokemon) add("Defender", [[[v.playerActivePokemon.pokemon.id]]]);
+  // Recall: judged by the attack it opens up (bestAttack lists the attacks under the Active once played)
+  if (v.recallActiveOnTurn !== v.turnNumber && v.playerActivePokemon?.previousEvolutions?.length) add("Recall", [[]]);
   if (v.playerActivePokemon && (v.playerActivePokemon.statusConditions ?? []).some((c) => c !== StatusCondition.CannotAttack)) add("Full Heal", [[]]);
   if (damaged.length > 0) add("Pokémon Center", [[]]);
   // Energy Removal: one Energy card of each kind on each opposing Pokémon
@@ -994,7 +999,7 @@ function finishWithAttack(plan: Plan): AIAction[] {
   // PlusPower: only when it makes the Knock Out more likely
   const active = v.playerActivePokemon!;
   const defender = v.opponentActivePokemon!;
-  const attack = choice.copied ?? cardOf(v, active)?.attacks[choice.index];
+  const attack = choice.copied ?? getAvailableAttacks(v, active)[choice.index]?.attack;
   if (attack) {
     const pluses = v.playerHand.filter((c) => isTrainerCard(c) && c.name === "PlusPower" && canPlayTrainerCard(v, c.id) === null);
     const hp = hpLeft(v, defender);

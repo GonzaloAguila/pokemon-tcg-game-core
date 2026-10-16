@@ -19,6 +19,7 @@ import {
   executeMetronome,
   executeRetreat,
   getAttackCoinPlan,
+  getAvailableAttacks,
   flipAttackCoins,
   getEnergyValue,
   getRetreatCost,
@@ -224,7 +225,10 @@ const isCopyAttack = (attack: Attack) => attack.effects?.some((e) => e.type === 
 export function attackName(view: GameState, attackIndex: number): string {
   const active = view.playerActivePokemon;
   const card = active ? getEffectivePokemonCard(view, active) : undefined;
-  return card ? `${card.name}: ${card.attacks[attackIndex]?.name ?? `#${attackIndex}`}` : `#${attackIndex}`;
+  const entry = active ? getAvailableAttacks(view, active)[attackIndex] : undefined;
+  // A lower stage's attack through Recall: "Graveler: Placaje (Recall: Brock's Geodude)"
+  const recalled = entry?.recalled ? ` (Recall: ${entry.fromCard})` : "";
+  return card ? `${card.name}: ${entry?.attack.name ?? `#${attackIndex}`}${recalled}` : `#${attackIndex}`;
 }
 
 export function attackAction(attackIndex: number, rng: Rng, name = `#${attackIndex}`, { vermilionCoin = false } = {}): ViewAction {
@@ -238,7 +242,7 @@ export function attackAction(attackIndex: number, rng: Rng, name = `#${attackInd
         if (!confusion.canAttack) return confusion.state;
         state = confusion.state;
       }
-      const attack = getEffectivePokemonCard(state, active)?.attacks[attackIndex];
+      const attack = getAvailableAttacks(state, active)[attackIndex]?.attack;
       if (attack && isCopyAttack(attack)) {
         const defender = state.opponentActivePokemon!;
         const copyable = (getEffectivePokemonCard(state, defender)?.attacks ?? []).filter((a) => canExecuteMetronome(state, a) === null);
@@ -339,9 +343,9 @@ export function legalActions(view: GameState, rng: Rng, answer: (step: Selection
   const retreat = retreatAction(view, rng);
   if (retreat) add("retreat", retreat);
   const active = view.playerActivePokemon;
-  const activeCard = active ? getEffectivePokemonCard(view, active) : undefined;
-  if (activeCard) {
-    activeCard.attacks.forEach((_, index) => {
+  if (active) {
+    // Recall's attacks too (indices after the own ones)
+    getAvailableAttacks(view, active).forEach(({ index }) => {
       if (canExecuteAttack(view, index) !== null) return;
       add("attack", attackAction(index, rng, attackName(view, index)));
       // Vermilion City Gym: the same attack with the Stadium's optional coin

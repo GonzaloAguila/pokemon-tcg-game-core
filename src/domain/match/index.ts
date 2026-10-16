@@ -40,6 +40,7 @@ export {
   calculateBaseDamage,
   meetsAttackRequirements,
   getAttackDiscardRequirement,
+  getAvailableAttacks,
   canEvolveInto,
   findValidEvolutionTargets,
   hasStatusCondition,

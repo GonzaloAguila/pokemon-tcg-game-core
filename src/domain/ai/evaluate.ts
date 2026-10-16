@@ -17,6 +17,7 @@ import {
   protectionBlocksDamage,
   resolveCoinFlipEffects,
   canUseAttack,
+  getAvailableAttacks,
 } from "@/lib/gameState";
 import { attackBonusFromModifiers, defenderReduction as modifierDefenderReduction } from "@/lib/modifiers";
 import type { Attack, PokemonCard } from "@/domain/cards";
@@ -112,7 +113,8 @@ export function missingForCost(cost: readonly EnergyType[], energies: readonly G
 export function missingEnergy(v: GameState, side: Rel, p: PokemonInPlay, index: number): number {
   const w = asPlayer(v, side);
   const card = cardOf(w, p);
-  const attack = card?.attacks[index];
+  // getAvailableAttacks indices (Recall's attacks follow the own ones)
+  const attack = getAvailableAttacks(w, p)[index]?.attack;
   if (!card || !attack) return 99;
   if (canUseAttack(p, index, undefined, w)) return 0;
   return Math.max(1, missingForCost(attack.cost, p.attachedEnergy));

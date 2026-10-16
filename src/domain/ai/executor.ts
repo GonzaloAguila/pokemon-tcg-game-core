@@ -6,7 +6,7 @@
  */
 
 import type { GameState } from "@/domain/match";
-import { canExecuteAttack, canExecuteMetronome, executeMetronome, canRetreat, flipAttackCoins, getAttackCoinPlan, getRetreatCoinFlips, getRetreatCost, getTotalEnergyValue } from "@/lib/gameState";
+import { canExecuteAttack, canExecuteMetronome, executeMetronome, getAvailableAttacks, canRetreat, flipAttackCoins, getAttackCoinPlan, getRetreatCoinFlips, getRetreatCost, getTotalEnergyValue } from "@/lib/gameState";
 import { executeAttack, endTurn, executeRetreat, createGameEvent, resolveConfusionFlip, promoteActivePokemon } from "@/domain/match";
 import { isPokemonCard } from "@/domain/cards";
 import type { AIAction, AttackAction, PlayTrainerAction, UsePowerAction, UseStadiumAction } from "./types";
@@ -155,8 +155,8 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
   if (!attacker || !defender) return state;
   if (!isPokemonCard(attacker.pokemon) || !isPokemonCard(defender.pokemon)) return state;
 
-  // A transformed Ditto uses the copied card's attacks
-  const attack = getEffectivePokemonCard(state, attacker)?.attacks[attackIndex];
+  // A transformed Ditto uses the copied card's attacks; Recall's follow the own ones
+  const attack = getAvailableAttacks(state, attacker)[attackIndex]?.attack;
   if (!attack) return state;
   // Metronome: the Defending Pokémon's attack it copies
   const copied = action.copiedAttackName

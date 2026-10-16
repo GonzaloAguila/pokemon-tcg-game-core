@@ -34,6 +34,7 @@ export type {
   PendingPowerChoice,
   OnPlayPowerDef,
   RetreatOptions,
+  AvailableAttack,
 } from "./lib/gameState";
 
 // PlusPower / Defender modifiers: which Pokémon they are attached to (it keeps them when it evolves)
@@ -204,6 +205,7 @@ export {
 export {
   canUseAttack,
   canExecuteAttack,
+  getAvailableAttacks,
   canExecuteMetronome,
   calculateBaseDamage,
   meetsAttackRequirements,

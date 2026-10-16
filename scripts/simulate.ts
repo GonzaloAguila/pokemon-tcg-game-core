@@ -122,9 +122,12 @@ for (const policy of pairs as PolicyPair[]) {
   );
   if (process.argv.includes("--stats")) {
     const totals = totalsOf(result.outcomes);
+    // Attacks of a lower stage used through Recall ("attack X: Y (Recall: Z)"), as one line
+    const recalled = Object.entries(totals).filter(([kind]) => kind.startsWith("attack ") && kind.includes(" (Recall: "));
+    const recallLine: [string, number][] = recalled.length > 0 ? [["attack through Recall", recalled.reduce((sum, [, n]) => sum + n, 0)]] : [];
     console.log(
-      Object.entries(totals)
-        .filter(([kind]) => !kind.startsWith("attack ") && !kind.startsWith("passive "))
+      [...Object.entries(totals), ...recallLine]
+        .filter(([kind]) => kind === "attack through Recall" || (!kind.startsWith("attack ") && !kind.startsWith("passive ")))
         .sort((a, b) => b[1] - a[1])
         .map(([kind, count]) => `    ${kind}: ${count}`)
         .join("\n")

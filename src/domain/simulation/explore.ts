@@ -13,7 +13,7 @@
  */
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
-import { canExecuteAttack, canUseAttack, energyProvidesType } from "@/lib/gameState";
+import { canExecuteAttack, canUseAttack, energyProvidesType, getAvailableAttacks } from "@/lib/gameState";
 import { maxBenchSize } from "@/domain/board";
 import type { Attack, Card, PokemonCard } from "@/domain/cards";
 import { isEnergyCard, isPokemonCard } from "@/domain/cards";
@@ -215,8 +215,9 @@ export function createExplorePolicy(memory: ExploreMemory): Policy {
     const active = view.playerActivePokemon;
     const card = active ? cardOf(view, active) : undefined;
     if (!active || !card) return null;
-    const legal = card.attacks.map((attack, index) => ({ attack, index })).filter(({ index }) => canExecuteAttack(view, index) === null);
-    const best = lowest(rng, legal, ({ attack }) => memory.count(attackKey(card, attack)));
+    // Recall's attacks too, counted by their label ("…: Placaje (Recall: Brock's Geodude)")
+    const legal = getAvailableAttacks(view, active).filter(({ index }) => canExecuteAttack(view, index) === null);
+    const best = lowest(rng, legal, ({ index }) => memory.count(`attack ${attackName(view, index)}`));
     if (!best) return null;
     // Now and then wait a turn for a less-used attack that still needs Energy
     const waiting = unpaidTarget(view, active);

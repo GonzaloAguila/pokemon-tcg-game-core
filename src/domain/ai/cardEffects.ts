@@ -52,7 +52,7 @@
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
-import { canUseAttack, energyProvidesType, getEnergyValue, hasStatusCondition } from "@/lib/gameState";
+import { canUseAttack, energyProvidesType, getAvailableAttacks, getEnergyValue, hasStatusCondition } from "@/lib/gameState";
 import { isBenchFull } from "@/domain/board";
 import { isBasicEnergy, isEnergyCard, isPokemonCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
@@ -120,8 +120,7 @@ function activeCanAttack(view: GameState): boolean {
 }
 
 function canAttackWith(view: GameState, pokemon: PokemonInPlay): boolean {
-  const card = getEffectivePokemonCard(view, pokemon);
-  return (card?.attacks ?? []).some((_, i) => canUseAttack(pokemon, i, view.opponentActivePokemon, view));
+  return getAvailableAttacks(view, pokemon).some(({ index }) => canUseAttack(pokemon, index, view.opponentActivePokemon, view));
 }
 
 function remainingHp(pokemon: PokemonInPlay): number {

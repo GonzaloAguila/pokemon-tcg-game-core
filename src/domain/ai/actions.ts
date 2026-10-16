@@ -9,6 +9,7 @@ import type { GameState, GameCard, PokemonInPlay } from "@/domain/match";
 import { maxBenchSize } from "@/domain/board";
 import {
   canUseAttack,
+  getAvailableAttacks,
   hasEnoughEnergyToRetreat,
   canRetreat,
   getRetreatCost,
@@ -292,7 +293,7 @@ export function canKnockOut(
   const defenderCard = getEffectivePokemonCard(state, defender);
   if (!attackerCard || !defenderCard) return false;
 
-  const attack = attackerCard.attacks[attackIndex];
+  const attack = getAvailableAttacks(state, attacker)[attackIndex]?.attack;
   if (!attack) return false;
 
   // Check for MirrorMove: damage comes from lastDamageReceived, no weakness/resistance
@@ -343,7 +344,7 @@ export function estimateAttackDamage(
   const defenderCard = getEffectivePokemonCard(state, defender);
   if (!attackerCard || !defenderCard) return 0;
 
-  const attack = attackerCard.attacks[attackIndex];
+  const attack = getAvailableAttacks(state, attacker)[attackIndex]?.attack;
   if (!attack) return 0;
 
   // Check for MirrorMove: damage comes from lastDamageReceived, no weakness/resistance
@@ -384,7 +385,8 @@ export function getUsableAttacks(
   // Passing the defender also enforces attack requirements (Dream Eater needs it Asleep)
   const defender = getActivePokemon(state, side === "player" ? "opponent" : "player");
 
-  for (let i = 0; i < activeCard.attacks.length; i++) {
+  const count = getAvailableAttacks(state, activePokemon).length; // Recall's attacks too
+  for (let i = 0; i < count; i++) {
     if (canUseAttack(activePokemon, i, defender, state)) {
       const damage = estimateAttackDamage(state, side, i);
       const knocksOut = canKnockOut(state, side, i);

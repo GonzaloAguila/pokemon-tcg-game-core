@@ -46,6 +46,7 @@
  * | Energy Flow (GH) | [[0+ Energy card ids attached to own Pokémon]] |
  * | Charity (GH) | [] (attached to the Active) |
  * | Sabrina's ESP (GH) | [[ownSabrinasPokemonId]] (attached to it) |
+ * | Recall (GH) | [] (state.recallActiveOnTurn: this turn's Active may use the attacks under it, getAvailableAttacks) |
  *
  * Mysterious Fossil and Clefairy Doll have no entry: they are played as Basic Pokémon
  * (playBasicPokemon; see isPlayedAsBasic).
@@ -695,7 +696,6 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  */
 export const UNSUPPORTED_TRAINERS: readonly string[] = [
   // Gym Heroes Trainers that need new machinery, each removed by the task that implements it
-  "Recall", // Task 11
   "Tickling Machine", // Task 12
   "Erika", // Task 13
   "Lt. Surge's Treaty", // Task 13
@@ -1272,6 +1272,20 @@ Object.assign(TRAINER_EFFECTS, {
       };
     }
   ),
+
+  // Recall: for this turn's attack the Active may also use the attacks of the cards under it
+  // (whatever Pokémon is Active when it attacks: the mark is on the turn, see getAvailableAttacks)
+  "Recall": immediate((state, cardId) => {
+    const played = discardPlayed(state, cardId, "Jugaste Recall");
+    return {
+      ...played,
+      recallActiveOnTurn: state.turnNumber,
+      events: [
+        ...played.events,
+        createGameEvent("Recall: el Pokémon Activo puede usar este turno los ataques de las cartas de Pokémon que tiene debajo (pagando su coste de Energía)", "info"),
+      ],
+    };
+  }),
 
   "The Rocket's Trap": {
     canUse: () => null,

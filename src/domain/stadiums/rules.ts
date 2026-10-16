@@ -16,9 +16,9 @@
  */
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
+import { getAvailableAttacks } from "@/lib/gameState";
 import { hasOwner } from "@/domain/cards/owner";
 import { stadiumNamed } from "@/domain/board/stadium";
-import { getEffectivePokemonCard } from "@/domain/powers";
 
 /** Bench size while Narrow Gym is in play. */
 export const NARROW_GYM_BENCH_SIZE = 4;
@@ -71,7 +71,7 @@ export function canUseVermilionCoin(state: GameState, attackIndex: number): stri
   if (!stadiumNamed(state, "Vermilion City Gym")) return "Vermilion City Gym no está en juego";
   const attacker = state.playerActivePokemon;
   if (!attacker) return "No tienes Pokémon activo";
-  if (!getEffectivePokemonCard(state, attacker)?.attacks[attackIndex]) return "Ese ataque no existe";
+  if (!getAvailableAttacks(state, attacker)[attackIndex]) return "Ese ataque no existe";
   if (!stadiumOffersAttackCoin(state, attacker)) return `${attacker.pokemon.name} no tiene a Lt. Surge en su nombre`;
   return null;
 }
