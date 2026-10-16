@@ -308,4 +308,50 @@ describe("new effect kinds", () => {
       expect(clearEffectsAsIfEvolved(hitmonchan).counterAttack).toBeUndefined();
     });
   });
+
+  describe("EvadeOnFlip (Shadow Images)", () => {
+    const shadowImages: AttackEffect = { type: AttackEffectType.EvadeOnFlip, target: AttackTarget.Self };
+    const scyther = () => inPlay("Scyther", { set: "jungle", evadeOnFlip: { attackName: "Imágenes Sombra" } });
+    const poisonHit = withAttack(inPlay("Electabuzz"), {
+      damage: 30,
+      effects: [{ type: AttackEffectType.ApplyStatus, target: AttackTarget.Defender, status: StatusCondition.Poisoned }],
+    });
+
+    it("stays on the attacker", () => {
+      const next = use(vs(withAttack(scyther(), { effects: [shadowImages] }), inPlay("Onix")));
+      expect(next.playerActivePokemon!.evadeOnFlip).toEqual({ attackName: "Test" });
+    });
+
+    it("an attack that can damage it flips a coin for the attacker (the defender coin): tails = no damage, the other effects happen", () => {
+      const state = deepFreeze(vs(poisonHit, scyther()));
+      expect(getAttackCoinPlan(state, 0)).toMatchObject({ defender: 1, defenderFlipper: "attacker" });
+      const tails = use(state, [T]);
+      expect(tails.opponentActivePokemon!.currentDamage).toBe(0);
+      expect(tails.opponentActivePokemon!.statusConditions).toContain(StatusCondition.Poisoned);
+      expect(tails.opponentActivePokemon!.evadeOnFlip).toBeDefined();
+      // Heads: the damage is done, and the effect ends (it took damage)
+      const heads = use(state, [H]);
+      expect(heads.opponentActivePokemon!.currentDamage).toBe(30);
+      expect(heads.opponentActivePokemon!.evadeOnFlip).toBeUndefined();
+    });
+
+    it("lasts several turns, no coin for attacks without damage, and ends on the Bench", () => {
+      const status = withAttack(inPlay("Electabuzz"), { effects: [{ type: AttackEffectType.ApplyStatus, target: AttackTarget.Defender, status: StatusCondition.Asleep }] });
+      expect(getAttackCoinPlan(vs(status, scyther()), 0).defender).toBe(0);
+      expect(use(vs(poisonHit, scyther(), { turnNumber: 9 }), [T]).opponentActivePokemon!.currentDamage).toBe(0);
+      expect(clearStatusConditionsOnRetreat(scyther()).evadeOnFlip).toBeUndefined();
+      expect(clearEffectsAsIfEvolved(scyther()).evadeOnFlip).toBeUndefined();
+    });
+
+    it("chosen-target damage on it uses the same coin", () => {
+      const target = scyther();
+      const flitter = withAttack(inPlay("Electabuzz"), { effects: [{ type: AttackEffectType.ChooseTargetDamage, target: AttackTarget.Defender, amount: 20, targetScope: "opponentAny" }] });
+      const tails = use(vs(flitter, target), [T]);
+      expect(choose(tails, [target.pokemon.id]).opponentActivePokemon!.currentDamage).toBe(0);
+      const heads = use(vs(flitter, target), [H]);
+      const done = choose(heads, [target.pokemon.id]);
+      expect(done.opponentActivePokemon!.currentDamage).toBe(20);
+      expect(done.opponentActivePokemon!.evadeOnFlip).toBeUndefined();
+    });
+  });
 });

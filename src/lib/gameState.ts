@@ -125,6 +125,12 @@ export type PokemonInPlay = {
     retaliationCoin?: boolean;
     applyWeaknessResistance?: boolean;
   };
+  /**
+   * Shadow Images (EvadeOnFlip): whenever an attack that can damage it is used against it, the
+   * attacking player flips (the attack's defender coin); tails = no damage to it. Lasts until it
+   * takes damage from an attack; cleared on bench/evolve.
+   */
+  evadeOnFlip?: { attackName: string };
   /** Sand-Attack / SmokeScreen: opponent must flip coin to attack. Clears on bench/evolve. */
   mustFlipToAttack?: boolean;
   /** Turn number when mustFlipToAttack was set (for expiration) */
@@ -603,6 +609,7 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     mustFlipToAttackTurn: undefined,
     mirrorShellOnTurn: undefined,
     counterAttack: undefined,
+    evadeOnFlip: undefined,
   };
 }
 
@@ -2948,6 +2955,11 @@ export type AttackCoinPlan = {
    * them (Knock Down, Bench Manipulation: "your opponent flips"). Same position in coinResults.
    */
   attackFlipper?: "opponent";
+  /**
+   * Who flips the defender coin: present ("attacker") only when the attacking player flips it
+   * (Rocket's Scyther's Shadow Images: "your opponent flips"); otherwise the defending player.
+   */
+  defenderFlipper?: "attacker";
 };
 
 /** Effect types that do something to the Defending Pokémon (Transparency flips for them). */
@@ -3058,6 +3070,25 @@ export function counterAttackDamage(
 }
 
 /**
+ * What the attack's defender coin (one at most) is for, or null when there is none:
+ * Transparency (whenever the attack can affect the Defending Pokémon), then Final Beam, Shadow
+ * Images (flipped by the attacker) and Crosscounter (whenever the attack can damage it).
+ */
+function defenderCoinKind(
+  state: GameState,
+  defender: PokemonInPlay | null,
+  attack: Attack
+): "transparency" | "finalBeam" | "evade" | "counterAttack" | null {
+  if (!defender) return null;
+  if (defenderFlipsToPrevent(state, defender) && attackCanAffectDefender(attack)) return "transparency";
+  if (!attackCanDamageDefender(attack)) return null;
+  if (getKnockOutRetaliation(state, defender)) return "finalBeam";
+  if (defender.evadeOnFlip) return "evade";
+  if (activeCounterAttack(state, defender)?.retaliationCoin) return "counterAttack";
+  return null;
+}
+
+/**
  * Coin plan of an attack used now by the side whose turn it is ("player"): see AttackCoinPlan.
  * @param attack - index of the Active Pokémon's attack (a transformed Ditto's copied attacks),
  *   or an Attack object (the attack copied by Metronome).
@@ -3069,12 +3100,7 @@ export function getAttackCoinPlan(state: GameState, attack: number | Attack, opt
   if (!attacker || !card) return none;
   const resolved = typeof attack === "number" ? card.attacks[attack] : attack;
   if (!resolved) return none;
-  const defender = state.opponentActivePokemon;
-  // Transparency: whenever the attack can affect it; Final Beam / Crosscounter: whenever it can damage it
-  const defenderCoin =
-    (defenderFlipsToPrevent(state, defender) && attackCanAffectDefender(resolved)) ||
-    (!!defender && !!getKnockOutRetaliation(state, defender) && attackCanDamageDefender(resolved)) ||
-    (!!activeCounterAttack(state, defender)?.retaliationCoin && attackCanDamageDefender(resolved));
+  const defenderCoin = defenderCoinKind(state, state.opponentActivePokemon, resolved);
   const opponentFlips = (resolved.effects ?? []).some((e) => e.coinFlip && e.coinFlippedBy === "opponent");
   // Vermilion City Gym, only when the attacker opted in and the Stadium offers it
   const stadiumCoin = options.vermilionCoin && stadiumOffersAttackCoin(state, attacker);
@@ -3083,6 +3109,7 @@ export function getAttackCoinPlan(state: GameState, attack: number | Attack, opt
     attack: coinFlipCountFor(attacker, resolved, state),
     ...(stadiumCoin && { stadium: 1 }),
     defender: defenderCoin ? 1 : 0,
+    ...(defenderCoin === "evade" && { defenderFlipper: "attacker" as const }),
     ...(opponentFlips && { attackFlipper: "opponent" as const }),
   };
 }
@@ -3480,7 +3507,10 @@ function executeAttackUnchecked(
   const defenderPowerType = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.type : undefined;
   const transparencyCoin = defenderPowerType === PokemonPowerType.PreventAttackOnFlip ? defenderCoin : undefined;
   const finalBeamCoin = defenderPowerType === PokemonPowerType.KnockOutRetaliation ? defenderCoin : undefined;
-  const counterAttackCoin = !transparencyCoin && !finalBeamCoin ? defenderCoin : undefined;
+  const defenderCoinFor = defenderCoinKind(gameState, defender, printedAttack);
+  const counterAttackCoin = defenderCoinFor === "counterAttack" ? defenderCoin : undefined;
+  // Shadow Images: tails = this attack does no damage to the Defending Pokémon
+  const evadeCoin = defenderCoinFor === "evade" ? defenderCoin : undefined;
 
   // Dive Bomb / Clamp tails: "this attack does nothing (not even damage)"
   if (attack.effects?.some((e) => e.type === AttackEffectType.AttackFails && !e.coinFlip)) {
@@ -3643,10 +3673,13 @@ function executeAttackUnchecked(
     effectiveDamage = 0;
   } else if (defenderIsProtected && damage > 0) {
     effectiveDamage = 0;
+  } else if (evadeCoin === "tails") {
+    effectiveDamage = 0;
   } else if (isDamageBlocked(defender, damage, gameState)) {
     effectiveDamage = 0;
     damageBarrierBlocked = true;
   }
+  const evaded = evadeCoin === "tails" && !transparencyPrevents && !(defenderIsProtected && damage > 0);
 
   // Mass Explosion: its second part also hits the Defending Pokémon when it is named (no W/R),
   // unless everything was prevented
@@ -3702,6 +3735,10 @@ function executeAttackUnchecked(
     const powerName = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.name ?? "Transparencia" : "Transparencia";
     events.push(createGameEvent(`${powerName} de ${defender.pokemon.name} - Moneda: [coin:${transparencyCoin}]`, "info"));
   }
+  // Shadow Images' coin, flipped by the attacker
+  if (evadeCoin && defender.evadeOnFlip) {
+    events.push(createGameEvent(`${defender.evadeOnFlip.attackName} de ${defender.pokemon.name} - Moneda: [coin:${evadeCoin}]`, "info"));
+  }
 
   // Mensaje del ataque con detalles de debilidad/resistencia y protección
   let damageMessage = "";
@@ -3713,6 +3750,8 @@ function executeAttackUnchecked(
     } else {
       damageMessage = ` pero ${defender.pokemon.name} está protegido. ¡El daño fue prevenido!`;
     }
+  } else if (evaded) {
+    damageMessage = ` pero ${defender.pokemon.name} no recibió daño (${defender.evadeOnFlip?.attackName ?? "Imágenes Sombra"})`;
   } else if (damageBarrierBlocked) {
     const barrierPowerName = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.name || "Muro Invisible" : "Muro Invisible";
     damageMessage = ` pero ${defender.pokemon.name} bloqueó el daño con ${barrierPowerName}`;
@@ -3795,6 +3834,8 @@ function executeAttackUnchecked(
       ...defender,
       currentDamage: newDamage,
       lastDamageReceived: effectiveDamage > 0 ? effectiveDamage : undefined,
+      // Shadow Images lasts until it takes damage
+      ...(newDamage > (defender.currentDamage || 0) && { evadeOnFlip: undefined }),
     };
   }
 
@@ -4227,6 +4268,12 @@ function executeAttackUnchecked(
       if (effect.type === AttackEffectType.MirrorShell && newPlayerActive && !attackerKnockedOut) {
         newPlayerActive = { ...newPlayerActive, mirrorShellOnTurn: gameState.turnNumber };
         events.push(createGameEvent(`${newPlayerActive.pokemon.name} devolverá el daño que reciba durante el siguiente turno`, "action"));
+      }
+
+      // Shadow Images: until it takes damage
+      if (effect.type === AttackEffectType.EvadeOnFlip && newPlayerActive && !attackerKnockedOut) {
+        newPlayerActive = { ...newPlayerActive, evadeOnFlip: { attackName: attack.name } };
+        events.push(createGameEvent(`Quien ataque a ${newPlayerActive.pokemon.name} deberá lanzar una moneda: si sale cruz, el ataque no le hace daño`, "action"));
       }
 
       // Crosscounter / Fire Wall: remembered for the opponent's next turn
@@ -5045,6 +5092,7 @@ function executeAttackUnchecked(
       discardIdsBefore: gameState.playerDiscard.map((c) => c.id),
       finalBeamCoin,
       counterAttackCoin,
+      evadeCoin,
     });
   }
 

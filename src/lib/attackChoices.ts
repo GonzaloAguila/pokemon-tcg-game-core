@@ -85,6 +85,8 @@ export type AttackChoiceContext = {
   finalBeamCoin?: CoinFlipResult;
   /** Crosscounter's coin (the attack's defender coin) when the Defending Pokémon used it last turn */
   counterAttackCoin?: CoinFlipResult;
+  /** Shadow Images' coin (the attack's defender coin, flipped by the attacker): tails = no damage to it */
+  evadeCoin?: CoinFlipResult;
 };
 
 /** Effects whose outcome is chosen by a player after the attack (see the table above). */
@@ -712,6 +714,14 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
     events.push(createGameEvent(`${name}: el daño a ${target.pokemon.name} fue prevenido`, "action"));
     damage = 0;
   }
+  // Shadow Images (the coin was flipped for the original Defending Pokémon)
+  if (isOriginalDefender && target.evadeOnFlip && context.evadeCoin) {
+    events.push(createGameEvent(`${target.evadeOnFlip.attackName} de ${target.pokemon.name} - Moneda: [coin:${context.evadeCoin}]`, "info"));
+    if (context.evadeCoin === "tails" && damage > 0) {
+      events.push(createGameEvent(`${name}: ${target.pokemon.name} no recibió daño (${target.evadeOnFlip.attackName})`, "action"));
+      damage = 0;
+    }
+  }
 
   const blockedEffects = isActive && target.protection?.type === "damageAndEffects";
   let hit: PokemonInPlay = {
@@ -719,6 +729,7 @@ export function dealChosenTargetDamage(state: GameState, targetId: string, effec
     currentDamage: (target.currentDamage ?? 0) + damage,
     ...(isActive && damage > 0 && { lastDamageReceived: damage }),
     ...(consumedReduction && { nextTurnDamageReduction: undefined }),
+    ...(damage > 0 && { evadeOnFlip: undefined }),
   };
   if (damage > 0) events.push(createGameEvent(`${name}: ${target.pokemon.name} recibió ${damage} de daño`, "action"));
   const knockedOut = (hit.currentDamage ?? 0) >= getEffectiveHp(state, hit);

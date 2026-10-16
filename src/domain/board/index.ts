@@ -311,6 +311,7 @@ export function clearEffectsAsIfEvolved(target: PokemonInPlay): PokemonInPlay {
     mustFlipToAttackTurn: undefined,
     mirrorShellOnTurn: undefined,
     counterAttack: undefined,
+    evadeOnFlip: undefined,
     modifiedWeakness: undefined,
     modifiedResistance: undefined,
   };

@@ -180,6 +180,11 @@ export const AttackEffectType = {
    * `retaliationCoin`: only if the defending player's coin is heads; `applyWeaknessResistance`
    */
   CounterAttack: "counterAttack",
+  /**
+   * Shadow Images: whenever this Pokémon is attacked, the attacking player flips; tails = that
+   * attack does no damage to it. Until it takes damage (or is Benched / evolved)
+   */
+  EvadeOnFlip: "evadeOnFlip",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 
