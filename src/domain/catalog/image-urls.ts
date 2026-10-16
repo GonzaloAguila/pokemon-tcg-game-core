@@ -80,7 +80,18 @@ export const getTeamRocketImageUrl = (card: CardImageInput): string =>
   `https://pkmncards.com/wp-content/uploads/${toSlug(card.name)}-team-rocket-tr-${card.number}.jpg`;
 
 /**
- * Generates the image URL for a Gym Heroes card ("Lt. Surge's Treaty" → lt-surges-treaty)
+ * Generates the image URL for a Gym Heroes card ("Lt. Surge's Treaty" → lt.-surges-treaty).
+ * pkmncards' Gym Heroes files keep the dot (like Jungle's Mr. Mime) and have no set code
+ * (lt.-surges-fearow-gym-heroes-7.jpg), unlike its card pages (/card/lt-surges-fearow-gym-heroes-g1-7/).
+ * Checked against pkmncards' set page for all 132 printed cards.
  */
-export const getGymHeroesImageUrl = (card: CardImageInput): string =>
-  `https://pkmncards.com/wp-content/uploads/${toSlug(card.name)}-gym-heroes-g1-${card.number}.jpg`;
+export const getGymHeroesImageUrl = (card: CardImageInput): string => {
+  const slug = card.name
+    .toLowerCase()
+    .replace(/é/g, "e")
+    .replace(/'/g, "")
+    .replace(/[^a-z0-9.\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-");
+  return `https://pkmncards.com/wp-content/uploads/${slug}-gym-heroes-${card.number}.jpg`;
+};
