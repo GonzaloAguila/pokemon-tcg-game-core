@@ -409,6 +409,15 @@ describe("new effect kinds", () => {
     expect(use(vs(exchange, inPlay("Onix"), { player: { hand, deck: [energy(Fire)] } })).playerHand).toHaveLength(3);
   });
 
+  it("ShuffleOwnDeck (Fidget): the attacker's deck is shuffled, nothing else", () => {
+    const fidget = withAttack(inPlay("Mankey", { set: "jungle" }), { effects: [{ type: AttackEffectType.ShuffleOwnDeck, target: AttackTarget.Self }] });
+    const deck = Array.from({ length: 30 }, (_, i) => energy(i % 2 ? Fire : Water));
+    const next = use(deepFreeze(vs(fidget, inPlay("Onix"), { player: { deck } })));
+    expect(names(next.playerDeck).sort()).toEqual(names(deck).sort());
+    expect(next.playerDeck.map((c) => c.id)).not.toEqual(deck.map((c) => c.id));
+    expect(next.events.at(-1)!.message).toMatch(/mezcló el mazo del atacante/);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {

@@ -4777,6 +4777,12 @@ function executeAttackUnchecked(
         events.push(createGameEvent(`${attack.name}: la mano se barajó en el mazo y se robaron ${hand.length} cartas`, "action"));
       }
 
+      // Fidget: shuffle the attacker's deck
+      if (effect.type === AttackEffectType.ShuffleOwnDeck) {
+        newPlayerDeck = shuffle(newPlayerDeck);
+        events.push(createGameEvent("Se mezcló el mazo del atacante", "action"));
+      }
+
       // Mischief: shuffle the opponent's deck
       if (effect.type === AttackEffectType.ShuffleOpponentDeck) {
         newOpponentDeck = shuffle(newOpponentDeck);

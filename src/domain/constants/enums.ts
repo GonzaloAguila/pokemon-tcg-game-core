@@ -204,6 +204,8 @@ export const AttackEffectType = {
   HalveDamageNextTurn: "halveDamageNextTurn",
   /** Psychic Exchange: shuffle your hand into your deck, then draw `amount` cards */
   ShuffleHandDraw: "shuffleHandDraw",
+  /** Fidget: shuffle your deck */
+  ShuffleOwnDeck: "shuffleOwnDeck",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 
