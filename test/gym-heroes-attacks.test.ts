@@ -418,6 +418,35 @@ describe("new effect kinds", () => {
     expect(next.events.at(-1)!.message).toMatch(/mezcló el mazo del atacante/);
   });
 
+  describe("ChooseStatus (Magic Pollen)", () => {
+    const magicPollen = withAttack(inPlay("Gloom", { set: "jungle" }), {
+      damage: 30,
+      effects: [{
+        type: AttackEffectType.ChooseStatus,
+        target: AttackTarget.Defender,
+        statusOptions: [StatusCondition.Asleep, StatusCondition.Confused, StatusCondition.Paralyzed, StatusCondition.Poisoned],
+        coinFlip: { count: 1, onHeads: "damage" },
+      }],
+    });
+
+    it("heads: the attacker picks the Special Condition; tails: nothing to pick", () => {
+      const state = deepFreeze(vs(magicPollen, inPlay("Machop")));
+      expect(use(state, [T]).pendingAttackChoice).toBeUndefined();
+      const next = use(state, [H]);
+      expect(next.pendingAttackChoice!.step.options.map((o) => o.label)).toEqual(["Dormido", "Confundido", "Paralizado", "Envenenado"]);
+      const done = choose(next, [StatusCondition.Paralyzed]);
+      expect(done.opponentActivePokemon!.statusConditions).toEqual([StatusCondition.Paralyzed]);
+      expect(done.opponentActivePokemon!.currentDamage).toBe(30);
+    });
+
+    it("nothing to pick when the Defending Pokémon is Knocked Out, protected from effects, or immune (Thick Skinned)", () => {
+      expect(use(vs(magicPollen, inPlay("Abra")), [H]).pendingAttackChoice).toBeUndefined();
+      const agile = inPlay("Raichu", { protection: { type: "damageAndEffects", expiresAfterTurn: 3 } });
+      expect(use(vs(magicPollen, agile), [H]).pendingAttackChoice).toBeUndefined();
+      expect(use(vs(magicPollen, inPlay("Snorlax", { set: "jungle" })), [H]).pendingAttackChoice).toBeUndefined();
+    });
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {

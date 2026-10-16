@@ -206,6 +206,8 @@ export const AttackEffectType = {
   ShuffleHandDraw: "shuffleHandDraw",
   /** Fidget: shuffle your deck */
   ShuffleOwnDeck: "shuffleOwnDeck",
+  /** Magic Pollen: the Defending Pokémon is now the Special Condition of `statusOptions` the attacker chooses (attack choice) */
+  ChooseStatus: "chooseStatus",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

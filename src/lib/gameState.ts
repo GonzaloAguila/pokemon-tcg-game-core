@@ -2990,6 +2990,7 @@ const DEFENDER_EFFECT_TYPES: ReadonlySet<string> = new Set([
   AttackEffectType.ShuffleDefenderIntoDeck,
   AttackEffectType.MoveDefenderEnergyToBench,
   AttackEffectType.DamageCountersOnDamaged,
+  AttackEffectType.ChooseStatus,
 ]);
 
 /** Can the attack do anything to the Defending Pokémon (damage, or an effect on it)? */

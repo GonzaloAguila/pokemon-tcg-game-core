@@ -89,6 +89,8 @@ export type AttackEffect = {
   /** ChooseTargetDamage: only if the attacker first discards an attached Energy card of this type, which it may decline (Flame Pillar) */
   optionalEnergyDiscard?: EnergyType;
   status?: StatusCondition;
+  /** ChooseStatus: the Special Conditions the attacker can choose from (Magic Pollen) */
+  statusOptions?: StatusCondition[];
   poisonDamage?: number;
   amount?: number;
   benchTarget?: BenchDamageTarget;

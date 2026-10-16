@@ -21,6 +21,7 @@
  * | `AttachEnergyFromDiscard` | Charge (Lt. Surge's Electabuzz / Pikachu) | self | `minAmount`..`amount` basic Energy cards of `energyType` in the discard pile |
  * | `ReturnPokemonToHand` | Fairy Power (Erika's Clefable) | self | any of your Pokémon in play (the Active only offered with a Bench) |
  * | `SearchDeckChoice` | Moonwatching, Jellyfish Pod, Call for Friend (Gym Heroes) | self | deck cards matching `deckFilter` (to the hand or the Bench; the deck is shuffled) |
+ * | `ChooseStatus` | Magic Pollen (Erika's Gloom) | self | 1 Special Condition of `statusOptions` for the Defending Pokémon |
  * | `SearchDeckChoice` + `putBackFromHand` | Sleight of Hand (Sabrina's Mr. Mime) | self | step 1: 0..N cards of the hand (on top of the deck); step 2: that many basic Energy cards of the deck |
  *
  * Damage done by a choice (ChooseTargetDamage) is attack damage: PlusPower and Defender when the
@@ -39,13 +40,14 @@ import type { AttackEffect } from "@/domain/cards";
 import { cardsLeavingPlay, isEnergyCard, isPokemonCard, type DeckCardFilter } from "@/domain/cards";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkSelection } from "@/domain/effects/validate";
-import { AttackEffectType, AttackTarget, CardKind, GamePhase, PokemonStage, type CoinFlipResult } from "@/domain/constants";
+import { AttackEffectType, AttackTarget, CardKind, GamePhase, PokemonStage, StatusCondition, type CoinFlipResult } from "@/domain/constants";
 import {
   applyDamageHalving,
   getDamageReaction,
   getEffectivePokemonCard,
   getEffectiveHp,
   getKnockOutRetaliation,
+  hasStatusImmunity,
   isDamageBlocked,
 } from "@/domain/powers";
 import { evolvePokemonInPlay, getEvolutionBlocker, maxBenchSize } from "@/domain/board";
@@ -55,6 +57,7 @@ import { modifierAppliesTo } from "./modifiers";
 import type { GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
 import {
   activeCounterAttack,
+  applyStatusCondition,
   checkKnockouts,
   clearStatusConditionsOnRetreat,
   counterAttackDamage,
@@ -96,6 +99,7 @@ export type AttackChoiceContext = {
 export function isAttackChoiceEffect(effect: AttackEffect): boolean {
   switch (effect.type) {
     case AttackEffectType.SearchDeckChoice:
+    case AttackEffectType.ChooseStatus:
     case AttackEffectType.ReorderDeckTop:
     case AttackEffectType.DiscardEnergyForMill:
     case AttackEffectType.RecoverFromDiscard:
@@ -132,6 +136,13 @@ function defenderOf(state: GameState, context: AttackChoiceContext): PokemonInPl
 }
 
 const energyLabel = (card: GameCard) => energyCardLabel(card);
+
+const STATUS_LABELS: Partial<Record<StatusCondition, string>> = {
+  [StatusCondition.Asleep]: "Dormido",
+  [StatusCondition.Confused]: "Confundido",
+  [StatusCondition.Paralyzed]: "Paralizado",
+  [StatusCondition.Poisoned]: "Envenenado",
+};
 
 type Where = "Activo" | "Banca" | "Activo rival" | "Banca rival";
 const pokemonChoice = (p: PokemonInPlay, where: Where) => ({ id: p.pokemon.id, label: `${p.pokemon.name} (${where})` });
@@ -320,6 +331,18 @@ function stepFor(
         maxSelections: max,
         minSelections: Math.min(effect.minAmount ?? 0, max),
         cards,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.ChooseStatus: {
+      const defender = defenderOf(state, context);
+      if (!defender || hasStatusImmunity(defender, state) || !effect.statusOptions?.length) return null;
+      return {
+        title,
+        description: `Elige el Estado Especial de ${defender.pokemon.name}`,
+        options: effect.statusOptions.map((s) => ({ id: s, label: STATUS_LABELS[s] ?? s })),
+        maxSelections: 1,
+        disableAutoSelect: true,
         chooser: "self",
       };
     }
@@ -616,6 +639,12 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
         playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== card.id)),
       };
       return { state: log(next, `${name}: unió ${energyLabel(card)} a ${attacker.pokemon.name}. Se mezcló el mazo`) };
+    }
+    case AttackEffectType.ChooseStatus: {
+      const defender = state.opponentActivePokemon!;
+      const status = selection[0] as StatusCondition;
+      const next: GameState = { ...state, opponentActivePokemon: applyStatusCondition(defender, status, state.turnNumber) };
+      return { state: log(next, `${name}: ${defender.pokemon.name} pasa a estar ${STATUS_LABELS[status] ?? status}`) };
     }
     case AttackEffectType.SearchDeckChoice: {
       if (effect.putBackFromHand && !pending.picked) {
