@@ -198,6 +198,8 @@ export const AttackEffectType = {
    * deck, then search for that many (Sleight of Hand). Attack choice.
    */
   SearchDeckChoice: "searchDeckChoice",
+  /** Lava Burst: discard the top `amount` cards of your deck; `extraDamagePerEnergy` per basic Energy card of `energyType` among them */
+  MillSelfForDamage: "millSelfForDamage",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

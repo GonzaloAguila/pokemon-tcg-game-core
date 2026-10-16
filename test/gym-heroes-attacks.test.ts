@@ -352,6 +352,22 @@ describe("new effect kinds", () => {
     expect(use(vs(leechSeed, protectedOnix)).playerActivePokemon!.currentDamage).toBe(20);
   });
 
+  it("MillSelfForDamage (Lava Burst): the top 5 cards of the deck are discarded, 20 per Fire Energy card among them", () => {
+    const lava = withAttack(inPlay("Magmar"), {
+      damage: "20x",
+      effects: [{ type: AttackEffectType.MillSelfForDamage, target: AttackTarget.Self, amount: 5, energyType: Fire, extraDamagePerEnergy: 20 }],
+    });
+    const deck = [energy(Fire), gameCard("Abra"), energy(Fire), energy(Water), energy(Fire), energy(Fire), gameCard("Machop")];
+    const next = use(deepFreeze(vs(lava, inPlay("Onix"), { player: { deck } })));
+    expect(next.opponentActivePokemon!.currentDamage).toBe(60);
+    expect(names(next.playerDiscard)).toEqual(["Fire Energy", "Abra", "Fire Energy", "Water Energy", "Fire Energy"]);
+    expect(names(next.playerDeck)).toEqual(["Fire Energy", "Machop"]);
+    // Fewer than 5 cards: all of them
+    const short = use(vs(lava, inPlay("Onix"), { player: { deck: [energy(Fire)] } }));
+    expect(short.opponentActivePokemon!.currentDamage).toBe(20);
+    expect(short.playerDeck).toEqual([]);
+  });
+
   it("BenchDamage benchTypes / benchExcludeTypes (Blaze, Water Ring): only the Benched Pokémon of (or not of) those types", () => {
     const bench = () => [inPlay("Bulbasaur"), inPlay("Squirtle"), inPlay("Abra")];
     const blaze = withAttack(inPlay("Growlithe"), {

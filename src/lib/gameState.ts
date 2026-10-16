@@ -3595,6 +3595,13 @@ function executeAttackUnchecked(
   let baseDamage = base.damage;
   // Drag Off: its damage goes to the Benched Pokémon switched in by its choice (attackChoices)
   if (attack.effects?.some((e) => e.type === AttackEffectType.ChooseTargetDamage && e.switchWithDefender)) baseDamage = 0;
+  // Lava Burst: the top cards of the attacker's deck are discarded; damage per basic Energy card of the type among them
+  const mill = attack.effects?.find((e) => e.type === AttackEffectType.MillSelfForDamage && !e.coinFlip);
+  const milledCards = mill ? gameState.playerDeck.slice(0, mill.amount ?? 5) : [];
+  if (mill) {
+    const energyCards = milledCards.filter((c) => isEnergyCard(c) && c.isBasic && c.energyType === mill.energyType).length;
+    baseDamage += (mill.extraDamagePerEnergy ?? 0) * energyCards;
+  }
   const damageMultiplierDescription = base.description;
 
   // Frenzy (Dark Primeape): it does 30 more damage while Confused
@@ -4192,6 +4199,18 @@ function executeAttackUnchecked(
         }
 
         // Bench KOs are resolved by processBenchKnockouts() once all effects are applied
+      }
+
+      // Lava Burst: the cards counted above go to the discard pile
+      if (effect.type === AttackEffectType.MillSelfForDamage) {
+        newPlayerDeck = newPlayerDeck.slice(milledCards.length);
+        newPlayerDiscard.push(...milledCards);
+        events.push(createGameEvent(
+          milledCards.length === 0
+            ? `${attack.name}: no quedan cartas en el mazo`
+            : `${attack.name}: se descartaron ${milledCards.map((c) => (isEnergyCard(c) ? energyCardLabel(c) : c.name)).join(", ")} de la parte superior del mazo`,
+          "action"
+        ));
       }
 
       // Pain Amplifier on the opponent's Benched Pokémon that already have damage counters (KOs: processBenchKnockouts)
