@@ -1059,6 +1059,8 @@ export function benchGuardStep(
     thumbnails: hit.map(({ pokemon }) => pokemon.pokemon),
     disableAutoSelect: true,
     chooser: side === "player" ? "self" : "opponent",
+    // Answer clock: the power isn't used
+    defaultSelection: [],
   };
 }
 
@@ -1138,6 +1140,8 @@ function espReflipStep(attackName: string, coins: CoinFlipResult[]): SelectionSt
     maxSelections: 1,
     disableAutoSelect: true,
     chooser: "self",
+    // Answer clock: the coins stay
+    defaultSelection: ["keep"],
   };
 }
 
@@ -1158,6 +1162,8 @@ function charityStep(attackerName: string, defenderName: string, damage: number)
     maxSelections: 1,
     disableAutoSelect: true,
     chooser: "self",
+    // Answer clock: no reduction
+    defaultSelection: ["0"],
   };
 }
 
@@ -4306,6 +4312,8 @@ function executeAttackUnchecked(
         thumbnails: bench.map((p) => p.pokemon),
         disableAutoSelect: true,
         chooser: "opponent",
+        // Answer clock: no switch
+        defaultSelection: [],
       },
       reactionContext(attacker, defender, printedAttack.name, gameState)
     );

@@ -56,6 +56,17 @@ export type SelectionStep = {
    * must build this step from the real (unmasked) state.
    */
   reveals?: "opponentHand";
+  /**
+   * The answer given for a player who doesn't answer in time (the multiplayer server's answer
+   * clock): always a valid selection for this step (checkSelection accepts it) and harmless to
+   * that absent player — "don't use / no change" for an optional power or Trainer question
+   * (Flee, Bench Guard: none; Sabrina's ESP: "keep"; Charity: "0"), the choice that gives the
+   * other player the least (Erika: "0"; Lt. Surge's Treaty: "draw"; Challenge!: "decline", and
+   * no Basics on its Bench step), else the first option (a Prize position, a quiz answer, the
+   * Benched Pokémon a forced switch brings up). Set on every step another player may answer
+   * (`chooser: "opponent"`) and on the mid-attack questions; absent = the consumer's fallback.
+   */
+  defaultSelection?: string[];
 };
 
 /** Coins the caller must flip: a fixed number, or flip until tails (sequence ending in tails). */

@@ -436,6 +436,8 @@ function stepFor(
         thumbnails: state.opponentBench.map((p) => p.pokemon),
         disableAutoSelect: true,
         chooser: "opponent",
+        // Answer clock: the switch is forced; the first Benched Pokémon comes up
+        defaultSelection: [state.opponentBench[0].pokemon.id],
       };
     }
     case AttackEffectType.ReorderDeckTop: {

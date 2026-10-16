@@ -869,6 +869,8 @@ function challengeStep(state: GameState, side: "player" | "opponent", chooser: "
     minSelections: 0,
     cards: basics,
     chooser,
+    // Answer clock: no Basics benched
+    ...(chooser === "opponent" && { defaultSelection: [] }),
   };
 }
 
@@ -973,6 +975,8 @@ Object.assign(TRAINER_EFFECTS, {
           maxSelections: 1,
           disableAutoSelect: true,
           chooser: "opponent",
+          // Answer clock: declining only lets the player draw 2
+          defaultSelection: ["decline"],
         };
       }
       if (selections[0][0] !== "accept") return null;
@@ -1748,6 +1752,8 @@ function drawCountStep(deckSize: number, chooser: "self" | "opponent"): Selectio
         minSelections: 1,
         disableAutoSelect: true,
         chooser: "opponent",
+        // Answer clock: no draw (always enabled)
+        defaultSelection: ["0"],
       };
 }
 
@@ -1772,6 +1778,8 @@ function prizePositionStep(state: GameState, side: "player" | "opponent"): Selec
         maxSelections: 1,
         disableAutoSelect: true,
         chooser: "opponent",
+        // Answer clock: the first position (face down, any is as good)
+        defaultSelection: options.slice(0, 1).map((o) => o.id),
       };
 }
 
@@ -1830,6 +1838,8 @@ Object.assign(TRAINER_EFFECTS, {
           maxSelections: 1,
           disableAutoSelect: true,
           chooser: "opponent",
+          // Answer clock: never "prizes" (it could hand the player its last Prize)
+          defaultSelection: ["draw"],
         };
       }
       if (selections[0][0] !== "prizes") return null;
@@ -1882,14 +1892,17 @@ Object.assign(TRAINER_EFFECTS, {
       if (selections.length === 1) {
         const named = quizCards(state, cardId).find((c) => c.id === selections[0][0]);
         if (!named) return null; // not an offered card: the first answer is refused anyway
+        const lengths = quizLengthOptions(pokedexSpecies(named.name)).map((length) => ({ id: String(heightInInches(length)), label: length }));
         return {
           title: "Blaine's Quiz #1",
           description: `Tu rival adivina la altura de ${named.name}`,
           answererDescription: `Tu rival jugó Blaine's Quiz #1 con ${named.name}: ¿cuánto mide? Si aciertas, robas 2 cartas; si fallas, tu rival roba 2`,
-          options: quizLengthOptions(pokedexSpecies(named.name)).map((length) => ({ id: String(heightInInches(length)), label: length })),
+          options: lengths,
           maxSelections: 1,
           disableAutoSelect: true,
           chooser: "opponent",
+          // Answer clock: the first length offered
+          defaultSelection: lengths.slice(0, 1).map((o) => o.id),
         };
       }
       return null;
