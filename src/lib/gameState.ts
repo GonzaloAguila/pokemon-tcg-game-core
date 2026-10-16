@@ -488,7 +488,8 @@ export function applyStatusCondition(
   }
 
   // Clear paralyzedOnTurn if we're replacing paralysis with another exclusive condition
-  if (status !== StatusCondition.Paralyzed && currentStatuses.includes(StatusCondition.Paralyzed)) {
+  // (Poisoned coexists with it: Needles' "Paralyzed and Poisoned" keeps the paralysis turn)
+  if (status !== StatusCondition.Paralyzed && EXCLUSIVE_STATUS_CONDITIONS.includes(status) && currentStatuses.includes(StatusCondition.Paralyzed)) {
     updated.paralyzedOnTurn = undefined;
   }
 

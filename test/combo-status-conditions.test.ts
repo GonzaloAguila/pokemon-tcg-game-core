@@ -126,6 +126,13 @@ describe("exclusive conditions: Asleep / Confused / Paralyzed replace each other
     expect(next.opponentActivePokemon!.paralyzedOnTurn).toBeUndefined();
   });
 
+  it("Poison on a Paralyzed Pokémon keeps its paralysis turn (the paralysis still wears off)", () => {
+    const paralyzed = applyStatusCondition(inPlay("Chansey"), Paralyzed, 2);
+    const poisoned = applyStatusCondition(paralyzed, Poisoned, 3);
+    expect([...poisoned.statusConditions ?? []].sort()).toEqual([Paralyzed, Poisoned].sort());
+    expect(poisoned.paralyzedOnTurn).toBe(2);
+  });
+
   it("Pollen Stench (Dark Gloom) heads on an Asleep, Poisoned Defending Pokémon: Confused + Poisoned", () => {
     const gloom = rocket("Dark Gloom");
     const defender = inPlay("Chansey", { statuses: [Asleep, Poisoned] });
