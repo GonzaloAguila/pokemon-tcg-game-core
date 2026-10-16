@@ -53,6 +53,8 @@ import { checkCoins } from "@/domain/effects/validate";
 import { attachedTrainerNamed, expireAttachedTrainers, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
 import { returnSetAsideHand, type SetAsideHand } from "@/domain/trainers/set-aside";
 export type { SetAsideHand } from "@/domain/trainers/set-aside";
+import type { PendingDuel } from "@/domain/duel/rps";
+export type { PendingDuel, RpsChoice } from "@/domain/duel/rps";
 import { isAttackChoiceEffect, matchesDeckCardFilter, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
 export { resolveAttackChoice, getAttackChoiceCoinPlan, isAttackChoiceEffect, matchesDeckCardFilter } from "./attackChoices";
 export type { AttackChoiceContext } from "./attackChoices";
@@ -417,6 +419,13 @@ export type GameState = {
    * domain/match/types.ts (re-export).
    */
   setAsideHands?: SetAsideHand[];
+  /**
+   * Misty's Duel (Gym Heroes): the Rock-Paper-Scissors in progress (domain/duel/rps.ts). Each side
+   * answers with submitDuelPick (off-turn included); the other side's pick must be hidden until
+   * both picked (maskDuelFor). Swapped by swapSides. Blocks endTurn and every other action. Kept
+   * in sync with domain/match/types.ts (re-export).
+   */
+  pendingDuel?: PendingDuel;
   /** BenchDamage: player needs to select bench Pokemon to receive damage */
   pendingBenchDamageSelection?: {
     /** Amount of damage to deal to each selected Pokemon */
@@ -2262,7 +2271,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   if (
     gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch ||
     gameState.pendingBenchDamageSelection || gameState.pendingAttackChoice || gameState.pendingPowerChoice ||
-    gameState.pendingBenchTrim
+    gameState.pendingBenchTrim || gameState.pendingDuel
   ) {
     return gameState;
   }

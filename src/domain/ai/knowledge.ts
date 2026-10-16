@@ -7,6 +7,7 @@
  * - the other player's hand (unless Clairvoyance reveals it), deck and Prize cards (unless
  *   Here Comes Team Rocket! put them face up) become placeholder cards (same counts);
  * - hands set aside by Tickling Machine (both sides: nobody may look at them) too;
+ * - the other player's Misty's Duel pick of the current round (maskDuelFor);
  * - the AI's own deck and Prize cards are merged and re-split in a canonical order: a player
  *   knows the decklist (deck + Prizes as a multiset) but neither the order nor which cards are
  *   Prizes;
@@ -22,6 +23,7 @@
 import type { GameCard, GameState } from "@/lib/gameState";
 import { CardKind, CardSet, CardRarity, TrainerType } from "@/domain/constants";
 import { arePrizesRevealed, isHandRevealed } from "@/domain/powers";
+import { maskDuelFor } from "@/domain/duel/rps";
 
 /** A face-down card of the other player (no name, no effect). */
 function hiddenCard(id: string): GameCard {
@@ -52,7 +54,7 @@ export function knowledgeView(view: GameState): GameState {
   const playerPrizes = prizesKnown ? view.playerPrizes : unknown.slice(view.playerDeck.length);
 
   return {
-    ...view,
+    ...maskDuelFor(view, "player"),
     playerDeck,
     playerPrizes,
     opponentHand: isHandRevealed(view, "opponent") ? view.opponentHand : hiddenPile("hand", view.opponentHand.length),

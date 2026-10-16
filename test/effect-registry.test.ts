@@ -30,10 +30,8 @@ describe("registry coverage", () => {
       (name) => !TRAINER_EFFECTS[name] && !UNSUPPORTED_TRAINERS.includes(name) && !isPlayedAsBasic(name) && !isStadium(name)
     );
     expect(missing).toEqual([]);
-    // Gym Heroes Trainers waiting for their own machinery (Tasks 10–14 remove them)
-    expect([...UNSUPPORTED_TRAINERS].sort()).toEqual(
-      ["Misty's Duel"].sort()
-    );
+    // Every catalog Trainer is playable (the last Gym Heroes ones, Tasks 10–14, are in)
+    expect([...UNSUPPORTED_TRAINERS]).toEqual([]);
     expect(isPlayedAsBasic("Mysterious Fossil") && isPlayedAsBasic("Clefairy Doll")).toBe(true);
   });
 

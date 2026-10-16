@@ -21,6 +21,8 @@ export type {
   StadiumInPlay,
   BenchTrim,
   SetAsideHand,
+  PendingDuel,
+  RpsChoice,
   GameState,
 } from "@/lib/gameState";
 

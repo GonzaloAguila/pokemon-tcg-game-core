@@ -37,6 +37,7 @@ import type { CoinFlipResult } from "@/domain/constants";
 import { answerOpponentTrainerStepForAI, answerPowerStepForAI, answerTrainerStepForAI, collectAnswers } from "./cardEffects";
 import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapBenchTrim, swapStadium } from "@/domain/board";
 import { swapSetAsideHands } from "@/domain/trainers/set-aside";
+import { swapPendingDuel } from "@/domain/duel/rps";
 import { choosePromotion } from "./choices";
 import { knowledgeView } from "./knowledge";
 import { resolveBenchTrimForAI, resolveOwnAttackPendings } from "./pending";
@@ -45,7 +46,7 @@ import { IllegalActionError } from "@/shared/errors";
 
 /**
  * Swap the "player"/"opponent" sides of a state (zones, prize/promotion flags, turn,
- * PlusPower/Defender ownership, the Stadium's player, the set-aside hands and the game result), so engine
+ * PlusPower/Defender ownership, the Stadium's player, the set-aside hands, the Misty's Duel picks and the game result), so engine
  * functions that act for "player" can run for the AI.
  */
 function swapSides(state: GameState): GameState {
@@ -75,6 +76,7 @@ function swapSides(state: GameState): GameState {
     gameResult: state.gameResult === "victory" ? "defeat" : state.gameResult === "defeat" ? "victory" : state.gameResult,
     ...(state.stadium !== undefined && { stadium: swapStadium(state.stadium) }),
     ...(state.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(state.setAsideHands) }),
+    ...(state.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(state.pendingDuel) }),
     ...(state.pendingBenchTrim !== undefined && { pendingBenchTrim: swapBenchTrim(state.pendingBenchTrim) }),
   };
 }
@@ -238,7 +240,7 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
 
 /**
  * The human's view (the AI's turn) as the AI's attacking view, for the engine's attack functions
- * that act for "player": zones, Prize flags, PlusPower / Defender owners, the Stadium's player and the set-aside hands (Tickling Machine)
+ * that act for "player": zones, Prize flags, PlusPower / Defender owners, the Stadium's player, the set-aside hands (Tickling Machine) and the Misty's Duel picks
  * swapped; promotion flags reset; everything else (startingPlayer, pendingBenchTrim...) kept, as
  * completeAIAttack's swap back expects. Used both to run the attack and to finish it after the
  * human answered (finishAIAttackAfterReaction), so the swap in and the swap back stay symmetric.
@@ -271,6 +273,7 @@ function toAIAttackView(state: GameState): GameState {
     activeModifiers: swappedModifiers,
     ...(state.stadium !== undefined && { stadium: swapStadium(state.stadium) }),
     ...(state.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(state.setAsideHands) }),
+    ...(state.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(state.pendingDuel) }),
   };
 }
 
@@ -402,6 +405,7 @@ function completeAIAttack(attacked: GameState, eventsBefore: number): GameState 
     activeModifiers: finalModifiers,
     ...(resultState.stadium !== undefined && { stadium: swapStadium(resultState.stadium) }),
     ...(resultState.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(resultState.setAsideHands) }),
+    ...(resultState.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(resultState.pendingDuel) }),
     events: correctedEvents,
     // Swap game result (victory <-> defeat)
     gameResult: resultState.gameResult === "victory"

@@ -33,6 +33,7 @@ import { isPokemonCard } from "@/domain/cards";
 import { GamePhase, PokemonPowerType, PokemonStage } from "@/domain/constants";
 import type { Deck } from "@/domain/decks";
 import { getBenchTrimStep, resolveBenchTrim, swapSides } from "@/domain/board";
+import { aiDuelPick, submitDuelPick } from "@/domain/duel/rps";
 import { ACTIVATED_POWER_TYPES, type SelectionStep } from "@/domain/effects";
 import { isPowerActive } from "@/domain/powers";
 import { cardIdentities, checkInvariants, ownedCardIds, type CardIdentity } from "./invariants";
@@ -304,6 +305,13 @@ class GameRunner {
       const answererView = this.view(answerer);
       const chosen = this.answer(answerer, getBenchTrimStep(answererView)!);
       this.apply(answerer, { label: `bench trim ${chosen.length}`, run: (v) => resolveBenchTrim(v, chosen) });
+      return true;
+    }
+    if (view.pendingDuel) {
+      // Misty's Duel: whichever side hasn't picked this round picks at random (seeded), on its own view
+      const picker = view.pendingDuel.playerPick === null ? actor : other;
+      const pick = aiDuelPick(rng);
+      this.apply(picker, { label: `duel pick round ${view.pendingDuel.round}`, run: (v) => submitDuelPick(v, "player", pick) });
       return true;
     }
     if (view.playerCanTakePrize) {

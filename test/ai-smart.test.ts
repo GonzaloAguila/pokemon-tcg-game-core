@@ -231,7 +231,8 @@ function collectAiTurns(games: number): GameState[] {
 
 describe("smart AI: fair play", () => {
   it("plans the same turn whatever the hidden cards are and whatever the coins will be", () => {
-    const states = collectAiTurns(4);
+    // Seeded random decks (their pool follows the playable Trainers): enough games for 20+ turns
+    const states = collectAiTurns(5);
     expect(states.length).toBeGreaterThan(20);
     for (const state of states) {
       const plan = decideOpponentTurn(state);

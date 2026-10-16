@@ -25,6 +25,8 @@ export type {
   StadiumInPlay,
   BenchTrim,
   SetAsideHand,
+  PendingDuel,
+  RpsChoice,
   PendingResolutionOptions,
   PendingAttackChoice,
   AttackChoiceContext,
@@ -156,6 +158,20 @@ export {
 
 // Tickling Machine: hands set aside face down (state.setAsideHands; consumers mask them for BOTH players)
 export { setAsideCards, swapSetAsideHands } from "./domain/trainers/set-aside";
+
+// Misty's Duel: Rock-Paper-Scissors (state.pendingDuel; see domain/duel/rps.ts for the SP / MP contract)
+export {
+  rpsWinner,
+  submitDuelPick,
+  canSubmitDuelPick,
+  submitDuelPickVsAI,
+  maskDuelFor,
+  aiDuelPick,
+  swapPendingDuel,
+  RPS_CHOICES,
+  RPS_LABELS,
+  DUEL_HAND_SIZE,
+} from "./domain/duel/rps";
 
 // =============================================================================
 // Game Engine (lib/gameState.ts)

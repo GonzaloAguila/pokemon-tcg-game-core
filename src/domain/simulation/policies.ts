@@ -395,7 +395,7 @@ export function createGreedyPolicy(
   name: string = variant === "smart" ? "greedy" : "legacy"
 ): Policy & { aiViewAction(action: AIAction, view?: GameState): ViewAction } {
   // Both seats are bots: the other side's answers to the AI's Trainers come from an AI too
-  const decideTurn = variant === "smart" ? (state: GameState) => decideOpponentTurn(state, { otherPlayerAnswersByAI: true }) : decideOpponentTurnLegacy;
+  const decideTurn = variant === "smart" ? (state: GameState) => decideOpponentTurn(state, { otherPlayerAnswersByAI: true, otherPlayerDuels: true }) : decideOpponentTurnLegacy;
   const decideSetup = variant === "smart" ? decideOpponentSetup : decideOpponentSetupLegacy;
   let planKey = "";
   let plan: AIAction[] = [];

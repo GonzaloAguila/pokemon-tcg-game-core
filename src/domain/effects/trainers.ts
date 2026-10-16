@@ -51,6 +51,7 @@
  * | Erika (GH) | [["0"–"3"] (self: how many you draw), ["0"–"3"] (chooser: opponent: how many they draw)] (counts above that deck's size disabled) |
  * | Lt. Surge's Treaty (GH) | [["prizes"/"draw"] (chooser: opponent)]; "prizes": + [[own Prize position "0".."n-1"]] (self) + [[opponent's Prize position]] (chooser: opponent). "prizes" disabled when both sides hold their last Prize |
  * | Blaine's Quiz #1 (GH) | [[handPokemonCardId] (self), [length in inches, e.g. "346"] (chooser: opponent; 4 options, quizLengthOptions)] |
+ * | Misty's Duel (GH) | [] (state.pendingDuel: each side picks rock / paper / scissors with submitDuelPick, domain/duel/rps.ts) |
  *
  * Mysterious Fossil and Clefairy Doll have no entry: they are played as Basic Pokémon
  * (playBasicPokemon; see isPlayedAsBasic).
@@ -65,6 +66,7 @@ import { cardOutOfPlay, cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemon
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { attachTrainer, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
 import { setAsideHand, TICKLING_MACHINE } from "@/domain/trainers/set-aside";
+import { MISTYS_DUEL, startDuel } from "@/domain/duel/rps";
 import { CardKind, GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
 import { isBenchFull, maxBenchSize, findInPlay, getEvolutionBlocker } from "@/domain/board";
 import {
@@ -700,8 +702,7 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  * in ALL_CARDS must have a TRAINER_EFFECTS entry (enforced by a test).
  */
 export const UNSUPPORTED_TRAINERS: readonly string[] = [
-  // Gym Heroes Trainers that need new machinery, each removed by the task that implements it
-  "Misty's Duel", // Task 14
+  // None left (the Gym Heroes ones that needed new machinery were removed as they were implemented)
 ];
 
 // ============================================================================
@@ -1967,6 +1968,9 @@ Object.assign(TRAINER_EFFECTS, {
     (state) => (ownPokemonChoices(state, isSabrinasPokemon).options.length > 0 ? null : "Necesitas un Pokémon con Sabrina en su nombre en juego"),
     (state, cardId, [pokemonId]) => attachPlayed(state, cardId, pokemonId)
   ),
+
+  // A real Rock-Paper-Scissors: both sides pick with submitDuelPick (state.pendingDuel, domain/duel/rps.ts)
+  [MISTYS_DUEL]: immediate((state, cardId) => startDuel(discardPlayed(state, cardId, `Jugaste ${MISTYS_DUEL}`))),
 } satisfies Record<string, CardEffectDef>);
 
 // Gym Heroes: Stadiums with an on-play effect (every other Stadium falls back to playStadium)

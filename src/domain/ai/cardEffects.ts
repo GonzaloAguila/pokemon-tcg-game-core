@@ -52,6 +52,7 @@
  * | Erika (GH) | only with `otherPlayerAnswersByAI` (OTHER_PLAYER_ANSWERS): hand of 3 other cards or fewer, deck ≥ 8 and 3 draws affordable; draws as many as it can without emptying its deck (hand change) |
  * | Lt. Surge's Treaty (GH) | only with `otherPlayerAnswersByAI`: as many Prizes left as the other side or fewer, deck ≥ 5 (hand change) |
  * | Blaine's Quiz #1 (GH) | only with `otherPlayerAnswersByAI`: a Pokémon card in hand, deck ≥ 6 and 2 draws affordable (hand change) |
+ * | Misty's Duel (GH) | only with `otherPlayerDuels` (someone shows the other player the duel): 2 other cards in hand or fewer, the opponent holds 4+, deck ≥ 8 and 5 draws affordable (a new hand of 5 on a win; the opponent's 4+ cards gain little if it loses) (hand change); its pick is `aiDuelPick`, submitted by the consumer / simulator, never by the executor |
  * | Celadon City Gym (Stadium action) | its Active is Asleep / Confused / Paralyzed and keeps an attack it can pay after discarding the Energy card |
  */
 
@@ -310,6 +311,8 @@ export type HandChangeOptions = {
   saveDeck?: boolean;
   /** The other player's answers to the AI's Trainers come from an AI too (OTHER_PLAYER_ANSWERS) */
   otherPlayerAnswersByAI?: boolean;
+  /** The other player can pick in Misty's Duel (pendingDuel): the consumer shows them the duel */
+  otherPlayerDuels?: boolean;
 };
 
 /** Most cards the side with `deckSize` cards can draw now without emptying its deck (its next turn's draw). */
@@ -382,6 +385,12 @@ function planGymHeroesHandChange(view: GameState, options: HandChangeOptions): A
 
   const flow = playable(view, "Energy Flow");
   if (flow && activeAboutToFall(view)) return playTrainer(flow);
+
+  // Misty's Duel: only when the other player can pick (the human's duel UI, the simulator's bots)
+  const duel = playable(view, "Misty's Duel");
+  if (duel && options.otherPlayerDuels && hand.length - 1 <= 2 && view.opponentHand.length >= 4 && deck.length >= 8 && affords(5)) {
+    return playTrainer(duel);
+  }
 
   return options.otherPlayerAnswersByAI ? planOpponentAnsweredTrainers(view, affords) : null;
 }
