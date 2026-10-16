@@ -44,6 +44,7 @@ export type {
   EnergyCard,
   Attack,
   AttackEffect,
+  DeckCardFilter,
   PokemonPower,
 } from "./domain/cards";
 

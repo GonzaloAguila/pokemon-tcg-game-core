@@ -20,6 +20,8 @@
  * | `AttachEnergyFromDeck` | Afternoon Nap (Slowpoke) | self | 1 basic Psychic Energy card of the deck |
  * | `AttachEnergyFromDiscard` | Charge (Lt. Surge's Electabuzz / Pikachu) | self | `minAmount`..`amount` basic Energy cards of `energyType` in the discard pile |
  * | `ReturnPokemonToHand` | Fairy Power (Erika's Clefable) | self | any of your Pokémon in play (the Active only offered with a Bench) |
+ * | `SearchDeckChoice` | Moonwatching, Jellyfish Pod, Call for Friend (Gym Heroes) | self | deck cards matching `deckFilter` (to the hand or the Bench; the deck is shuffled) |
+ * | `SearchDeckChoice` + `putBackFromHand` | Sleight of Hand (Sabrina's Mr. Mime) | self | step 1: 0..N cards of the hand (on top of the deck); step 2: that many basic Energy cards of the deck |
  *
  * Damage done by a choice (ChooseTargetDamage) is attack damage: PlusPower and Defender when the
  * target is the Defending Pokémon, Kabuto Armor, protection / Invisible Wall, Strikes Back,
@@ -34,10 +36,10 @@
  */
 
 import type { AttackEffect } from "@/domain/cards";
-import { cardsLeavingPlay, isEnergyCard, isPokemonCard } from "@/domain/cards";
+import { cardsLeavingPlay, isEnergyCard, isPokemonCard, type DeckCardFilter } from "@/domain/cards";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkSelection } from "@/domain/effects/validate";
-import { AttackEffectType, AttackTarget, CardKind, GamePhase, type CoinFlipResult } from "@/domain/constants";
+import { AttackEffectType, AttackTarget, CardKind, GamePhase, PokemonStage, type CoinFlipResult } from "@/domain/constants";
 import {
   applyDamageHalving,
   getDamageReaction,
@@ -46,7 +48,7 @@ import {
   getKnockOutRetaliation,
   isDamageBlocked,
 } from "@/domain/powers";
-import { evolvePokemonInPlay, getEvolutionBlocker } from "@/domain/board";
+import { evolvePokemonInPlay, getEvolutionBlocker, maxBenchSize } from "@/domain/board";
 import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
 import { IllegalActionError } from "@/shared/errors";
 import { modifierAppliesTo } from "./modifiers";
@@ -92,6 +94,7 @@ export type AttackChoiceContext = {
 /** Effects whose outcome is chosen by a player after the attack (see the table above). */
 export function isAttackChoiceEffect(effect: AttackEffect): boolean {
   switch (effect.type) {
+    case AttackEffectType.SearchDeckChoice:
     case AttackEffectType.ReorderDeckTop:
     case AttackEffectType.DiscardEnergyForMill:
     case AttackEffectType.RecoverFromDiscard:
@@ -137,6 +140,21 @@ function chooseTargets(state: GameState, effect: AttackEffect): { pokemon: Pokem
   const bench = state.opponentBench.map((pokemon) => ({ pokemon, where: "Banca rival" as const }));
   if (effect.targetScope === "opponentBench") return bench;
   return state.opponentActivePokemon ? [{ pokemon: state.opponentActivePokemon, where: "Activo rival" as const }, ...bench] : bench;
+}
+
+/** Whether a deck card can be taken by a SearchDeckChoice filter. */
+export function matchesDeckCardFilter(card: GameCard, filter: DeckCardFilter = {}): boolean {
+  if (filter.basicEnergy && !(isEnergyCard(card) && card.isBasic)) return false;
+  if (filter.basicPokemon && !(isPokemonCard(card) && card.stage === PokemonStage.Basic)) return false;
+  if (filter.names && !filter.names.includes(card.name)) return false;
+  if (filter.nameIncludes && !(isPokemonCard(card) && card.name.includes(filter.nameIncludes))) return false;
+  return true;
+}
+
+/** The deck cards a SearchDeckChoice can take now (none for the Bench when it is full). */
+function searchableCards(state: GameState, effect: AttackEffect): GameCard[] {
+  if (effect.destination === "bench" && state.playerBench.length >= maxBenchSize(state, "player")) return [];
+  return state.playerDeck.filter((c) => matchesDeckCardFilter(c, effect.deckFilter));
 }
 
 /** The question for one choice effect, or null when there is nothing to choose (skipped). */
@@ -299,6 +317,40 @@ function stepFor(
         options: cards.map((c) => ({ id: c.id, label: energyLabel(c) })),
         maxSelections: max,
         minSelections: Math.min(effect.minAmount ?? 0, max),
+        cards,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.SearchDeckChoice: {
+      if (effect.putBackFromHand && !picked) {
+        const max = Math.min(effect.putBackFromHand, state.playerHand.length);
+        if (max === 0) return null;
+        return {
+          title,
+          description: `Elige hasta ${max} cartas de tu mano para ponerlas encima de tu mazo: después buscas en tu mazo esa misma cantidad de cartas`,
+          options: state.playerHand.map((c) => ({ id: c.id, label: c.name })),
+          maxSelections: max,
+          minSelections: 0,
+          source: "hand",
+          disableAutoSelect: true,
+          chooser: "self",
+        };
+      }
+      const cards = searchableCards(state, effect);
+      if (cards.length === 0) return null;
+      const room = effect.destination === "bench" ? maxBenchSize(state, "player") - state.playerBench.length : Infinity;
+      const wanted = picked ? picked.length : effect.amount ?? cards.length;
+      const max = Math.min(wanted, cards.length, room);
+      // After putting cards back, take that many (as many as there are)
+      const min = picked ? max : Math.min(effect.minAmount ?? 0, max);
+      return {
+        title,
+        description: effect.destination === "bench"
+          ? `Elige ${max === 1 ? "1 Pokémon" : `hasta ${max} Pokémon`} de tu mazo para ponerlos en tu Banca`
+          : `Elige ${min === max ? max : `hasta ${max}`} carta${max === 1 ? "" : "s"} de tu mazo para tu mano`,
+        options: cards.map((c) => ({ id: c.id, label: isEnergyCard(c) ? energyLabel(c) : c.name })),
+        maxSelections: max,
+        minSelections: min,
         cards,
         chooser: "self",
       };
@@ -561,6 +613,52 @@ function applyChoice(state: GameState, pending: PendingAttackChoice, selection: 
         playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== card.id)),
       };
       return { state: log(next, `${name}: unió ${energyLabel(card)} a ${attacker.pokemon.name}. Se mezcló el mazo`) };
+    }
+    case AttackEffectType.SearchDeckChoice: {
+      if (effect.putBackFromHand && !pending.picked) {
+        const back = selection.map((id) => state.playerHand.find((c) => c.id === id)!);
+        const next: GameState = {
+          ...state,
+          playerHand: state.playerHand.filter((c) => !selection.includes(c.id)),
+          playerDeck: [...back, ...state.playerDeck],
+        };
+        if (selection.length === 0) return { state: log(next, `${name}: no se puso ninguna carta encima del mazo`) };
+        const after = log(next, `${name}: ${selection.length} carta${selection.length === 1 ? "" : "s"} de la mano encima del mazo`);
+        const follow = followUp(after, selection);
+        return follow ? { state: after, next: follow } : { state: log({ ...after, playerDeck: shuffle(after.playerDeck) }, `${name}: no se encontró nada. Se mezcló el mazo`) };
+      }
+      const found = selection.map((id) => state.playerDeck.find((c) => c.id === id)!);
+      const deck = shuffle(state.playerDeck.filter((c) => !selection.includes(c.id)));
+      const toBench = effect.destination === "bench";
+      const next: GameState = {
+        ...state,
+        playerDeck: deck,
+        ...(toBench
+          ? {
+              playerBench: [
+                ...state.playerBench,
+                ...found.map((card): PokemonInPlay => ({
+                  pokemon: card,
+                  attachedEnergy: [],
+                  attachedTrainers: [],
+                  previousEvolutions: [],
+                  statusConditions: [],
+                  currentDamage: 0,
+                  playedOnTurn: state.turnNumber,
+                })),
+              ],
+            }
+          : { playerHand: [...state.playerHand, ...found] }),
+      };
+      const what = found.map((c) => (isEnergyCard(c) ? energyLabel(c) : c.name)).join(", ");
+      return {
+        state: log(
+          next,
+          found.length === 0
+            ? `${name}: no se tomó ninguna carta. Se mezcló el mazo`
+            : `${name}: ${what} ${toBench ? "a la Banca" : "a la mano"}. Se mezcló el mazo`
+        ),
+      };
     }
     case AttackEffectType.ReturnPokemonToHand: {
       if (selection.length === 0) return { state: log(state, `${name}: no se devolvió ningún Pokémon`) };

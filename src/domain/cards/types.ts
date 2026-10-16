@@ -129,6 +129,12 @@ export type AttackEffect = {
   searchPokemonNames?: string[];
   /** For ApplyStatus: additional statuses to apply alongside the primary status (e.g., Venomoth Venom Powder: Confused + Poisoned from one coin flip) */
   additionalStatuses?: StatusCondition[];
+  /** SearchDeckChoice: which deck cards can be taken (every given condition must hold) */
+  deckFilter?: DeckCardFilter;
+  /** SearchDeckChoice: where the cards found go */
+  destination?: "hand" | "bench";
+  /** SearchDeckChoice: first put up to this many cards of the hand on top of the deck, then search for that many (Sleight of Hand) */
+  putBackFromHand?: number;
   /** For DeckSearch: filter criteria for valid Pokemon */
   deckSearchFilter?: {
     /** Exact name matches (e.g., ["Bellsprout"] or ["Nidoran♂", "Nidoran♀"]) */
@@ -138,6 +144,18 @@ export type AttackEffect = {
     /** Always enforce Basic-only selection */
     basicOnly: true;
   };
+};
+
+/** Cards a search can take (SearchDeckChoice): every given condition must hold. */
+export type DeckCardFilter = {
+  /** Basic Energy cards (Moonwatching, Sleight of Hand) */
+  basicEnergy?: boolean;
+  /** Basic Pokémon (Call for Friend) */
+  basicPokemon?: boolean;
+  /** Exact names (Jellyfish Pod) */
+  names?: string[];
+  /** Pokémon whose name includes this text ("Misty": "a Basic Pokémon with Misty in its name") */
+  nameIncludes?: string;
 };
 
 export type Attack = {

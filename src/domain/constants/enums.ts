@@ -191,6 +191,13 @@ export const AttackEffectType = {
   CantAttackNextTurn: "cantAttackNextTurn",
   /** Can't be used unless the attacker's side has Benched Pokémon (Alert) */
   RequireOwnBench: "requireOwnBench",
+  /**
+   * Search your deck for cards matching `deckFilter` (up to `amount`, any number if omitted, at
+   * least `minAmount`) and put them into your hand or onto your Bench (`destination`); shuffle the
+   * deck afterward. `putBackFromHand`: first put up to that many cards of your hand on top of the
+   * deck, then search for that many (Sleight of Hand). Attack choice.
+   */
+  SearchDeckChoice: "searchDeckChoice",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

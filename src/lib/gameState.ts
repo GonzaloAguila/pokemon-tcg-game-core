@@ -41,8 +41,8 @@ import {
 import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
 import { stadiumIgnoresResistance, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
 import type { SelectionStep } from "@/domain/effects/types";
-import { isAttackChoiceEffect, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
-export { resolveAttackChoice, isAttackChoiceEffect } from "./attackChoices";
+import { isAttackChoiceEffect, matchesDeckCardFilter, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
+export { resolveAttackChoice, isAttackChoiceEffect, matchesDeckCardFilter } from "./attackChoices";
 export type { AttackChoiceContext } from "./attackChoices";
 import type { PendingPowerChoice } from "./powerChoices";
 import { defenderReduction as attachedDefenderReduction, modifierAppliesTo, releaseOrphanModifiers } from "./modifiers";
@@ -3267,7 +3267,9 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   const isUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (isUseOnce && attacker.usedOnceAttacks?.includes(attack.name)) return `${attack.name} ya fue usado`;
   if (!canUseAttack(attacker, attackIndex, undefined, state)) return `${name} no tiene la energía necesaria para ${attack.name}`;
-  const searchesDeck = attack.effects?.some((e) => e.type === AttackEffectType.DeckSearch);
+  const searchesDeck = attack.effects?.some(
+    (e) => e.type === AttackEffectType.DeckSearch || (e.type === AttackEffectType.SearchDeckChoice && e.destination === "bench")
+  );
   if (searchesDeck && isBenchFull(state, "player")) {
     return "Tu banca está llena, no puedes usar este ataque";
   }
@@ -4689,6 +4691,17 @@ function executeAttackUnchecked(
       if (effect.type === AttackEffectType.ShuffleOpponentDeck) {
         newOpponentDeck = shuffle(newOpponentDeck);
         events.push(createGameEvent("Se mezcló el mazo del defensor", "action"));
+      }
+
+      // A deck search with nothing to find (or Sleight of Hand with an empty hand): only the shuffle
+      if (effect.type === AttackEffectType.SearchDeckChoice) {
+        const nothing = effect.putBackFromHand
+          ? newPlayerHand.length === 0
+          : !newPlayerDeck.some((c) => matchesDeckCardFilter(c, effect.deckFilter));
+        if (nothing) {
+          newPlayerDeck = shuffle(newPlayerDeck);
+          events.push(createGameEvent(`${attack.name}: no se encontró nada en el mazo. Se mezcló el mazo`, "info"));
+        }
       }
 
       // Rapid Evolution / Afternoon Nap with nothing to find: the deck is searched and shuffled

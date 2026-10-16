@@ -331,6 +331,67 @@ describe("new effect kinds", () => {
     expect(ko.playerCanTakePrize).toBe(true);
   });
 
+  describe("SearchDeckChoice (Moonwatching, Jellyfish Pod, Call for Friend, Sleight of Hand)", () => {
+    const search = (effect: Partial<AttackEffect>, setup: Parameters<typeof makeState>[0] = {}) =>
+      vs(withAttack(inPlay("Clefairy"), { effects: [{ type: AttackEffectType.SearchDeckChoice, target: AttackTarget.Self, ...effect }] }), inPlay("Onix"), setup);
+
+    it("to the hand: the matching cards of the deck, then the deck is shuffled", () => {
+      const deck = [gameCard("Abra"), energy(Water), gameCard("Potion", "base"), energy(Fire)];
+      const next = use(search({ deckFilter: { basicEnergy: true }, destination: "hand", amount: 1, minAmount: 1 }, { player: { deck } }));
+      const step = next.pendingAttackChoice!.step;
+      expect(step.cards!.map((c) => c.name)).toEqual(["Water Energy", "Fire Energy"]);
+      expect([step.minSelections, step.maxSelections]).toEqual([1, 1]);
+      const done = choose(next, [deck[3].id]);
+      expect(names(done.playerHand)).toEqual(["Fire Energy"]);
+      expect(names(done.playerDeck).sort()).toEqual(["Abra", "Potion", "Water Energy"]);
+    });
+
+    it("any number of named Pokémon; nothing to find: the deck is only shuffled", () => {
+      const deck = [gameCard("Tentacool", "fossil"), gameCard("Abra"), gameCard("Tentacruel", "fossil")];
+      const named = { deckFilter: { names: ["Tentacool", "Tentacruel"] }, destination: "hand" as const };
+      const next = use(search(named, { player: { deck } }));
+      expect([next.pendingAttackChoice!.step.minSelections, next.pendingAttackChoice!.step.maxSelections]).toEqual([0, 2]);
+      expect(names(choose(next, [deck[0].id, deck[2].id]).playerHand)).toEqual(["Tentacool", "Tentacruel"]);
+      const none = use(search(named, { player: { deck: [gameCard("Abra")] } }));
+      expect(none.pendingAttackChoice).toBeUndefined();
+      expect(none.events.at(-1)!.message).toMatch(/mezcló/);
+    });
+
+    it("to the Bench: Basic Pokémon whose name includes the owner; the attack can't be used with a full Bench", () => {
+      const mistys = (name: string) => ({ ...gameCard(name, "jungle"), name: `Misty's ${name}` });
+      const deck = [mistys("Goldeen"), gameCard("Goldeen", "jungle"), mistys("Seaking")];
+      const friend = { deckFilter: { basicPokemon: true, nameIncludes: "Misty" }, destination: "bench" as const, amount: 1, coinFlip: { count: 1, onHeads: "damage" as const } };
+      const state = search(friend, { player: { deck } });
+      expect(use(state, [T]).pendingAttackChoice).toBeUndefined();
+      const next = use(state, [H]);
+      expect(names(next.pendingAttackChoice!.step.cards!)).toEqual(["Misty's Goldeen"]);
+      const done = choose(next, [deck[0].id]);
+      expect(names(done.playerBench.map((p) => p.pokemon))).toEqual(["Misty's Goldeen"]);
+      expect(done.playerBench[0].playedOnTurn).toBe(3);
+      const full = search(friend, { player: { deck, bench: Array.from({ length: 5 }, () => inPlay("Abra")) } });
+      expect(canExecuteAttack(full, 0)).toMatch(/llena/);
+    });
+
+    it("Sleight of Hand: up to 3 cards of the hand on top of the deck, then that many basic Energy cards to the hand", () => {
+      const hand = [gameCard("Abra"), gameCard("Potion", "base"), gameCard("Machop")];
+      const deck = [energy(Water), gameCard("Onix"), energy(Fire), energy(Psychic)];
+      const next = use(search({ putBackFromHand: 3, deckFilter: { basicEnergy: true }, destination: "hand" }, { player: { hand, deck } }));
+      const first = next.pendingAttackChoice!.step;
+      expect(first.source).toBe("hand");
+      expect([first.minSelections, first.maxSelections]).toEqual([0, 3]);
+      const second = choose(next, [hand[0].id, hand[2].id]);
+      expect(names(second.playerHand)).toEqual(["Potion"]);
+      expect(names(second.playerDeck.slice(0, 2))).toEqual(["Abra", "Machop"]);
+      const step2 = second.pendingAttackChoice!.step;
+      expect([step2.minSelections, step2.maxSelections]).toEqual([2, 2]);
+      const done = choose(second, [deck[0].id, deck[3].id]);
+      expect(names(done.playerHand)).toEqual(["Potion", "Water Energy", "Psychic Energy"]);
+      expect(names(done.playerDeck).sort()).toEqual(["Abra", "Fire Energy", "Machop", "Onix"]);
+      // Nothing put back: no search
+      expect(choose(next, []).pendingAttackChoice).toBeUndefined();
+    });
+  });
+
   it("RequireOwnBench (Alert): can't be used with an empty Bench", () => {
     const alert = withAttack(inPlay("Zubat", { set: "fossil" }), { effects: [{ type: AttackEffectType.RequireOwnBench, target: null }] });
     expect(canExecuteAttack(vs(alert, inPlay("Onix")), 0)).toMatch(/Banca/);
