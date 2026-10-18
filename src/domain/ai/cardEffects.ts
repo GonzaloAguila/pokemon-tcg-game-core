@@ -64,6 +64,7 @@
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { canUseAttack, energyProvidesType, getAvailableAttacks, getEnergyValue, hasStatusCondition } from "@/lib/gameState";
 import { isBenchFull } from "@/domain/board";
+import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import { isBasicEnergy, isEnergyCard, isPokemonCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { EnergyType, PokemonStage, StatusCondition, TrainerType } from "@/domain/constants";
@@ -188,6 +189,11 @@ export function handCardValue(view: GameState, card: GameCard): number {
     if (evolvesFromInPlay(view, card)) return 90;
     // An evolution of something still in the hand / deck
     const lower = card.evolvesFrom;
+    if (isLuckyDuel(view)) {
+      // Locked Benches: only the line's next-but-one stage can still be played; the extra Pokémon are dead cards
+      const reachable = [...hand, ...unknownOwnCards(view)].some((c) => c.name === lower && evolvesFromInPlay(view, c));
+      return reachable ? 45 : 4;
+    }
     return hand.some((c) => c.name === lower) ? 45 : 15;
   }
   return 20;
@@ -206,10 +212,12 @@ export function wantedFromDeck(view: GameState): ((card: GameCard | undefined) =
   const wants: ((card: GameCard | undefined) => boolean)[] = [];
   const hand = view.playerHand;
   const isBasic = (c: GameCard | undefined) => !!c && isPokemonCard(c) && c.stage === PokemonStage.Basic;
-  if (view.playerBench.length === 0 && !hand.some(isBasic)) wants.push(isBasic);
+  // A Basic only with room on the Bench (a Lucky Duel's locked Bench: never)
+  const benchRoom = !isBenchFull(view, "player");
+  if (benchRoom && view.playerBench.length === 0 && !hand.some(isBasic)) wants.push(isBasic);
   if (!view.energyAttachedThisTurn && !hand.some(isEnergyCard)) wants.push(isNeededEnergy(view));
   if (!hand.some((c) => evolvesFromInPlay(view, c))) wants.push((c) => evolvesFromInPlay(view, c));
-  if (view.playerBench.length < 3 && !hand.some(isBasic)) wants.push(isBasic);
+  if (benchRoom && view.playerBench.length < 3 && !hand.some(isBasic)) wants.push(isBasic);
   return wants;
 }
 

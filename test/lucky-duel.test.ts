@@ -8,6 +8,8 @@ import {
   canMulligan,
   canPlayBasicPokemon,
   canPlayTrainerCard,
+  canEvolve,
+  playTrainerCard,
   canUsePokemonPower,
   getPowerSteps,
   drawLuckyDuel,
@@ -39,7 +41,18 @@ const pokemonCard = (id: string): PokemonCard => {
 };
 
 const isPokemon = (c: Card): c is PokemonCard => c.kind === "pokemon";
-const lineOf = (deck: Card[]) => deck.filter(isPokemon);
+const lineOf = (draw: { line: PokemonCard[] }) => draw.line;
+const CATALOG_POKEMON = ALL_CARDS.filter(isPokemon);
+
+/**
+ * `extra` could never be put onto the line in play: no evolution onto any line card, no Pokémon
+ * Breeder onto the Basic (a Stage 2 whose catalog Stage 1 evolves from it), no deeper chain.
+ */
+function evolvesOntoLine(extra: PokemonCard, line: readonly PokemonCard[]): boolean {
+  if (line.some((l) => canEvolveInto(extra, l))) return true;
+  const middles = CATALOG_POKEMON.filter((p) => p.name === extra.evolvesFrom);
+  return middles.some((m) => evolvesOntoLine(m, line));
+}
 const energyCount = (deck: Card[], type: EnergyType) =>
   deck.filter((c) => c.kind === "energy" && c.isBasic && c.energyType === type).length;
 
@@ -61,20 +74,26 @@ describe("Lucky Duel deck (buildLuckyDuelDeck / drawLuckyDuel)", () => {
 
   it("builds 60 cards around one random Basic Pokémon: its line, 24 basic Energy, Trainers", () => {
     for (const draw of draws) {
-      const { active, deck, colors } = draw;
+      const { active, deck, colors, extras } = draw;
       expect(deck).toHaveLength(60);
       expect(active.kind).toBe("pokemon");
       expect(active.stage).toBe(PokemonStage.Basic);
-      // The Active is in the deck exactly once, and it is the only Basic
-      const basics = deck.filter((c) => isPokemon(c) && c.stage === PokemonStage.Basic);
-      expect(basics).toHaveLength(1);
-      expect(basics[0].id).toBe(active.id);
       // The line: each card evolves from the previous one
-      const line = lineOf(deck);
+      const line = lineOf(draw);
       expect(line.length).toBeGreaterThanOrEqual(1);
       expect(line.length).toBeLessThanOrEqual(3);
       expect(line[0].id).toBe(active.id);
       for (let i = 1; i < line.length; i++) expect(canEvolveInto(line[i], line[i - 1])).toBe(true);
+      // The Pokémon of the deck: the line + 6 extras (3 per colour), 1 per name, none evolving onto the line
+      expect(deck.filter(isPokemon).map((c) => c.id).sort()).toEqual([...line, ...extras].map((c) => c.id).sort());
+      expect(extras).toHaveLength(6);
+      expect(extras.slice(0, 3).every((p) => p.types.includes(colors[0]))).toBe(true);
+      expect(extras.slice(3).every((p) => p.types.includes(colors[1]))).toBe(true);
+      const names = [...line, ...extras].map((p) => p.name);
+      expect(new Set(names).size).toBe(names.length);
+      for (const extra of extras) expect(evolvesOntoLine(extra, line), `${extra.name} onto ${line.map((p) => p.name)}`).toBe(false);
+      // Only the Active is a Basic of the line: the Basic of the deck named like it is the Active itself
+      expect(deck.filter((c) => c.name === active.name)).toHaveLength(1);
       // Two different, non-Colorless colours: 16 + 8
       const [primary, secondary] = colors;
       expect(primary).not.toBe(EnergyType.Colorless);
@@ -85,7 +104,7 @@ describe("Lucky Duel deck (buildLuckyDuelDeck / drawLuckyDuel)", () => {
       expect(deck.filter((c) => c.kind === "energy")).toHaveLength(24);
       // Trainers: the rest, from the pool, at most 4 per name
       const trainers = deck.filter((c) => c.kind === "trainer");
-      expect(trainers).toHaveLength(60 - 24 - line.length);
+      expect(trainers).toHaveLength(60 - 24 - line.length - 6);
       for (const t of trainers) expect(isLuckyDuelTrainerAllowed(t)).toBe(true);
       const byName = new Map<string, number>();
       for (const c of deck) if (isLimitedInDeck(c)) byName.set(c.name, (byName.get(c.name) ?? 0) + 1);
@@ -113,21 +132,44 @@ describe("Lucky Duel deck (buildLuckyDuelDeck / drawLuckyDuel)", () => {
     expect(b.deck.map((c) => c.id)).toEqual(a.deck.map((c) => c.id));
   });
 
-  it("a Basic without evolutions: no other Pokémon, 35 Trainers", () => {
+  it("a Basic without evolutions: no line evolution, 6 extras, 29 Trainers", () => {
     const draw = buildLuckyDuelDeck(pokemonCard("jungle-005-kangaskhan"), mulberry32(3));
-    expect(lineOf(draw.deck).map((c) => c.name)).toEqual(["Kangaskhan"]);
-    expect(draw.deck.filter((c) => c.kind === "trainer")).toHaveLength(35);
+    expect(lineOf(draw).map((c) => c.name)).toEqual(["Kangaskhan"]);
+    expect(draw.extras).toHaveLength(6);
+    expect(draw.deck.filter((c) => c.kind === "trainer")).toHaveLength(29);
     expect(draw.deck.some((c) => c.name === "Pokémon Breeder")).toBe(false);
+  });
+
+  it("extras never belong to the line's family: Charmander keeps every Charmeleon / Charizard out", () => {
+    const family = ["Charmander", "Charmeleon", "Dark Charmeleon", "Charizard", "Dark Charizard"];
+    for (let seed = 1; seed <= 60; seed++) {
+      const { extras } = buildLuckyDuelDeck(pokemonCard("base-set-046-charmander"), mulberry32(seed));
+      for (const extra of extras) expect(family, extra.name).not.toContain(extra.name);
+    }
+  });
+
+  it("Magikarp: no extra Gyarados / Dark Gyarados (Rapid Evolution searches the deck for them)", () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const { extras } = buildLuckyDuelDeck(pokemonCard("team-rocket-047-magikarp"), mulberry32(seed));
+      for (const extra of extras) expect(["Magikarp", "Gyarados", "Dark Gyarados"]).not.toContain(extra.name);
+    }
+  });
+
+  it("Blaine's Quiz #1 can be in any deck (the extras are Pokémon cards); Pokémon Trader only with an evolution", () => {
+    const decks = Array.from({ length: 80 }, (_, seed) => buildLuckyDuelDeck(pokemonCard("jungle-005-kangaskhan"), mulberry32(seed + 1)).deck);
+    expect(decks.some((deck) => deck.some((c) => c.name === "Blaine's Quiz #1"))).toBe(true);
+    expect(decks.some((deck) => deck.some((c) => c.name === "Pokémon Trader"))).toBe(false);
+    expect(decks.some((deck) => deck.some((c) => c.name === "Good Manners"))).toBe(false);
   });
 
   it("a Basic with a Stage 1 only: exactly one Stage 1 that evolves from it", () => {
     for (let seed = 1; seed <= 20; seed++) {
       const draw = buildLuckyDuelDeck(pokemonCard("base-set-058-pikachu"), mulberry32(seed));
-      const line = lineOf(draw.deck);
+      const line = lineOf(draw);
       expect(line).toHaveLength(2);
       expect(line[1].stage).toBe(PokemonStage.Stage1);
       expect(line[1].evolvesFrom).toBe("Pikachu");
-      expect(draw.deck.filter((c) => c.kind === "trainer")).toHaveLength(34);
+      expect(draw.deck.filter((c) => c.kind === "trainer")).toHaveLength(28);
       expect(draw.deck.some((c) => c.name === "Pokémon Breeder")).toBe(false);
     }
   });
@@ -135,7 +177,7 @@ describe("Lucky Duel deck (buildLuckyDuelDeck / drawLuckyDuel)", () => {
   it("a Stage 2 line: exactly one Stage 1 and one Stage 2 (Dark versions included)", () => {
     const seen = new Set<string>();
     for (let seed = 1; seed <= 40; seed++) {
-      const line = lineOf(buildLuckyDuelDeck(pokemonCard("base-set-046-charmander"), mulberry32(seed)).deck);
+      const line = lineOf(buildLuckyDuelDeck(pokemonCard("base-set-046-charmander"), mulberry32(seed)));
       expect(line).toHaveLength(3);
       expect(line.map((c) => c.stage)).toEqual([PokemonStage.Basic, PokemonStage.Stage1, PokemonStage.Stage2]);
       expect(canEvolveInto(line[1], line[0])).toBe(true);
@@ -147,7 +189,7 @@ describe("Lucky Duel deck (buildLuckyDuelDeck / drawLuckyDuel)", () => {
 
   it("an owner's Basic only takes that owner's evolutions (Brock's Sandshrew → Brock's Sandslash)", () => {
     for (let seed = 1; seed <= 20; seed++) {
-      const line = lineOf(buildLuckyDuelDeck(pokemonCard("gym-heroes-071-brocks-sandshrew"), mulberry32(seed)).deck);
+      const line = lineOf(buildLuckyDuelDeck(pokemonCard("gym-heroes-071-brocks-sandshrew"), mulberry32(seed)));
       expect(line.map((c) => c.name)).toEqual(["Brock's Sandshrew", "Brock's Sandslash"]);
     }
   });
@@ -160,8 +202,9 @@ describe("Lucky Duel deck (buildLuckyDuelDeck / drawLuckyDuel)", () => {
     // Over every draw: any non-Colorless cost of the line is one of the two colours when the
     // line needs a single extra type
     for (let seed = 1; seed <= 150; seed++) {
-      const { deck, colors } = drawLuckyDuel(mulberry32(seed));
-      const extra = new Set(lineOf(deck).flatMap((p) => p.attacks.flatMap((a) => a.cost)).filter((t) => t !== EnergyType.Colorless && t !== colors[0]));
+      const draw = drawLuckyDuel(mulberry32(seed));
+      const { colors } = draw;
+      const extra = new Set(lineOf(draw).flatMap((p) => p.attacks.flatMap((a) => a.cost)).filter((t) => t !== EnergyType.Colorless && t !== colors[0]));
       if (extra.size === 1) expect([...extra][0]).toBe(colors[1]);
       if (extra.size > 1) expect(extra.has(colors[1])).toBe(true);
     }
@@ -180,8 +223,9 @@ describe("Lucky Duel deck (buildLuckyDuelDeck / drawLuckyDuel)", () => {
 
   it("an Eevee line takes the Stage 1's colour when the random primary isn't it", () => {
     for (let seed = 1; seed <= 40; seed++) {
-      const { deck, colors } = buildLuckyDuelDeck(pokemonCard("jungle-051-eevee"), mulberry32(seed));
-      const stage1 = lineOf(deck)[1];
+      const draw = buildLuckyDuelDeck(pokemonCard("jungle-051-eevee"), mulberry32(seed));
+      const { colors } = draw;
+      const stage1 = lineOf(draw)[1];
       const own = stage1.types[0];
       expect(colors).toContain(own);
     }
@@ -296,6 +340,37 @@ describe("Lucky Duel: locked Benches", () => {
       opponent: { active: inPlay("Abra", { set: "base" }) },
     });
     expect(canExecuteAttack(state, attackIndex(bellsprout, "Call for Family"))).toMatch(/banca está llena/);
+  });
+
+  it("an extra Pokémon in the hand never enters play: no Bench, no evolving onto the line", () => {
+    const pikachu = gameCard("Pikachu", "base");
+    const raichu = gameCard("Raichu", "base");
+    const charmeleon = gameCard("Charmeleon", "base");
+    const state = luckyState({
+      turnNumber: 5,
+      player: { active: inPlay("Charmander", { set: "base" }), hand: [pikachu, raichu, charmeleon] },
+      opponent: { active: inPlay("Abra", { set: "base" }) },
+    });
+    const activeId = state.playerActivePokemon!.pokemon.id;
+    expect(canPlayBasicPokemon(state, pikachu.id, "bench")).toMatch(/Lucky Duel/);
+    expect(canPlayBasicPokemon(state, pikachu.id, "active")).not.toBeNull();
+    expect(canEvolve(state, raichu.id, activeId)).not.toBeNull();
+    expect(canEvolve(state, charmeleon.id, activeId)).toBeNull(); // the line's own Stage 1 still works
+  });
+
+  it("Pokémon Trader trades an extra in the hand for the line's evolution in the deck", () => {
+    const trader = gameCard("Pokémon Trader");
+    const pikachu = gameCard("Pikachu", "base");
+    const charmeleon = gameCard("Charmeleon", "base");
+    const state = deepFreeze(luckyState({
+      player: { active: inPlay("Charmander", { set: "base" }), hand: [trader, pikachu], deck: [charmeleon, gameCard("Bill")] },
+      opponent: { active: inPlay("Abra", { set: "base" }) },
+    }));
+    expect(canPlayTrainerCard(state, trader.id)).toBeNull();
+    const next = playTrainerCard(state, trader.id, [[pikachu.id], [charmeleon.id]]);
+    expect(next.playerHand.map((c) => c.name)).toEqual(["Charmeleon"]);
+    expect(next.playerDeck.map((c) => c.name).sort()).toEqual(["Bill", "Pikachu"]);
+    expect(next.playerBench).toEqual([]);
   });
 
   it("Summon Minions (Dark Dragonite) puts nothing on the Bench", () => {

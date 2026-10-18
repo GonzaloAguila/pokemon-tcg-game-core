@@ -276,7 +276,7 @@ function planDrawAndSearch(v: GameState, options: DecideOpponentTurnOptions): AI
 
   const ball = playableTrainer(v, "Poké Ball");
   if (ball && v.playerDeck.length > 3) {
-    const wantsBasic = v.playerBench.length < 3 && pool.some((c) => isPokemonCard(c) && c.stage === PokemonStage.Basic);
+    const wantsBasic = v.playerBench.length < 3 && !isBenchFull(v, "player") && pool.some((c) => isPokemonCard(c) && c.stage === PokemonStage.Basic);
     const wantsEvolution = pool.some((c) => evolvesSomethingInPlay(v, c)) && !v.playerHand.some((c) => evolvesSomethingInPlay(v, c));
     if (wantsBasic || wantsEvolution) return trainerAction(ball, [], true);
   }

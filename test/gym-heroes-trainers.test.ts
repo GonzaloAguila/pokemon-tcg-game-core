@@ -56,11 +56,27 @@ describe("Brock", () => {
     expect(badLines(state, next)).toEqual([]);
   });
 
-  it("can't be played when none of the player's Pokémon has damage counters", () => {
+  it("can be played with no damaged Pokémon (owner ruling): it is just discarded", () => {
     const trainer = card("Brock");
-    const state = withHand([trainer]);
-    expect(canPlayTrainerCard(state, trainer.id)).not.toBeNull();
-    expect(() => playTrainerCard(state, trainer.id)).toThrow(IllegalActionError);
+    const theirs = inPlay("Onix", { damage: 20 });
+    const state = deepFreeze(withHand([trainer], { player: { bench: [inPlay("Gastly")] }, opponent: { active: theirs } }));
+    expect(canPlayTrainerCard(state, trainer.id)).toBeNull();
+    const next = playTrainerCard(state, trainer.id);
+    expect(next.playerActivePokemon!.currentDamage ?? 0).toBe(0);
+    expect(next.opponentActivePokemon!.currentDamage).toBe(20);
+    expect(names(next.playerHand)).toEqual([]);
+    expect(names(next.playerDiscard)).toEqual(["Brock"]);
+    expect(next.events.at(-1)!.message).toBe("Brock: ninguno de los Pokémon de quien lo jugó tenía contadores de daño");
+    expect(badLines(state, next)).toEqual([]);
+  });
+
+  it("the AI still plays it only when it heals something of its own", () => {
+    const trainer = card("Brock");
+    const aiTurn = (ai: Setup["opponent"]) =>
+      makeState({ turnNumber: 6, isPlayerTurn: false, player: { active: inPlay("Onix", { damage: 20 }) }, opponent: ai });
+    const playsBrock = (state: GameState) => decideOpponentTurn(state).some((a) => a.type === "playTrainer" && a.cardId === trainer.id);
+    expect(playsBrock(aiTurn({ active: inPlay("Machop"), hand: [trainer] }))).toBe(false);
+    expect(playsBrock(aiTurn({ active: inPlay("Machop", { damage: 20 }), bench: [inPlay("Abra", { damage: 10 })], hand: [trainer] }))).toBe(true);
   });
 });
 

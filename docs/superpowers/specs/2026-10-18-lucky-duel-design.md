@@ -12,7 +12,8 @@ built around it on the spot. No deck building, pure luck: Magikarp vs Dark Scyth
 3. Decks are always **two colours**. Colorless does not count as a colour.
 4. Evolutions: if the Basic has an evolution line, the deck holds **exactly one** Stage 1 that
    evolves from it and, if that Stage 1 has one, **exactly one** Stage 2 that evolves from it.
-   No other Pokémon in the deck.
+   No other Pokémon in the deck. *(Revised 2026-10-18 by the owner: 6 extra Pokémon of the deck's
+   colours that can never enter play — see "Extra Pokémon (0.8.2)" below.)*
 5. **Benches are locked** for the whole game: treated as full but empty. Nothing can be put on a
    Bench (Basics from hand, attacks like Call for Family / Summon Minions, Trainers like
    Challenge! / Pokémon Flute / Revive); Bench-dependent cards (Switch, Gust of Wind…) can't be
@@ -191,6 +192,51 @@ Changes / interpretations of the rulings:
   (player = human, opponent = AI), `setPlayerReady` for both (the AI is ready at once),
   `startPlayingPhase` reveals, then the usual `decideOpponentTurn` / `executeAIAction` loop; no
   Prizes to take, no promotions.
+
+## Extra Pokémon (game-core 0.8.2, 2026-10-18, owner request)
+
+Owner: "en los Lucky duel agrega 5 o 6 pokemons de los colores a los mazos, hay cartas como pokemon
+trader y otras que quedan sin uso." Revises decision 4's "No other Pokémon in the deck". Rulings
+(controller):
+- Every deck gets **6 extra Pokémon cards**: 3 of the primary colour, then 3 of the secondary
+  (Colorless is not a colour: no Colorless-type extras). Random printings from `ALL_CARDS` (every
+  set, any stage), at most 1 copy per name (and never the name of a line card), drawn with the same
+  `rng` right after the colours (seeded draws stay deterministic; they differ from 0.8.1's).
+- Deck stays 60: 24 Energy (16 + 8) as before, Trainers go down by 6 (29–31).
+- `LuckyDuelDraw` gains `line` (the Basic + its drawn evolutions) and `extras` (the 6 extras);
+  the deck order is line, extras, Energy, Trainers. `LUCKY_DUEL_EXTRAS_PER_COLOR` (3) in deck.ts.
+- The line stays exactly 1 Stage 1 + 1 Stage 2 playable. `lineFamily` (deck.ts) excludes every name
+  of the line and, at any depth, every Pokémon whose `evolvesFrom` is one of those names. Every
+  evolution rule of the engine is a chain of `evolvesFrom` names, so this covers: evolving
+  (`canEvolveInto`: Dark versions evolve from the plain names, owners' from the owner's names —
+  drawn Charmander excludes Charmeleon, Dark Charmeleon, Charizard, Dark Charizard), Pokémon Breeder
+  (a Stage 2 onto the Basic its catalog Stage 1 evolves from) and Rapid Evolution (Magikarp's
+  Gyarados / Dark Gyarados from the deck, `evolvesFrom` = the attacker; also through Metronome).
+- Nothing else can put an extra into play (audited): Basics can't go to the locked Bench (any
+  phase); the Active is given (no setup placement, no mulligan — `canMulligan` refuses with an
+  Active in play —, no promotion); Bench searches (Call for Family…, Summon Minions) can't put
+  anything on a Bench; Lt. Surge (Basic from the hand becomes the Active), Revive, Pokémon Flute,
+  Challenge!, Mr. Fuji, Clefairy Doll and Mysterious Fossil stay out of the pool; Trainers played as
+  Basics are not Pokémon cards (never extras). Kabuto / Omanyte / Aerodactyl can be extras (they
+  evolve from Mysterious Fossil, not in the pool). Searches that put Pokémon in the hand (Poké Ball,
+  Computer Search, Evolutionary Light, Reel In, Brock's Training Method, Erika's Maids) only move
+  dead cards. The simulator checks it: a Lucky Duel invariant fails if an Active's bottom Basic
+  ever changes (`invariants.ts`).
+- Trainer pool re-check: **Blaine's Quiz #1** left the line-dependent table (it needs a Basic /
+  Evolution card in the hand: the extras give every deck one). **Pokémon Trader** stays tied to an
+  evolution in the line (now it trades an extra for the Stage 1 / Stage 2; with no evolution it could
+  only swap one dead card for another). Still excluded / still line-dependent: Good Manners (it finds
+  a Basic that can't be played; reason reworded), Pokémon Breeder, Devolution Spray, Recall, The
+  Boss's Way, Brock's Training Method / Erika's Maids (an extra of that owner can't be played),
+  Misty, Sabrina's ESP and the owner Gyms (only the line is in play), and every Bench / Prize /
+  own-Active exclusion.
+- AI: `wantedFromDeck` and the Poké Ball rule no longer want a Basic when the Bench is full (a
+  locked Bench: never; standard games unchanged — a full Bench already failed their size checks), and
+  `handCardValue` rates an extra evolution in a Lucky Duel at 4 (discarded first). The AI never plays
+  Pokémon Trader nor Blaine's Quiz #1 (unchanged); the explore / random policies play both.
+- Measured (`--decks lucky-duel --policy greedy`, seeds 1..1000): deck-outs 0.3% → 0.2%, avg game
+  length 8.8 → 8.4 turns, draws 0.9% → 0.8%; 0 failures. Explore / random policies (1,500 games each,
+  `--check-mutation`): 0 failures, Pokémon Trader / Blaine's Quiz #1 played 117–273 times.
 
 ## API implementation notes (pokemon-tcg-api, branch feat/lucky-duel, 2026-10-18)
 

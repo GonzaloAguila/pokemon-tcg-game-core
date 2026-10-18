@@ -1206,10 +1206,18 @@ Object.assign(TRAINER_EFFECTS, {
         ...played,
         playerActivePokemon: active,
         playerBench: bench,
-        events: [...played.events, createGameEvent(`Brock: se quitó 1 contador de daño de ${healed.join(", ")}`, "info")],
+        events: [
+          ...played.events,
+          createGameEvent(
+            healed.length > 0
+              ? `Brock: se quitó 1 contador de daño de ${healed.join(", ")}`
+              : "Brock: ninguno de los Pokémon de quien lo jugó tenía contadores de daño",
+            "info"
+          ),
+        ],
       };
-    },
-    (state) => (ownPokemonChoices(state, isDamaged).options.length > 0 ? null : "Ninguno de tus Pokémon tiene contadores de daño")
+    }
+    // Always playable (owner ruling 2026-10-18): with nothing damaged it is just discarded (a card for the discard pile)
   ),
 
   "Lt. Surge": singleStep(

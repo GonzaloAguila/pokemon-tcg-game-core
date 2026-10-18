@@ -14,6 +14,7 @@ import {
 import type { GameState, PokemonCard } from "../src";
 import { EnergyType, GamePhase, StatusCondition } from "../src/domain/constants";
 import { mulberry32 } from "../src/domain/simulation/rng";
+import { handCardValue, wantedFromDeck } from "../src/domain/ai/cardEffects";
 import { armedFor, energies, gameCard, inPlay, makeState } from "./helpers/state";
 
 const basic = (id: string) => findCardById(id) as PokemonCard;
@@ -120,5 +121,25 @@ describe("Lucky Duel vs the AI (single-player flow)", () => {
     const plays = (deckSize: number) => decideOpponentTurn(swapSides(aiView(deckSize))).some((a) => a.type === "playTrainer");
     expect(plays(30)).toBe(true);
     expect(plays(3)).toBe(false);
+  });
+
+  it("the deck's extra Pokémon: no Poké Ball / Computer Search for a Basic it can't play; it discards extras first", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const ball = gameCard("Poké Ball", "jungle");
+    const deck = [gameCard("Pikachu", "base"), gameCard("Abra", "base"), ...energies(...Array(20).fill(EnergyType.Fire))];
+    const aiView = lucky({
+      player: { active: inPlay("Kangaskhan", { set: "jungle", statuses: [StatusCondition.Paralyzed] }), hand: [ball], deck },
+      opponent: { active: inPlay("Chansey", { set: "base" }), deck: energies(...Array(30).fill(EnergyType.Fire)) },
+    });
+    expect(wantedFromDeck(aiView).some((want) => want(deck[0]))).toBe(false);
+    expect(decideOpponentTurn(swapSides(aiView)).some((a) => a.type === "playTrainer")).toBe(false);
+    // An extra evolution (nothing it evolves from can be played) is worth less than the line's own
+    const withLine = lucky({
+      player: { active: inPlay("Charmander", { set: "base" }), hand: [gameCard("Raichu", "base"), gameCard("Charizard", "base")], deck: [gameCard("Charmeleon", "base")] },
+      opponent: { active: inPlay("Chansey", { set: "base" }) },
+    });
+    const [raichu, charizard] = withLine.playerHand;
+    expect(handCardValue(withLine, raichu)).toBeLessThan(handCardValue(withLine, charizard));
+    expect(handCardValue(withLine, raichu)).toBeLessThan(handCardValue(withLine, energies(EnergyType.Fire)[0]));
   });
 });

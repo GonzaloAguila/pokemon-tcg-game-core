@@ -1,7 +1,8 @@
 /**
  * Lucky Duel decks and setup: a random Basic Pokémon from the whole catalog, a 60-card deck built
- * around it (its line, 24 basic Energy in two colours, Trainers from the Lucky Duel pool) and the
- * initial state with both Actives already placed face down.
+ * around it (its line, 6 extra Pokémon of its two colours that can never enter play, 24 basic
+ * Energy in those two colours, Trainers from the Lucky Duel pool) and the initial state with both
+ * Actives already placed face down.
  *
  * Randomness only comes from the `rng` parameter (the server's RNG; a seeded one in tests).
  */
@@ -19,6 +20,14 @@ export type LuckyDuelDraw = {
   active: PokemonCard;
   /** The 60 cards, the Active included (catalog cards: ids repeat; initializeLuckyDuelGame gives each copy its own id). */
   deck: Card[];
+  /** The line in the deck: the Basic (`active`), then its Stage 1 and Stage 2 if drawn. */
+  line: PokemonCard[];
+  /**
+   * The extra Pokémon in the deck (owner request 2026-10-18): 3 of the primary colour, then 3 of the
+   * secondary, 1 per name, none of them able to evolve onto the line (see drawExtras). With the
+   * Benches locked they never enter play: fodder for Pokémon Trader, Blaine's Quiz #1, discard costs.
+   */
+  extras: PokemonCard[];
   /** [primary, secondary]: 16 and 8 basic Energy cards. */
   colors: [EnergyType, EnergyType];
 };
@@ -28,6 +37,8 @@ type Rng = () => number;
 export const LUCKY_DUEL_DECK_SIZE = 60;
 export const LUCKY_DUEL_PRIMARY_ENERGY = 16;
 export const LUCKY_DUEL_SECONDARY_ENERGY = 8;
+/** Extra Pokémon per colour (primary and secondary). */
+export const LUCKY_DUEL_EXTRAS_PER_COLOR = 3;
 const MAX_COPIES = 4;
 const HAND_SIZE = 7;
 
@@ -97,6 +108,49 @@ function drawColors(line: readonly PokemonCard[], rng: Rng): [EnergyType, Energy
   return [primary, secondary];
 }
 
+/**
+ * Every Pokémon name that could join the line in play: the line's names and, at any depth, every
+ * card that evolves from one of them. The engine's evolution rules are all chains of `evolvesFrom`
+ * names: evolving (canEvolveInto), Pokémon Breeder (a Stage 2 onto the Basic its catalog Stage 1
+ * evolves from) and Rapid Evolution (`evolvesFrom` = the attacker). So a drawn Charmander also
+ * excludes Charmeleon / Dark Charmeleon and every Charizard / Dark Charizard.
+ */
+function lineFamily(line: readonly PokemonCard[]): Set<string> {
+  const names = new Set(line.map((p) => p.name));
+  for (let grown = true; grown; ) {
+    grown = false;
+    for (const p of POKEMON) {
+      if (p.evolvesFrom && names.has(p.evolvesFrom) && !names.has(p.name)) {
+        names.add(p.name);
+        grown = true;
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * The extra Pokémon: LUCKY_DUEL_EXTRAS_PER_COLOR random printings (any set, any stage) of each
+ * colour, 1 per name, never of the line's family (lineFamily). They can't enter play: the Benches
+ * are locked (no Basic from the hand, no Bench search, Lt. Surge / Revive / Pokémon Flute / Clefairy
+ * Doll / Mysterious Fossil are out of the pool), the Active is given (no setup placement, no
+ * mulligan, no promotion) and nothing in the deck evolves onto the line except the line itself.
+ */
+function drawExtras(line: readonly PokemonCard[], colors: readonly EnergyType[], rng: Rng): PokemonCard[] {
+  const taken = lineFamily(line);
+  const extras: PokemonCard[] = [];
+  for (const color of colors) {
+    for (let n = 0; n < LUCKY_DUEL_EXTRAS_PER_COLOR; n++) {
+      const open = POKEMON.filter((p) => p.types.includes(color) && !taken.has(p.name));
+      if (open.length === 0) break;
+      const card = pick(rng, open);
+      taken.add(card.name);
+      extras.push(card);
+    }
+  }
+  return extras;
+}
+
 /** `count` Trainers from the pool that fit the line, at most 4 per name (isLimitedInDeck). */
 function drawTrainers(line: readonly PokemonCard[], count: number, rng: Rng): TrainerCard[] {
   const pool = [...TRAINERS_BY_NAME.values()].filter((printings) => luckyDuelTrainerFitsLine(printings[0], line));
@@ -121,8 +175,9 @@ export function buildLuckyDuelDeck(active: PokemonCard, rng: Rng = Math.random):
     ...Array.from({ length: LUCKY_DUEL_PRIMARY_ENERGY }, () => basicEnergy(colors[0])),
     ...Array.from({ length: LUCKY_DUEL_SECONDARY_ENERGY }, () => basicEnergy(colors[1])),
   ];
-  const trainers = drawTrainers(line, LUCKY_DUEL_DECK_SIZE - line.length - energy.length, rng);
-  return { active, deck: [...line, ...energy, ...trainers], colors };
+  const extras = drawExtras(line, colors, rng);
+  const trainers = drawTrainers(line, LUCKY_DUEL_DECK_SIZE - line.length - extras.length - energy.length, rng);
+  return { active, deck: [...line, ...extras, ...energy, ...trainers], colors, line, extras };
 }
 
 /** A random Basic Pokémon (uniform over every printing of every set) and its Lucky Duel deck. */

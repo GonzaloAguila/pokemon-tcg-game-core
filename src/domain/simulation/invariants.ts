@@ -10,6 +10,7 @@ import { GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
 import { isPokemonCard, isTrainerInPlay } from "@/domain/cards";
 import { getEffectiveHp, isAwaitingTransformTarget } from "@/domain/powers";
 import { setAsideCards } from "@/domain/trainers/set-aside";
+import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 
 /** Ids of every card a side owns, wherever it is (Buzzap energy counts as its Electrode). */
 export function ownedCardIds(state: GameState, side: "player" | "opponent"): string[] {
@@ -111,6 +112,17 @@ export function checkInvariants(state: GameState, context: InvariantContext): st
       problems.push(`${where} is not a Pokémon card (${p.pokemon.name})`);
     } else if (damage >= getEffectiveHp(state, p) && state.gamePhase !== GamePhase.GameOver && !isAwaitingTransformTarget(state, p)) {
       problems.push(`${where} ${p.pokemon.name} has ${damage} damage >= ${getEffectiveHp(state, p)} HP and is still in play`);
+    }
+  }
+
+  // Lucky Duel: the Actives are given and the Benches locked — no other Pokémon (the deck's extra
+  // Pokémon) ever enters play: each Active keeps the same Basic at the bottom of its stack
+  if (isLuckyDuel(state)) {
+    const basicId = (p: PokemonInPlay) => p.previousEvolutions?.[0]?.id ?? p.pokemon.id;
+    for (const side of ["player", "opponent"] as const) {
+      const now = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
+      const was = side === "player" ? context.before.playerActivePokemon : context.before.opponentActivePokemon;
+      if (now && (!was || basicId(now) !== basicId(was))) problems.push(`Lucky Duel: ${now.pokemon.name} entered play as the ${side} Active`);
     }
   }
 

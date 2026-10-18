@@ -50,7 +50,7 @@ export const LUCKY_DUEL_EXCLUDED_TRAINERS: Readonly<Record<string, string>> = {
   "Erika's Perfume": "pone Pokémon en la Banca del rival",
   "Clefairy Doll": "se juega como un Pokémon Básico en la Banca",
   "Mysterious Fossil": "se juega como un Pokémon Básico en la Banca",
-  "Good Manners": "busca un Pokémon Básico y el mazo no tiene otros",
+  "Good Manners": "busca un Pokémon Básico, que no se puede poner en juego",
   // Change the Bench limit or the Retreat cost: no Bench, no Retreat
   "Narrow Gym": "cambia el límite de la Banca",
   "The Rocket's Training Gym": "cambia el coste de retirada y no se puede retirar",
@@ -75,14 +75,20 @@ const hasEvolution = (line: readonly PokemonCard[]) => line.length > 1;
  * Pool Trainers that only go into a deck whose line (the Basic + its evolutions) can use them —
  * otherwise they could never be played or would do nothing. The spec's Pokémon Breeder rule,
  * extended to the other cards that depend on the line.
+ *
+ * Since 2026-10-18 every deck also holds 6 extra Pokémon that never enter play (deck.ts
+ * drawExtras). That makes Blaine's Quiz #1 (a Pokémon card from the hand) playable in every deck,
+ * so it left this table. Pokémon Trader stays tied to an evolution: it now trades an extra for the
+ * line's Stage 1 / Stage 2, but with no evolution it could only swap one dead card for another. The
+ * owner searches stay tied to the line's evolutions: an extra with that owner in its name found by
+ * them could never be played.
  */
 const LINE_DEPENDENT_TRAINERS: Readonly<Record<string, (line: readonly PokemonCard[]) => boolean>> = {
   "Pokémon Breeder": (line) => line.some((p) => p.stage === PokemonStage.Stage2),
-  // Need an Evolution card (in play or in the hand / deck)
+  // Need an Evolution card (in play, or in the deck to trade an extra for)
   "Devolution Spray": hasEvolution,
   "Pokémon Trader": hasEvolution,
   "Recall": hasEvolution,
-  "Blaine's Quiz #1": hasEvolution,
   "The Boss's Way": (line) => line.slice(1).some((p) => p.name.startsWith("Dark ")),
   // Search the deck for an owner's Pokémon (only the evolutions are in the deck)
   "Brock's Training Method": (line) => lineHasOwner(line.slice(1), "Brock"),
