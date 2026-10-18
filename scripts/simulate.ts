@@ -7,7 +7,8 @@
  * --policy: greedy | random | explore | mixed (greedy vs random) | A:B (e.g. explore:greedy),
  *   several separated by commas; all = greedy,random,mixed (default).
  * --decks random (default: 1-2 Energy types) | random-mix (featured evolution lines of any set
- *   and type, every set's Trainers and special Energy; see buildMixDeck).
+ *   and type, every set's Trainers and special Energy; see buildMixDeck) | lucky-duel (Lucky Duel
+ *   tables: a random Basic and deck per side from every set; --sets ignored).
  * explore and random-mix are adaptive: they steer toward what the batch has used least, so a
  *   game depends on the games before it (replay: same --seed, --games up to the failing one).
  * --stop-on-fail stops a batch at its first failure; --check-mutation also fails an action that
@@ -95,7 +96,7 @@ const pairs = (policyArg === "all" ? "greedy,random,mixed" : policyArg).split(",
 for (const pair of pairs) {
   if (!isPolicyPair(pair)) throw new Error(`Unknown --policy "${pair}" (greedy = smart, legacy, random, explore, mixed, A:B or all)`);
 }
-if (decks !== "random" && decks !== "random-mix" && decks !== "theme") throw new Error(`Unknown --decks "${decks}" (random, random-mix or theme)`);
+if (decks !== "random" && decks !== "random-mix" && decks !== "theme" && decks !== "lucky-duel") throw new Error(`Unknown --decks "${decks}" (random, random-mix, theme or lucky-duel)`);
 const coverageSets = argValue("coverage", sets.join(",")).split(",") as CardSetId[];
 
 let failed = false;
@@ -106,18 +107,18 @@ for (const policy of pairs as PolicyPair[]) {
   allOutcomes.push(...result.outcomes);
   const adaptive = isAdaptiveBatch(policy, decks);
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
-  const wins = { A: 0, B: 0 };
+  const wins = { A: 0, B: 0, draw: 0 };
   const reasons: Record<string, number> = {};
   let turns = 0;
   for (const outcome of result.outcomes) {
-    wins[outcome.winner]++;
+    wins[outcome.winner ?? "draw"]++;
     reasons[outcome.reason] = (reasons[outcome.reason] ?? 0) + 1;
     turns += outcome.turns;
   }
   const average = result.outcomes.length ? (turns / result.outcomes.length).toFixed(1) : "-";
   console.log(
     `[${policy}${decks === "random" ? "" : ` ${decks}`}] ${games} games (seeds ${seed}..${seed + games - 1}, sets ${sets.join(",")}) in ${seconds}s: ` +
-      `${result.failures.length} failed; wins A ${wins.A} / B ${wins.B}; ` +
+      `${result.failures.length} failed; wins A ${wins.A} / B ${wins.B}${wins.draw ? ` / draws ${wins.draw}` : ""}; ` +
       `ends ${Object.entries(reasons).map(([r, n]) => `${r} ${n}`).join(", ")}; avg ${average} turns`
   );
   if (process.argv.includes("--stats")) {

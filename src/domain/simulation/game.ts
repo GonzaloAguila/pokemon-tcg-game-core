@@ -36,6 +36,7 @@ import { getBenchTrimStep, resolveBenchTrim, swapSides } from "@/domain/board";
 import { aiDuelPick, submitDuelPick } from "@/domain/duel/rps";
 import { ACTIVATED_POWER_TYPES, type SelectionStep } from "@/domain/effects";
 import { isPowerActive } from "@/domain/powers";
+import { drawLuckyDuel, initializeLuckyDuelGame, isLuckyDuel } from "@/domain/lucky-duel";
 import { cardIdentities, checkInvariants, ownedCardIds, type CardIdentity } from "./invariants";
 import { GameRules } from "./rules";
 import { flipCoin, withRandom, type Rng } from "./rng";
@@ -59,8 +60,9 @@ export type GameOptions = {
 };
 
 export type GameOutcome = {
-  winner: SideId;
-  reason: "prizes" | "no-pokemon" | "deck-out";
+  /** null: a draw (Lucky Duel, both Actives Knocked Out at the same time) */
+  winner: SideId | null;
+  reason: "prizes" | "no-pokemon" | "deck-out" | "draw";
   turns: number;
   actions: number;
   /** How many times each kind of action ran (Trainer / power names included) */
@@ -356,6 +358,16 @@ class GameRunner {
     return false;
   }
 
+  private result(): Pick<GameOutcome, "winner" | "reason"> {
+    if (this.state.gameResult === "draw") return { winner: null, reason: "draw" };
+    const winner: SideId = this.state.gameResult === "victory" ? "A" : "B";
+    const winnerView = this.view(winner);
+    const loserView = this.view(this.other(winner));
+    // Lucky Duel has no Prizes: an empty Prize pile is not a prize-out there
+    const prizedOut = winnerView.playerPrizes.length === 0 && !isLuckyDuel(this.state);
+    return { winner, reason: prizedOut ? "prizes" : loserView.playerDeck.length === 0 ? "deck-out" : "no-pokemon" };
+  }
+
   isOver(): boolean {
     return this.state.gamePhase === GamePhase.GameOver;
   }
@@ -363,18 +375,23 @@ class GameRunner {
   play(): GameOutcome {
     const { rng, maxTurns, maxActionsPerTurn } = this.options;
 
-    // Mulligans (classic: reveal and redraw until there is a Basic)
-    for (const side of ["A", "B"] as const) {
-      for (let mulligans = 0; !hasBasicPokemon(this.view(side).playerHand); mulligans++) {
-        if (mulligans > 30) this.fail("no Basic Pokémon after 30 mulligans");
-        this.apply(side, { label: "mulligan", run: (v) => doMulligan(v, true) });
+    if (isLuckyDuel(this.state)) {
+      // Lucky Duel: the Actives are given (no mulligan, nothing to place): both confirm
+      for (const side of ["A", "B"] as const) this.apply(side, { label: "ready", run: (v) => setPlayerReady(v, true) });
+    } else {
+      // Mulligans (classic: reveal and redraw until there is a Basic)
+      for (const side of ["A", "B"] as const) {
+        for (let mulligans = 0; !hasBasicPokemon(this.view(side).playerHand); mulligans++) {
+          if (mulligans > 30) this.fail("no Basic Pokémon after 30 mulligans");
+          this.apply(side, { label: "mulligan", run: (v) => doMulligan(v, true) });
+        }
       }
-    }
-    this.apply("A", { label: "advance to setup", run: advanceToSetup });
-    for (const side of ["A", "B"] as const) {
-      for (const action of this.policy(side).setup(this.view(side), rng)) this.apply(side, action);
-      if (!this.view(side).playerActivePokemon) this.fail(`side ${side} placed no Active Pokémon in setup`);
-      this.apply(side, { label: "ready", run: (v) => setPlayerReady(v, true) });
+      this.apply("A", { label: "advance to setup", run: advanceToSetup });
+      for (const side of ["A", "B"] as const) {
+        for (const action of this.policy(side).setup(this.view(side), rng)) this.apply(side, action);
+        if (!this.view(side).playerActivePokemon) this.fail(`side ${side} placed no Active Pokémon in setup`);
+        this.apply(side, { label: "ready", run: (v) => setPlayerReady(v, true) });
+      }
     }
     const opening = flipCoin(rng);
     this.apply("A", { label: `opening coin ${opening}`, run: (v) => startPlayingPhase(v, opening) });
@@ -390,14 +407,9 @@ class GameRunner {
       else this.apply(actor, { label: "end turn", run: (v) => endTurn(v, true) });
     }
 
-    const winner: SideId = this.state.gameResult === "victory" ? "A" : "B";
-    const winnerView = this.view(winner);
-    const loserView = this.view(this.other(winner));
-    const reason: GameOutcome["reason"] =
-      winnerView.playerPrizes.length === 0 ? "prizes" : loserView.playerDeck.length === 0 ? "deck-out" : "no-pokemon";
+    const outcome = this.result();
     return {
-      winner,
-      reason,
+      ...outcome,
       turns: this.state.turnNumber,
       actions: this.actions,
       actionCounts: this.actionCounts,
@@ -410,6 +422,15 @@ class GameRunner {
  * Play a complete headless game between two decks. Throws SimulationFailure on any
  * exception or invariant violation. Deterministic for a given rng seed.
  */
+/** Play a complete headless Lucky Duel (random Basics and decks from `options.rng`). */
+export function playLuckyDuelAIGame(options: GameOptions): GameOutcome {
+  const settings: Required<GameOptions> = { maxTurns: 300, maxActionsPerTurn: 150, onAction: () => undefined, checkMutation: false, ...options };
+  return withRandom(settings.rng, () => {
+    const initial = initializeLuckyDuelGame(drawLuckyDuel(settings.rng), drawLuckyDuel(settings.rng), settings.rng);
+    return new GameRunner(initial, settings).play();
+  });
+}
+
 export function playAIGame(deckA: Deck, deckB: Deck, options: GameOptions): GameOutcome {
   const settings: Required<GameOptions> = { maxTurns: 300, maxActionsPerTurn: 150, onAction: () => undefined, checkMutation: false, ...options };
   return withRandom(settings.rng, () => {

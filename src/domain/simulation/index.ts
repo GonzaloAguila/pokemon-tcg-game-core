@@ -6,11 +6,11 @@
 import type { CardSetId } from "@/domain/catalog";
 import { buildMixDeck, buildRandomDeck, buildThemeDeck } from "./decks";
 import { ExploreMemory, createExplorePolicy } from "./explore";
-import { playAIGame, SimulationFailure, type GameOutcome } from "./game";
+import { playAIGame, playLuckyDuelAIGame, SimulationFailure, type GameOutcome } from "./game";
 import { createGreedyPolicy, randomLegalPolicy, type Policy } from "./policies";
 import { mulberry32 } from "./rng";
 
-export { playAIGame, SimulationFailure, actionKind, isPassivePower, stalemateTurn } from "./game";
+export { playAIGame, playLuckyDuelAIGame, SimulationFailure, actionKind, isPassivePower, stalemateTurn } from "./game";
 export type { GameOptions, GameOutcome, SideId } from "./game";
 export { randomLegalPolicy, createGreedyPolicy, legalActions, randomAnswer, firstAnswer, retreatTo } from "./policies";
 export type { Policy, ViewAction } from "./policies";
@@ -26,7 +26,7 @@ export type PolicyName = "greedy" | "smart" | "legacy" | "random" | "explore";
 /** "mixed" = greedy (A) vs random (B); "A:B" = any two policies (e.g. "smart:legacy") */
 export type PolicyPair = PolicyName | "mixed" | `${PolicyName}:${PolicyName}`;
 /** "random": 1-2 Energy types and lines that fit them (default); "random-mix": see buildMixDeck; "theme": the theme decks */
-export type DeckMode = "random" | "random-mix" | "theme";
+export type DeckMode = "random" | "random-mix" | "theme" | "lucky-duel";
 
 const POLICY_NAMES: readonly PolicyName[] = ["greedy", "smart", "legacy", "random", "explore"];
 
@@ -103,6 +103,20 @@ export function runBatch(options: BatchOptions): BatchResult {
     const rng = mulberry32(seed);
     const [policyA, policyB] = policyPair(options.policy, memory);
     try {
+      if (decks === "lucky-duel") {
+        // Lucky Duel: each side's Basic and deck come from the seeded rng (every set; --sets ignored)
+        outcomes.push(
+          playLuckyDuelAIGame({
+            rng,
+            policyA,
+            policyB,
+            maxTurns: options.maxTurns ?? 300,
+            checkMutation: options.checkMutation ?? false,
+            onAction: adaptive ? (kind) => memory.bump(kind) : undefined,
+          })
+        );
+        continue;
+      }
       const deckA = buildDeck(rng, options.sets, "A", memory);
       const deckB = buildDeck(rng, options.sets, "B", memory);
       outcomes.push(
