@@ -356,13 +356,36 @@ describe("Lucky Duel: no removing your only Pokémon", () => {
     expect(canExecuteMetronome(state, vanish)).toMatch(/Lucky Duel/);
   });
 
-  it("Phoenix Flame's tails doesn't shuffle Blaine's Moltres away", () => {
+  // Owner ruling (2026-10-18): Phoenix Flame works as printed — tails shuffles Blaine's Moltres
+  // into the deck and its owner, with no Pokémon left, loses
+  it("Phoenix Flame's tails shuffles Blaine's Moltres away: its owner loses", () => {
     const moltres = armedFor(inPlay("Blaine's Moltres", { set: "gym-heroes" }), "Llama Fénix");
     const state = luckyState({ player: { active: moltres }, opponent: { active: inPlay("Chansey", { set: "base" }) } });
-    const next = executeAttack(state, 0, { coinResults: ["tails"], skipEndTurn: true });
+    expect(canExecuteAttack(state, 0)).toBeNull();
+    const next = executeAttack(state, 0, { coinResults: ["tails"] });
+    expect(next.playerActivePokemon).toBeNull();
+    expect(next.playerDeck.some((c) => c.name === "Blaine's Moltres")).toBe(true);
+    expect(next.opponentActivePokemon?.currentDamage).toBe(90);
+    expect(next.gameResult).toBe("defeat");
+    expect(next.gamePhase).toBe(GamePhase.GameOver);
+    expect(swapSides(next).gameResult).toBe("victory");
+  });
+
+  it("Phoenix Flame's heads: Blaine's Moltres stays, the game goes on", () => {
+    const moltres = armedFor(inPlay("Blaine's Moltres", { set: "gym-heroes" }), "Llama Fénix");
+    const state = luckyState({ player: { active: moltres }, opponent: { active: inPlay("Chansey", { set: "base" }) } });
+    const next = executeAttack(state, 0, { coinResults: ["heads"], skipEndTurn: true });
     expect(next.playerActivePokemon?.pokemon.name).toBe("Blaine's Moltres");
     expect(next.gameResult).toBeNull();
-    expect(next.opponentActivePokemon?.currentDamage).toBe(90);
+  });
+
+  it("Phoenix Flame's tails that also Knocks Out the other Active is a draw", () => {
+    const moltres = armedFor(inPlay("Blaine's Moltres", { set: "gym-heroes" }), "Llama Fénix");
+    const state = luckyState({ player: { active: moltres }, opponent: { active: inPlay("Kangaskhan", { set: "jungle" }) } });
+    const next = executeAttack(state, 0, { coinResults: ["tails"] });
+    expect(next.playerActivePokemon).toBeNull();
+    expect(next.opponentActivePokemon).toBeNull();
+    expect(next.gameResult).toBe("draw");
   });
 });
 

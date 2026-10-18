@@ -149,9 +149,11 @@ Changes / interpretations of the rulings:
   Bench counts as full: they can't be used (instead of "do nothing"). Summon Minions does nothing.
 - R8 blocks (Spanish reason): Cowardice and Buzzap (powers), Vanish (Abra) and Take Away (Erika's
   Dragonair) — attacks that always shuffle the attacker into the deck (also through Metronome).
-  Phoenix Flame (Blaine's Moltres, a Basic whose only attack it is) stays usable: its tails effect
-  (shuffle itself into the deck) does nothing in a Lucky Duel ("Lucky Duel: X se queda en juego"),
-  otherwise drawing Blaine's Moltres would mean never attacking.
+  Phoenix Flame (Blaine's Moltres, a Basic whose only attack it is) stays usable and works as
+  printed — owner ruling 2026-10-18 ("si sale cruz hará perder a su propietario, no cambies nada";
+  0.8.0 had made the tails do nothing, reverted in 0.8.1): on tails Blaine's Moltres is shuffled into
+  the deck, its owner has no Pokémon left and loses; if the same attack Knocked Out the other Active,
+  it is a draw (settleLuckyDuelDraw).
 - No changes needed (they already do nothing without a Bench / Prizes): forced and self switches
   (Whirlwind, Lure, Teleport, Teleport Blast, Fragrance Trap, Flee, Step In), bench damage, Bench
   Guard, Retreat Aid, Dark Electrode's Energy Bomb / Lt. Surge's Electabuzz (no Bench: the Energy is

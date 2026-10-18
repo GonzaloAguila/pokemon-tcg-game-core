@@ -5495,10 +5495,9 @@ function executeAttackUnchecked(
 
       // Vanish: the attacker goes into its owner's deck, the cards attached to the discard pile
       // (Phoenix Flame / Take Away: the cards attached go into the deck too)
-      // Lucky Duel: the only Pokémon stays in play (Phoenix Flame's tails; Vanish / Take Away can't be used)
-      if (effect.type === AttackEffectType.ShuffleSelfIntoDeck && newPlayerActive && !attackerKnockedOut && isLuckyDuel(gameState)) {
-        events.push(createGameEvent(`Lucky Duel: ${newPlayerActive.pokemon.name} se queda en juego`, "info"));
-      } else if (effect.type === AttackEffectType.ShuffleSelfIntoDeck && newPlayerActive && !attackerKnockedOut) {
+      // (Lucky Duel: Vanish / Take Away can't be used; Phoenix Flame's tails works as printed and,
+      // with no Bench, its owner loses)
+      if (effect.type === AttackEffectType.ShuffleSelfIntoDeck && newPlayerActive && !attackerKnockedOut) {
         const leaving = newPlayerActive;
         if (effect.withAttachedCards) {
           newPlayerDeck = shuffle([...newPlayerDeck, ...cardsLeavingPlay(leaving)]);

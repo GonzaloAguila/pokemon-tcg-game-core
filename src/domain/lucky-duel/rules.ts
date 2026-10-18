@@ -21,8 +21,9 @@
  *   that player has no Pokémon left and loses, as in a standard game without a Bench.
  * - Blocked here: Cowardice (Tentacool) and Buzzap (Electrode) — the player's only Pokémon would
  *   leave play; Vanish (Abra) and Take Away (Erika's Dragonair) — unconditional "shuffle this
- *   Pokémon into your deck". Phoenix Flame (Blaine's Moltres, its only attack) stays usable and its
- *   tails effect does nothing (lib/gameState.ts executeAttack), see the spec's implementation notes.
+ *   Pokémon into your deck". Phoenix Flame (Blaine's Moltres, its only attack) stays usable and works
+ *   as printed (owner ruling): on tails Blaine's Moltres is shuffled into the deck and its owner, with
+ *   no Pokémon left, loses (a draw if that attack also Knocked Out the other Active).
  */
 
 import type { Attack, Card, PokemonCard } from "@/domain/cards/types";
