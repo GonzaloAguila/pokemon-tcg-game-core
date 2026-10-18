@@ -6,9 +6,14 @@
 import type { BenchTrim, GameState } from "@/lib/gameState";
 import { stadiumBenchLimit } from "@/domain/stadiums/rules";
 import { MAX_BENCH_SIZE } from "./locate";
+import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 
-/** How many Pokémon `side`'s Bench can hold right now (5; the Stadium in play may lower it for both players). */
+/**
+ * How many Pokémon `side`'s Bench can hold right now (5; the Stadium in play may lower it for both
+ * players; 0 in a Lucky Duel: the Benches are locked — full but empty).
+ */
 export function maxBenchSize(state: GameState, _side: "player" | "opponent"): number {
+  if (isLuckyDuel(state)) return 0;
   return Math.min(MAX_BENCH_SIZE, stadiumBenchLimit(state) ?? MAX_BENCH_SIZE);
 }
 

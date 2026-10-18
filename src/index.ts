@@ -179,6 +179,8 @@ export {
 // Game Engine (lib/gameState.ts)
 // =============================================================================
 
+export type { GameResult } from "./lib/gameState";
+
 // Initialization
 export {
   initializeGame,
@@ -187,6 +189,19 @@ export {
   DEFAULT_PRIZE_COUNT,
   buildDeckFromEntries,
 } from "./lib/gameState";
+
+// Lucky Duel (table type): random Basic + deck, locked Benches, no Prizes, draws
+export {
+  drawLuckyDuel,
+  buildLuckyDuelDeck,
+  initializeLuckyDuelGame,
+  isLuckyDuel,
+  isLuckyDuelTrainerAllowed,
+  LUCKY_DUEL_EXCLUDED_TRAINERS,
+  LUCKY_DUEL_BASICS,
+  LUCKY_DUEL_DECK_SIZE,
+} from "./domain/lucky-duel";
+export type { GameMode, LuckyDuelDraw } from "./domain/lucky-duel";
 
 // Turn Actions
 export {
@@ -221,6 +236,7 @@ export {
   knockOutOpponentActive,
   checkKnockouts,
   endGameIfNoPokemonLeft,
+  settleLuckyDuelDraw,
 } from "./lib/gameState";
 
 // Validation

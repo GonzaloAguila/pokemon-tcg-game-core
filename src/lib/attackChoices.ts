@@ -81,8 +81,10 @@ import {
   knockOutPlayerActive,
   knockOutRetaliationDamage,
   protectionBlocksDamage,
+  settleLuckyDuelDraw,
   shuffle,
 } from "./gameState";
+import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 
 /** What the attack left behind for its choices (captured when it resolved). */
 export type AttackChoiceContext = {
@@ -994,11 +996,15 @@ export function dealChosenTargetDamage(
     events,
   };
   next = checkKnockouts(next);
-  if (destinyBond && next.gameResult === null && next.playerActivePokemon?.pokemon.id === attacker.pokemon.id) {
+  // Lucky Duel: the Knock Out of the target already ended the game, Destiny Bond still takes the
+  // attacker (a draw)
+  const bondApplies = next.gameResult === null || (isLuckyDuel(next) && next.gameResult === "victory");
+  if (destinyBond && bondApplies && next.playerActivePokemon?.pokemon.id === attacker.pokemon.id) {
     next = knockOutPlayerActive(
       { ...next, events: [...next.events, createGameEvent(`¡Unión de Destino! ${target.pokemon.name} se lleva a ${attacker.pokemon.name} consigo`, "action")] },
       "El rival tomó un premio por Unión de Destino"
     );
+    next = settleLuckyDuelDraw(next);
   }
   return next;
 }

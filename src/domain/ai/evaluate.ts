@@ -541,6 +541,7 @@ function poisonDamage(p: PokemonInPlay): number {
 export function evaluateBoard(v: GameState): number {
   if (v.gameResult === "victory") return GAME_WON;
   if (v.gameResult === "defeat") return -GAME_WON;
+  if (v.gameResult === "draw") return 0;
 
   const myPrizesLeft = v.playerPrizes.length - (v.playerCanTakePrize ? 1 : 0);
   const theirPrizesLeft = v.opponentPrizes.length - (v.opponentCanTakePrize ? 1 : 0);

@@ -22,6 +22,7 @@ import { attachEnergyWithRainDance, canAutoAttachEnergy, getEvolutionBlockingPok
 import { assertLegal } from "@/shared/errors";
 import { allOwnPokemon, findInPlay } from "./locate";
 import { isBenchFull } from "./bench";
+import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import { SPECIAL_ENERGY_ATTACH_EFFECTS, type OnAttachFromHand } from "./special-energy";
 
 export { findInPlay, findOwnPokemon, allOwnPokemon, MAX_BENCH_SIZE } from "./locate";
@@ -86,7 +87,7 @@ export function getTrainerBlocker(state: GameState): string | null {
   return null;
 }
 
-function newPokemonInPlay(card: GameCard, playedOnTurn: number): PokemonInPlay {
+export function newPokemonInPlay(card: GameCard, playedOnTurn: number): PokemonInPlay {
   return {
     pokemon: toInPlayCard(card) as GameCard,
     attachedEnergy: [],
@@ -129,6 +130,7 @@ export function canPlayBasicPokemon(state: GameState, cardId: string, position: 
     return null;
   }
   if (!state.playerActivePokemon) return "Primero coloca tu Pokémon activo";
+  if (isLuckyDuel(state)) return "En Lucky Duel las bancas están bloqueadas: no puedes poner Pokémon en la banca";
   if (isBenchFull(state, "player")) return "Tu banca está llena";
   return null;
 }

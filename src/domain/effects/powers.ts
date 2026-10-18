@@ -63,6 +63,7 @@ import {
   getEffectiveHp,
 } from "@/domain/powers";
 import { allOwnPokemon, findInPlay } from "@/domain/board";
+import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import type { CardEffectDef, SelectionOption } from "./types";
 import { energyOption, pokemonOption } from "./trainers";
 
@@ -438,13 +439,14 @@ export const POWER_EFFECTS: Record<string, CardEffectDef> = {
       const check = canUsePeek(state, "player", pokemonId);
       return check.canUse ? null : check.errorMessage ?? "No puedes usar Peek";
     },
-    getSteps: (_state, _pokemonId, selections) =>
+    getSteps: (state, _pokemonId, selections) =>
       selections.length > 0
         ? null
         : {
             title: "Peek",
             description: "Elige qué mirar",
-            options: PEEK_OPTIONS.map(({ id, label }) => ({ id, label })),
+            // Lucky Duel: there are no Prizes to look at
+            options: PEEK_OPTIONS.filter(({ id }) => !(isLuckyDuel(state) && id.endsWith("Prize"))).map(({ id, label }) => ({ id, label })),
             maxSelections: 1,
             disableAutoSelect: true,
           },

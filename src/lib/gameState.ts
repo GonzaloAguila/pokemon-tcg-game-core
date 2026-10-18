@@ -47,6 +47,8 @@ import {
   isPowerActive,
 } from "@/domain/powers";
 import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
+import { isLuckyDuel, type GameMode } from "@/domain/lucky-duel/mode";
+import { getLuckyDuelAttackBlocker } from "@/domain/lucky-duel/rules";
 import { stadiumIgnoresResistance, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkCoins } from "@/domain/effects/validate";
@@ -186,7 +188,8 @@ export type GameModifier = {
   playerId: "player" | "opponent"; // Quién jugó este modifier
 };
 
-export type GameResult = "victory" | "defeat" | null;
+/** "draw": both Actives Knocked Out at the same time in a Lucky Duel (standard games never draw). */
+export type GameResult = "victory" | "defeat" | "draw" | null;
 
 /**
  * Answers of the Pokémon Powers a player may use in the middle of an attack (Gym Heroes), given
@@ -400,6 +403,18 @@ export type GameState = {
   pendingBenchTrim?: BenchTrim[];
   /** Prize cards each player set aside at the start (startGame's prizeCount; 6 when absent). */
   prizeCount?: number;
+  /**
+   * Table type (absent = "standard"). "lucky-duel" (domain/lucky-duel): random Basic and deck,
+   * Benches locked (maxBenchSize 0), no Prizes, a Knock Out of an Active ends the game and both
+   * Actives Knocked Out at the same time is a draw (settleLuckyDuelDraw).
+   */
+  gameMode?: GameMode;
+  /**
+   * Lucky Duel: false while both Actives are still face down (MULLIGAN phase, from
+   * initializeLuckyDuelGame); startPlayingPhase (the both-ready transition) sets it to true.
+   * While false, consumers must hide BOTH Actives from everyone, their owners included.
+   */
+  luckyDuelRevealed?: boolean;
   /**
    * Headache (Psyduck): no Trainer cards can be played during this turn number (the opponent's
    * next turn). Dropped by endTurn once that turn is over.
@@ -1741,8 +1756,62 @@ export function checkKnockouts(state: GameState): GameState {
     !isAwaitingTransformTarget(next, p);
   if (next.gameResult === null && isOut(next.opponentActivePokemon)) next = knockOutOpponentActive(next);
   if (next.gameResult === null && isOut(next.playerActivePokemon)) next = knockOutPlayerActive(next);
-  // Defender / PlusPower of a Pokémon that left play go to the discard pile with it
-  return releaseOrphanModifiers(next === state ? state : endGameIfNoPokemonLeft(next));
+  // Defender / PlusPower of a Pokémon that left play go to the discard pile with it. Lucky Duel:
+  // the other Active Knocked Out by the same action makes it a draw
+  return releaseOrphanModifiers(settleLuckyDuelDraw(next === state ? state : endGameIfNoPokemonLeft(next)));
+}
+
+/** Result lines a Lucky Duel draw replaces (exact engine texts, see settleLuckyDuelDraw). */
+const LUCKY_DUEL_REPLACED_RESULT_LINES: ReadonlySet<string> = new Set([
+  "¡Victoria! El rival no tiene más Pokémon",
+  "¡Derrota! No tienes más Pokémon",
+  "Ya puedes salir de la mesa",
+]);
+
+/**
+ * Lucky Duel: both Actives Knocked Out by the same action (an attack, a between-turns checkup...)
+ * is a draw. Call it once that action set the result: when neither side has a Pokémon that can
+ * stay in play — its Active is gone, or is still on the board with damage >= its HP because the
+ * game ended before its own Knock Out was processed (it is Knocked Out here) — the result becomes
+ * "draw". No-op for standard games and for games that didn't just end with a winner.
+ */
+export function settleLuckyDuelDraw(state: GameState): GameState {
+  if (!isLuckyDuel(state) || (state.gameResult !== "victory" && state.gameResult !== "defeat")) return state;
+  const out = (p: PokemonInPlay | null, bench: PokemonInPlay[]): boolean =>
+    bench.length === 0 &&
+    (!p || (p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= getEffectiveHp(state, p) && !isAwaitingTransformTarget(state, p)));
+  if (!out(state.playerActivePokemon, state.playerBench) || !out(state.opponentActivePokemon, state.opponentBench)) return state;
+  // The game ended during this action, so every winner / loser line in the log comes from it:
+  // replaced by the draw line
+  const events = state.events.filter((e) => !LUCKY_DUEL_REPLACED_RESULT_LINES.has(e.message));
+  const leave = (p: PokemonInPlay | null) => {
+    if (!p) return { discard: [] as GameCard[], hand: [] as GameCard[] };
+    const leaving = knockedOutCards(state, p);
+    events.push(createGameEvent(`¡${p.pokemon.name} fue noqueado!`, "action"), ...leaving.events);
+    return leaving;
+  };
+  const player = leave(state.playerActivePokemon);
+  const opponent = leave(state.opponentActivePokemon);
+  events.push(
+    createGameEvent("¡Empate! Ambos Pokémon activos quedaron Fuera de Combate", "system"),
+    createGameEvent("Ya puedes salir de la mesa", "info")
+  );
+  return {
+    ...state,
+    playerActivePokemon: null,
+    opponentActivePokemon: null,
+    playerDiscard: [...state.playerDiscard, ...player.discard],
+    playerHand: [...state.playerHand, ...player.hand],
+    opponentDiscard: [...state.opponentDiscard, ...opponent.discard],
+    opponentHand: [...state.opponentHand, ...opponent.hand],
+    gameResult: "draw",
+    gamePhase: GamePhase.GameOver,
+    playerCanTakePrize: false,
+    opponentCanTakePrize: false,
+    playerNeedsToPromote: false,
+    opponentNeedsToPromote: false,
+    events,
+  };
 }
 
 /**
@@ -2175,8 +2244,13 @@ export function startPlayingPhase(gameState: GameState, coinFlipResult: "heads" 
     isPlayerTurn: startingPlayer === "player",
     turnNumber: 1,
     energyAttachedThisTurn: false,
+    // Lucky Duel: both players are ready, the face-down Actives are revealed
+    ...(isLuckyDuel(gameState) && { luckyDuelRevealed: true }),
     events: [
       ...gameState.events,
+      ...(isLuckyDuel(gameState) && gameState.playerActivePokemon && gameState.opponentActivePokemon
+        ? [createGameEvent(`Lucky Duel: ¡${gameState.playerActivePokemon.pokemon.name} contra ${gameState.opponentActivePokemon.pokemon.name}!`, "system")]
+        : []),
       createGameEvent("¡Comienza la partida!", "system"),
       createGameEvent(
         `Moneda lanzada: ${coinFlipResult === "heads" ? "[coin:heads]" : "[coin:tails]"}`,
@@ -2427,7 +2501,9 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     ? updatedState.opponentActivePokemon
     : updatedState.playerActivePokemon;
 
-  if (otherPokemon && gameResult === null && !checkupAlreadyDone) {
+  // Lucky Duel: both Actives are checked even when the first one's Knock Out ended the game (both
+  // Knocked Out by the same checkup is a draw: settleLuckyDuelDraw below)
+  if (otherPokemon && (gameResult === null || isLuckyDuel(gameState)) && !checkupAlreadyDone) {
     const result = processStatusEffectsForPokemon(otherPokemon, currentTurn, false, getEffectiveHp(gameState, otherPokemon));
     events.push(...result.events);
 
@@ -2444,14 +2520,14 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
 
   // Si el juego terminó, no continuar con el siguiente turno
   if (gameResult !== null) {
-    return {
+    return settleLuckyDuelDraw({
       ...updatedState,
       gamePhase,
       gameResult,
       playerCanTakePrize,
       opponentCanTakePrize,
       events,
-    };
+    });
   }
 
   // =====================================================================
@@ -3754,6 +3830,8 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   }
   const requirement = getAttackRequirementFailure(attack, defender, attacker, state.opponentBench, state.playerBench);
   if (requirement) return requirement;
+  const luckyDuel = getLuckyDuelAttackBlocker(state, attack);
+  if (luckyDuel) return luckyDuel;
   const isUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (isUseOnce && attacker.usedOnceAttacks?.includes(attack.name)) return `${attack.name} ya fue usado`;
   if (!canUseAttack(attacker, attackIndex, undefined, state)) return `${name} no tiene la energía necesaria para ${attack.name}`;
@@ -3790,7 +3868,7 @@ export function canExecuteMetronome(state: GameState, copiedAttack: Attack): str
   if (!copyable) return "Metrónomo solo puede copiar un ataque del Pokémon Defensor";
   const requirement = getAttackRequirementFailure(copiedAttack, defender, undefined, state.opponentBench, state.playerBench);
   if (requirement) return requirement;
-  return null;
+  return getLuckyDuelAttackBlocker(state, copiedAttack);
 }
 
 const NON_STATUS_COIN_OUTCOMES = ["damage", "protection", "preventRetreat"];
@@ -5417,7 +5495,10 @@ function executeAttackUnchecked(
 
       // Vanish: the attacker goes into its owner's deck, the cards attached to the discard pile
       // (Phoenix Flame / Take Away: the cards attached go into the deck too)
-      if (effect.type === AttackEffectType.ShuffleSelfIntoDeck && newPlayerActive && !attackerKnockedOut) {
+      // Lucky Duel: the only Pokémon stays in play (Phoenix Flame's tails; Vanish / Take Away can't be used)
+      if (effect.type === AttackEffectType.ShuffleSelfIntoDeck && newPlayerActive && !attackerKnockedOut && isLuckyDuel(gameState)) {
+        events.push(createGameEvent(`Lucky Duel: ${newPlayerActive.pokemon.name} se queda en juego`, "info"));
+      } else if (effect.type === AttackEffectType.ShuffleSelfIntoDeck && newPlayerActive && !attackerKnockedOut) {
         const leaving = newPlayerActive;
         if (effect.withAttachedCards) {
           newPlayerDeck = shuffle([...newPlayerDeck, ...cardsLeavingPlay(leaving)]);

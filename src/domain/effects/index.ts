@@ -36,6 +36,7 @@ import { TRAINER_EFFECTS } from "./trainers";
 import { POWER_EFFECTS } from "./powers";
 import { playStadium, STADIUM_ACTIONS, withHandDiscardCost } from "./stadiums";
 import { stadiumExtraTrainerDiscards } from "@/domain/stadiums/rules";
+import { getLuckyDuelPowerBlocker, getLuckyDuelTrainerBlocker } from "@/domain/lucky-duel/rules";
 
 export type {
   SelectionOption,
@@ -95,6 +96,9 @@ export function canPlayTrainerCard(state: GameState, cardId: string): string | n
   if (blocker) return blocker;
   const trainersBlocked = getTrainerBlocker(state);
   if (trainersBlocked) return trainersBlocked;
+  // Lucky Duel: the Trainers left out of its pool (Switch, Scoop Up, Lt. Surge's Treaty...)
+  const luckyDuel = getLuckyDuelTrainerBlocker(state, state.playerHand.find((c) => c.id === cardId));
+  if (luckyDuel) return luckyDuel;
   const { def, reason } = trainerDef(state, cardId);
   if (!def) return reason;
   return def.canUse(state, cardId);
@@ -166,6 +170,9 @@ export function canUsePokemonPower(state: GameState, pokemonId: string): string 
   if (blocker) return blocker;
   const { def, pokemon, reason } = powerDef(state, pokemonId);
   if (!def || !pokemon) return reason;
+  // Lucky Duel: powers that take the only Pokémon out of play (Cowardice, Buzzap)
+  const luckyDuel = getLuckyDuelPowerBlocker(state, pokemon);
+  if (luckyDuel) return luckyDuel;
   const statusReason = canUsePower(pokemon, state.playerActivePokemon?.pokemon.id === pokemonId, state.usedPowersThisTurn, state);
   if (statusReason) return statusReason;
   return def.canUse(state, pokemonId);
