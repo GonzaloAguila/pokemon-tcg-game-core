@@ -171,5 +171,54 @@ Changes / interpretations of the rulings:
   Duel both Actives are checked even when the first Knock Out ended the game) and after Destiny Bond
   in chosen-target attacks. The log's "¡Victoria!/¡Derrota!" lines of that action are replaced by
   "¡Empate! Ambos Pokémon activos quedaron Fuera de Combate". Deck-out still loses.
-- AI: not tuned for Lucky Duel (it values Prizes; in simulations the shipped AI decks out in ~1/3 of
-  its games) — fine for v1 (MP only), needs work before a vs-AI Lucky Duel.
+- AI (0.8.1; scope change: Lucky Duel ships vs the AI first). 0.8.0's evaluator scored every Lucky
+  Duel position as "won" (0 Prizes left = the prize-out branch), so the AI only attacked when it
+  Knocked Out and otherwise passed until a deck-out. Now `evaluateBoard` has a Lucky Duel branch
+  (`evaluateLuckyDuel`, ai/evaluate.ts): no Prize terms; HP of an Active worth a Knock-Out-is-the-
+  game rate (chip damage and healing matter); both next-turn Knock Out threats at the game's value;
+  a deck reserve of 10 cards (each card below it costs; draw/search Trainers were already gated by
+  `canAffordDraws`); a draw scores -GAME_WON/4 (never aimed for). It never attacks into a certain
+  loss (self Knock Out / self removal that doesn't win), except when the Active's only attack may
+  lose on a coin (Phoenix Flame), which it then uses (else it could never win). The AI executor
+  keeps a draw (it used to overwrite it with "defeat"). Locked Benches: no Bench actions are
+  attempted (maxBenchSize 0); `decideOpponentSetup` returns [] (the Active is given).
+  Measured with the shipped policy (`greedy` = smart, the one the frontend uses), `--decks
+  lucky-duel`, seeds 1..1000: deck-outs 38.7% → 0.3% (the rest are true stalemates, e.g. Base
+  Porygon, which has no damaging attack, against a Psychic attacker it resists); avg game length
+  49.2 → 8.8 turns; attacks per game 0.9 → 5.3; vs the random policy it now wins ~80% (it lost ~71%
+  before).
+- Single-player flow (test/ai-lucky-duel.test.ts): `initializeLuckyDuelGame(humanDraw, aiDraw)`
+  (player = human, opponent = AI), `setPlayerReady` for both (the AI is ready at once),
+  `startPlayingPhase` reveals, then the usual `decideOpponentTurn` / `executeAIAction` loop; no
+  Prizes to take, no promotions.
+
+## API implementation notes (pokemon-tcg-api, branch feat/lucky-duel, 2026-10-18)
+
+Owner updates that override the rulings above:
+- **Bets (overrides R2's "no bets")**: multiplayer Lucky Duel tables take coin bets exactly like
+  normal tables (same `betAmount` validation and title caps, escrow at the start, pot to the winner,
+  forfeit / disconnect / leave / kick rules unchanged). A **draw refunds each player their own stake
+  in full** (no pot, no house cut), whatever the turn; it goes through the same once-only settlement
+  (`settleMatch` claims `settledAt`), so retries / other end paths never refund twice.
+- **Launch**: Lucky Duel ships for multiplayer tables (same lobby listing as normal tables, with
+  `mode`) and vs the AI at the same time.
+
+As built:
+- `createRoom { mode?: "standard" | "lucky-duel" }` (default standard); Lucky Duel needs no deck (one
+  sent is ignored, also on `joinRoom`), `prizeCount` is 0. `mode` is in `roomList` rows,
+  `roomCreated`, `roomJoined`, every table `gameStart` (start, rejoin, spectate) and the admin room list.
+- Start: `initializeLuckyDuelGame(drawLuckyDuel(rng), drawLuckyDuel(rng), rng)` with the server's
+  CSPRNG; then `setPlayerReady` ×2 → `startPlayingPhase` as usual.
+- Before the reveal every viewer (owners, rival, spectators, rejoins) gets both Actives as
+  `{ id, hidden: true }` (the real opaque id) and the owner's own deck as placeholders too (its
+  evolutions' `evolvesFrom` would name the Basic); the hand stays visible to its owner. Only
+  `playerReady` / `surrender` are accepted and `requestCoinFlip` is refused until then, so no engine
+  reason can name a face-down card.
+- Draw (`gameResult: "draw"`): `gameOver { winner: null, reason: "Empate" }`. Settlement (R2): counts
+  like any game (turn ≥ 3, ≥ 2 min; the per-opponent win cap doesn't apply), no win/loss stats and no
+  streak change (the stats model has no draws), both players get the loser's XP / match coins /
+  `game_played` mission; `matchSettled.outcome: "draw"`. The match row is `finished` with `winnerId`
+  null; there is no table-mode column, so a Lucky Duel's `winReason` starts with "Lucky Duel: ".
+- vs the AI: `POST /api/matches/ai/:matchId/finish { result: "victory" | "defeat" | "draw",
+  turnNumber, mode?: "standard" | "lucky-duel" }`; a draw gets the loser's AI rewards, the response
+  carries `outcome`, and the mode is recorded in `winReason` ("lucky-duel: draw").

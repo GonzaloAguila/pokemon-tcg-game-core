@@ -80,6 +80,7 @@ import {
 import { canAffordDraws, planHandChange, planMinion, planTicklingMachine, planStadium, planStadiumAction, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
 import { canUseVermilionCoin, stadiumExtraTrainerDiscards } from "@/domain/stadiums/rules";
 import { hasOwner } from "@/domain/cards/owner";
+import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import { attachedTrainerNamed, SABRINAS_ESP } from "@/domain/trainers/attached";
 import { resolveAttackForEvaluation, resolveOwnAttackPendings } from "./pending";
 import { choosePromotion } from "./choices";
@@ -899,9 +900,13 @@ function attackChoices(v: GameState): AttackChoice[] {
   return choices;
 }
 
-/** Expected evaluation of attacking with `choice` now (every coin outcome; confusion included). */
-function attackValue(v: GameState, choice: AttackChoice): number | null {
+/**
+ * Expected evaluation of attacking with `choice` now (every coin outcome; confusion included), and
+ * the chance that the attack loses the game on the spot (self Knock Out / self removal).
+ */
+function attackOutlook(v: GameState, choice: AttackChoice): { value: number; defeat: number } | null {
   let value = 0;
+  let defeat = 0;
   try {
     for (const scenario of coinScenarios(v, choice.copied ?? choice.index, !!choice.vermilionCoin)) {
       const options = { coinResults: scenario.coins, skipEndTurn: true, skipDefenderPromotion: true };
@@ -913,7 +918,9 @@ function attackValue(v: GameState, choice: AttackChoice): number | null {
             ...(choice.vermilionCoin && { vermilionCoin: true }),
           });
       // (Flee / Bench Guard of the other side: judged with a guess at its answer)
-      value += scenario.p * evaluateBoard(resolveAttackForEvaluation(after));
+      const resolved = resolveAttackForEvaluation(after);
+      value += scenario.p * evaluateBoard(resolved);
+      if (resolved.gameResult === "defeat") defeat += scenario.p;
     }
   } catch {
     return null;
@@ -921,16 +928,28 @@ function attackValue(v: GameState, choice: AttackChoice): number | null {
   if (hasStatusCondition(v.playerActivePokemon!, StatusCondition.Confused)) {
     const failed = resolveConfusionFlip(v, false, true).state;
     value = 0.5 * value + 0.5 * evaluateBoard(failed);
+    defeat = 0.5 * defeat + (failed.gameResult === "defeat" ? 0.5 : 0);
   }
-  return value;
+  return { value, defeat };
 }
 
 /** The best attack now (null: better not to attack) and the value of the resulting position. */
 function bestAttack(v: GameState): { choice: AttackChoice | null; value: number } {
   let best: { choice: AttackChoice | null; value: number } = { choice: null, value: evaluateBoard(v) };
-  for (const choice of attackChoices(v)) {
-    const value = attackValue(v, choice);
+  const choices = attackChoices(v);
+  const outlooks = choices.map((choice) => attackOutlook(v, choice));
+  choices.forEach((choice, i) => {
+    const value = outlooks[i]?.value ?? null;
     if (value !== null && value > best.value + 0.5) best = { choice, value };
+  });
+  // Lucky Duel: a Pokémon whose only attack may take it out of play (Phoenix Flame's tails) would
+  // otherwise never attack and lose anyway: it attacks unless the attack surely loses the game
+  if (isLuckyDuel(v) && best.choice === null && choices.length > 0 && choices.every((c) => c.index === choices[0].index && !c.copied)) {
+    const risky = choices
+      .map((choice, i) => ({ choice, outlook: outlooks[i] }))
+      .filter((c): c is { choice: AttackChoice; outlook: { value: number; defeat: number } } => !!c.outlook && c.outlook.defeat > 0 && c.outlook.defeat < 1)
+      .sort((a, b) => b.outlook.value - a.outlook.value)[0];
+    if (risky) best = { choice: risky.choice, value: risky.outlook.value };
   }
   return best;
 }

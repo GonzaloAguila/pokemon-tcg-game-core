@@ -453,8 +453,8 @@ function completeAIAttack(attacked: GameState, eventsBefore: number): GameState 
     }
   }
 
-  // Verificar si el juego terminó por KO sin más Pokemon
-  if (finalState.playerActivePokemon === null && !playerNeedsToPromote) {
+  // Verificar si el juego terminó por KO sin más Pokemon (a Lucky Duel draw stays a draw)
+  if (finalState.playerActivePokemon === null && !playerNeedsToPromote && finalState.gameResult !== "draw") {
     const hasMorePokemon = finalState.playerBench.some(p => p !== null);
     if (!hasMorePokemon) {
       finalState = {

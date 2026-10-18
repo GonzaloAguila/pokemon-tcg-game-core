@@ -25,6 +25,7 @@ import { givesPrizeWhenKnockedOut, isEnergyCard, isPokemonCard, isTrainerInPlay 
 import { AttackEffectType, EnergyType, PokemonPowerType, StatusCondition, type CoinFlipResult } from "@/domain/constants";
 import { swapSides } from "@/domain/board";
 import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
+import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import {
   applyAttackDamageReductions,
   getConfusedDamageBonus,
@@ -40,6 +41,13 @@ export type Rel = "player" | "opponent";
 export const PRIZE = 100;
 /** Score of a won / lost game. */
 export const GAME_WON = 100000;
+/**
+ * Lucky Duel: what a whole Active's HP is worth (a Knock Out is the game, so chip damage counts
+ * much more than a share of one Prize), and what a draw is worth to the AI (it never aims for one:
+ * worse than any ordinary position, better than a loss).
+ */
+const LUCKY_DUEL_HP_VALUE = 1200;
+const LUCKY_DUEL_DRAW = -GAME_WON / 4;
 
 // ============================================================================
 // Board reading
@@ -422,6 +430,7 @@ const HP_PRIZE_SHARE = 0.6;
 /** Value of each HP point of `p` (what 10 damage costs its owner, divided by 10). */
 function hpPointValue(v: GameState, p: PokemonInPlay): number {
   const maxHp = Math.max(10, getEffectiveHp(v, p));
+  if (isLuckyDuel(v)) return LUCKY_DUEL_HP_VALUE / maxHp + 0.15;
   return (PRIZE * prizesFor(p) * HP_PRIZE_SHARE) / maxHp + 0.15;
 }
 
@@ -505,6 +514,8 @@ export function damageValue(v: GameState, p: PokemonInPlay, damage: number): num
 
 /** What `p` being Knocked Out costs its owner: the Prize and everything it is worth. */
 export function knockOutValue(v: GameState, p: PokemonInPlay): number {
+  // Lucky Duel: the Knock Out of an Active ends the game
+  if (isLuckyDuel(v)) return GAME_WON / 20;
   return PRIZE * prizesFor(p) + pokemonWorth(v, p);
 }
 
@@ -534,6 +545,53 @@ function poisonDamage(p: PokemonInPlay): number {
   return hasStatusCondition(p, StatusCondition.Poisoned) ? p.poisonDamage ?? 10 : 0;
 }
 
+/** Deck size under which every card drawn brings the deck-out loss closer (Lucky Duel). */
+const LUCKY_DUEL_DECK_RESERVE = 10;
+
+/**
+ * evaluateBoard for a Lucky Duel: no Prizes, no Bench — the game is won by Knocking Out the other
+ * Active (or by the other deck running out) and lost the same way. Scores the two Actives (cards,
+ * Energy, attack readiness, HP left at a Knock-Out-is-the-game rate), both next-turn Knock Out
+ * threats at the game's value, the hands, and how close each deck is to running out.
+ */
+function evaluateLuckyDuel(v: GameState): number {
+  const mine = v.playerActivePokemon;
+  const theirs = v.opponentActivePokemon;
+  if (!theirs) return GAME_WON / 2;
+  if (!mine) return -GAME_WON / 2;
+
+  let score = pokemonWorth(v, mine) - pokemonWorth(v, theirs);
+  score += 5 * Math.min(v.playerHand.length, 10) - 3 * Math.min(v.opponentHand.length, 10);
+  // Decks: running out loses at the next draw; below the reserve every card counts
+  if (v.playerDeck.length === 0) score -= 3000;
+  score -= Math.max(0, LUCKY_DUEL_DECK_RESERVE - v.playerDeck.length) * 60;
+  score += Math.max(0, LUCKY_DUEL_DECK_RESERVE - v.opponentDeck.length) * 20;
+
+  // Their next turn: a Knock Out of my Active is the game
+  const poison = poisonDamage(mine);
+  const mineAfterPoison = poison > 0 ? { ...mine, currentDamage: (mine.currentDamage ?? 0) + poison } : mine;
+  const threat = hpLeft(v, mine) - poison <= 0
+    ? { attackIndex: -1, ko: 1, expected: 0 }
+    : bestThreat(v, "opponent", theirs, mineAfterPoison, nextTurnExtra(v, "opponent"), attackReadiness(theirs, true));
+  score -= threat.ko * (GAME_WON / 20) * 0.9;
+  score -= (1 - threat.ko) * damageValue(v, mine, threat.expected) * 0.8;
+  score -= damageValue(v, mine, poison);
+
+  // My next turn (they move first, weighted lower)
+  const myThreat = bestThreat(v, "player", mine, theirs, nextTurnExtra(v, "player"), attackReadiness(mine, true));
+  score += myThreat.ko * (GAME_WON / 40) * 0.35 * (1 - threat.ko * 0.7);
+  score += damageValue(v, theirs, myThreat.expected) * 0.15;
+  score += damageValue(v, theirs, poisonDamage(theirs));
+
+  if (hasStatusCondition(mine, StatusCondition.Paralyzed)) score -= 10;
+  if (hasStatusCondition(mine, StatusCondition.Asleep)) score -= 8;
+  if (hasStatusCondition(mine, StatusCondition.Confused)) score -= 10;
+  if (hasStatusCondition(theirs, StatusCondition.Paralyzed)) score += 10;
+  if (hasStatusCondition(theirs, StatusCondition.Asleep)) score += 8;
+  if (hasStatusCondition(theirs, StatusCondition.Confused)) score += 10;
+  return score;
+}
+
 /**
  * Heuristic score of a position at the END of the AI's turn (the human moves next), from the
  * AI's side ("player"). Higher is better for the AI.
@@ -541,7 +599,8 @@ function poisonDamage(p: PokemonInPlay): number {
 export function evaluateBoard(v: GameState): number {
   if (v.gameResult === "victory") return GAME_WON;
   if (v.gameResult === "defeat") return -GAME_WON;
-  if (v.gameResult === "draw") return 0;
+  if (v.gameResult === "draw") return isLuckyDuel(v) ? LUCKY_DUEL_DRAW : 0;
+  if (isLuckyDuel(v)) return evaluateLuckyDuel(v);
 
   const myPrizesLeft = v.playerPrizes.length - (v.playerCanTakePrize ? 1 : 0);
   const theirPrizesLeft = v.opponentPrizes.length - (v.opponentCanTakePrize ? 1 : 0);
