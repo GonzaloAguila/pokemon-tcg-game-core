@@ -108,3 +108,66 @@ built around it on the spot. No deck building, pure luck: Magikarp vs Dark Scyth
 
 ## Out of scope (v1)
 vs-AI Lucky Duel, rankings/missions for the mode, reroll, bets.
+
+## Implementation notes (game-core 0.8.0, 2026-10-18)
+
+Code: `src/domain/lucky-duel/` (`mode.ts` `isLuckyDuel`, `rules.ts` card tables and blockers,
+`deck.ts` deck + setup), engine hooks in `lib/gameState.ts` (`settleLuckyDuelDraw`, endTurn
+checkup, `canExecuteAttack` / `canExecuteMetronome`, `startPlayingPhase`), `board/bench.ts`
+(`maxBenchSize` 0), `board/index.ts` (`canPlayBasicPokemon` reason), `effects/index.ts`
+(`canPlayTrainerCard` / `canUsePokemonPower`). Tests: `test/lucky-duel.test.ts`. Simulator:
+`npm run simulate -- --decks lucky-duel` (`playLuckyDuelAIGame`; 0 failures in 4,500 games).
+
+Interface as specified, plus:
+- `LUCKY_DUEL_EXCLUDED_TRAINERS` is `Record<cardName, reason>` (Spanish reason, UI-ready).
+- Extra exports: `buildLuckyDuelDeck(active, rng?)` (the deck around a given Basic),
+  `isLuckyDuel(state)`, `settleLuckyDuelDraw(state)`, `LUCKY_DUEL_BASICS`, `LUCKY_DUEL_DECK_SIZE`,
+  types `GameMode`, `LuckyDuelDraw` and `GameResult` (now exported from the package root).
+- `initializeLuckyDuelGame` already deals (it is `initializeMultiplayerGame` + `startGame` in one):
+  the API must NOT call `startGame` nor trim Prizes afterwards. Then `setPlayerReady` x2 and
+  `startPlayingPhase` as today; that call sets `luckyDuelRevealed: true` and logs
+  "Lucky Duel: ¡X contra Y!" (no earlier event names an Active).
+- Card ids are opaque random strings (`ld1-xxxxxxxx` / `ld2-…`) so ids of hidden cards (face-down
+  Actives, hands, decks) say nothing about the card. They are deterministic for a seeded rng.
+
+Changes / interpretations of the rulings:
+- Trainer pool: beyond the minimum list, also excluded (reasons in code): Lt. Surge (puts the Active
+  on the Bench), Lt. Surge's Treaty (needs Prizes; with 0 Prizes the engine's "last Prize taken"
+  check would end the game), Minion of Team Rocket (needs the other Bench; tails only ends your
+  turn), Erika's Perfume (puts Pokémon on the other Bench), Narrow Gym (Bench limit), The Rocket's
+  Training Gym and Cerulean City Gym (Retreat cost; there is no Retreat), Good Manners (searches for
+  a Basic; the deck has none). The excluded Trainers are also unplayable in a Lucky Duel
+  (`canPlayTrainerCard` gives the reason) in case one ever reaches a hand.
+- The Breeder rule is extended to every Trainer that depends on the line, so no deck holds a card it
+  can never use: Devolution Spray, Pokémon Trader, Recall, Blaine's Quiz #1 only with an evolution;
+  The Boss's Way only with a Dark evolution; Brock's Training Method / Erika's Maids only with that
+  owner's evolution; Misty, Sabrina's ESP and the owner Gyms (Celadon, Pewter, Vermilion) only with
+  that owner's Pokémon in the line. One table in `rules.ts` (`LINE_DEPENDENT_TRAINERS`) — easy to
+  revert if the owner prefers dead cards as part of the luck.
+- Bench-searching attacks (Call for Family, Sprout, Call for Friend, Brock's Geodude / Misty's
+  Psyduck's Call a Friend…) "can't be used if your Bench is full" by their own text, and a locked
+  Bench counts as full: they can't be used (instead of "do nothing"). Summon Minions does nothing.
+- R8 blocks (Spanish reason): Cowardice and Buzzap (powers), Vanish (Abra) and Take Away (Erika's
+  Dragonair) — attacks that always shuffle the attacker into the deck (also through Metronome).
+  Phoenix Flame (Blaine's Moltres, a Basic whose only attack it is) stays usable: its tails effect
+  (shuffle itself into the deck) does nothing in a Lucky Duel ("Lucky Duel: X se queda en juego"),
+  otherwise drawing Blaine's Moltres would mean never attacking.
+- No changes needed (they already do nothing without a Bench / Prizes): forced and self switches
+  (Whirlwind, Lure, Teleport, Teleport Blast, Fragrance Trap, Flee, Step In), bench damage, Bench
+  Guard, Retreat Aid, Dark Electrode's Energy Bomb / Lt. Surge's Electabuzz (no Bench: the Energy is
+  discarded as printed), Fairy Power (the Active is only offered with a Bench), Trickery ("no
+  Prizes"). Attacks that require a Bench (Fling, Fascinate, Drag Off, Fly Swatter, Lucky Throw,
+  Alert) can't be used. Peek doesn't offer the Prize options. Retreat: "no Benched Pokémon".
+- Pidgeot's Hurricane / Sabrina's Gengar's Call of the Night remove the other Active without a
+  Knock Out: that player has no Pokémon left and loses (as in a standard game without a Bench).
+- R3: Kabuto, Omanyte and Aerodactyl lines never appear (they evolve from Mysterious Fossil, a
+  Trainer). Basics are uniform per printing (164 Basic printings across the five sets as of 0.8.0).
+- Draws (R9): `settleLuckyDuelDraw` turns a victory/defeat into `"draw"` when neither side has a
+  Pokémon left (Active gone, or still on the board with damage ≥ HP because the game ended before
+  its own Knock Out was processed — it is Knocked Out then). It runs at the end of `checkKnockouts`
+  (every attack, Trainer, power and endTurn goes through it), on the endTurn checkup (in a Lucky
+  Duel both Actives are checked even when the first Knock Out ended the game) and after Destiny Bond
+  in chosen-target attacks. The log's "¡Victoria!/¡Derrota!" lines of that action are replaced by
+  "¡Empate! Ambos Pokémon activos quedaron Fuera de Combate". Deck-out still loses.
+- AI: not tuned for Lucky Duel (it values Prizes; in simulations the shipped AI decks out in ~1/3 of
+  its games) — fine for v1 (MP only), needs work before a vs-AI Lucky Duel.
