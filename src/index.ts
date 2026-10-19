@@ -361,6 +361,7 @@ export {
   decideOpponentPromotion,
   executeAIAction,
   finishAIAttackAfterReaction,
+  answerOpponentTrainerStep,
   answerOpponentTrainerStepForAI,
   answerAttackChoiceForAI,
 } from "./domain/ai";

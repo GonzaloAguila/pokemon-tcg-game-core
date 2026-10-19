@@ -13,7 +13,7 @@ import { ALL_CARDS } from "@/domain/catalog";
 import { GamePhase } from "@/domain/constants";
 import { IllegalActionError } from "@/shared/errors";
 import { swapSides } from "@/domain/board";
-import { decideOpponentTurn, executeAIAction, answerOpponentTrainerStepForAI } from "@/domain/ai";
+import { decideOpponentTurn, executeAIAction, answerOpponentTrainerStep, answerOpponentTrainerStepForAI } from "@/domain/ai";
 import {
   POKEDEX_HEIGHTS,
   pokedexSpecies,
@@ -384,5 +384,40 @@ describe("AI", () => {
 
     expect(plannedTrainers(aiTurn([card("Blaine's Quiz #1"), card("Brock's Onix")]), bots)).toContain("Blaine's Quiz #1");
     expect(plannedTrainers(aiTurn([card("Lt. Surge's Treaty")], { aiPrizes: 2, humanPrizes: 4 }), bots)).toContain("Lt. Surge's Treaty");
+  });
+
+  describe("AI vs a human (single-player): the human answers the AI's Trainer step", () => {
+    const humans = { otherPlayerAnswersByHuman: true };
+
+    it("Erika stops at pendingOpponentTrainerStep, then plays with the human's answer", () => {
+      const erikaState = aiTurn([card("Erika")]);
+      const action = decideOpponentTurn(erikaState, humans).find((a) => a.type === "playTrainer");
+      expect(action).toMatchObject({ trainerName: "Erika", waitsForOtherPlayer: true });
+
+      const waiting = executeAIAction(erikaState, action!);
+      expect(waiting.pendingOpponentTrainerStep).toMatchObject({ trainerName: "Erika", step: { chooser: "opponent" } });
+      expect(waiting.opponentHand).toHaveLength(1); // Erika still in the AI's hand
+      expect(waiting.playerHand).toHaveLength(5);
+
+      const after = answerOpponentTrainerStep(waiting, ["2"]);
+      expect(after.pendingOpponentTrainerStep).toBeUndefined();
+      expect(after.opponentHand).toHaveLength(3); // the AI drew 3
+      expect(after.playerHand).toHaveLength(5 + 2); // the human drew the 2 they chose
+      expect(after.isPlayerTurn).toBe(false);
+    });
+
+    it("an answer the step doesn't allow keeps it waiting", () => {
+      const erikaState = aiTurn([card("Erika")]);
+      const action = decideOpponentTurn(erikaState, humans).find((a) => a.type === "playTrainer")!;
+      const waiting = executeAIAction(erikaState, action);
+      const rejected = answerOpponentTrainerStep(waiting, ["9"]);
+      expect(rejected.pendingOpponentTrainerStep).toBeDefined();
+      expect(rejected.opponentHand).toHaveLength(1);
+    });
+
+    it("plans Treaty and Quiz for a human too", () => {
+      expect(plannedTrainers(aiTurn([card("Blaine's Quiz #1"), card("Brock's Onix")]), humans)).toContain("Blaine's Quiz #1");
+      expect(plannedTrainers(aiTurn([card("Lt. Surge's Treaty")], { aiPrizes: 2, humanPrizes: 4 }), humans)).toContain("Lt. Surge's Treaty");
+    });
   });
 });

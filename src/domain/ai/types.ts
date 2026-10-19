@@ -83,6 +83,11 @@ export interface PlayTrainerAction extends AIActionBase {
    * is then ignored. Coins are always flipped by the executor.
    */
   answerAtPlay?: boolean;
+  /**
+   * With `answerAtPlay`: a step the other player answers (OTHER_PLAYER_ANSWERS) isn't answered
+   * by the executor; it stops at `state.pendingOpponentTrainerStep` (single-player: the human).
+   */
+  waitsForOtherPlayer?: boolean;
 }
 
 /** Usar el Poder Pokémon activado de uno de sus Pokémon (respuestas y monedas al ejecutarlo) */

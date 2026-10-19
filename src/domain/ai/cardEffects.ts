@@ -94,9 +94,10 @@ export const AI_NEVER_PLAYS: ReadonlySet<string> = new Set(["Challenge!", "Digge
 
 /**
  * Trainers whose steps the other player answers (Gym Heroes: Erika, Lt. Surge's Treaty, Blaine's
- * Quiz #1). The AI plays them only when the other side's answers also come from an AI
- * (`otherPlayerAnswersByAI`: the simulator's bots): in single-player no flow relays a step of the
- * AI's Trainer to the human (same reason as Challenge!), and the executor would answer it for them.
+ * Quiz #1). The AI plays them only when the other side can answer: an AI too
+ * (`otherPlayerAnswersByAI`: the simulator's bots; the executor answers for it) or a human the
+ * consumer asks (`otherPlayerAnswersByHuman`: the executor stops at
+ * `state.pendingOpponentTrainerStep`, answered with answerOpponentTrainerStep).
  */
 export const OTHER_PLAYER_ANSWERS: ReadonlySet<string> = new Set(["Erika", "Lt. Surge's Treaty", "Blaine's Quiz #1"]);
 
@@ -325,6 +326,8 @@ export type HandChangeOptions = {
   saveDeck?: boolean;
   /** The other player's answers to the AI's Trainers come from an AI too (OTHER_PLAYER_ANSWERS) */
   otherPlayerAnswersByAI?: boolean;
+  /** The consumer asks the human those answers (pendingOpponentTrainerStep) */
+  otherPlayerAnswersByHuman?: boolean;
   /** The other player can pick in Misty's Duel (pendingDuel): the consumer shows them the duel */
   otherPlayerDuels?: boolean;
 };
@@ -406,7 +409,10 @@ function planGymHeroesHandChange(view: GameState, options: HandChangeOptions): A
     return playTrainer(duel);
   }
 
-  return options.otherPlayerAnswersByAI ? planOpponentAnsweredTrainers(view, affords) : null;
+  if (options.otherPlayerAnswersByAI) return planOpponentAnsweredTrainers(view, affords);
+  if (!options.otherPlayerAnswersByHuman) return null;
+  const answered = planOpponentAnsweredTrainers(view, affords);
+  return answered?.type === "playTrainer" ? { ...answered, waitsForOtherPlayer: true } : answered;
 }
 
 /** Share of the cards the AI wants (needed basic Energy, evolutions of its Pokémon in play). */

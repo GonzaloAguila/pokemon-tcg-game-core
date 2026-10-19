@@ -149,6 +149,11 @@ export type DecideOpponentTurnOptions = {
    */
   otherPlayerAnswersByAI?: boolean;
   /**
+   * The other player is a human the consumer asks: the AI may play those Trainers and the executor
+   * stops at `state.pendingOpponentTrainerStep` for their answer (answerOpponentTrainerStep).
+   */
+  otherPlayerAnswersByHuman?: boolean;
+  /**
    * The other player can pick in Misty's Duel (`state.pendingDuel`): the consumer shows them the
    * duel (the frontend's duel modal, the simulator's bots). Off by default: the AI never plays it.
    * The executor never picks for the AI: the consumer submits `aiDuelPick()` for it (single-player:
@@ -265,7 +270,12 @@ function evolvesSomethingInPlay(v: GameState, card: GameCard): boolean {
 /** A Trainer that draws or searches, worth playing now (played alone: the turn is planned again). */
 function planDrawAndSearch(v: GameState, options: DecideOpponentTurnOptions): AIAction | null {
   const pool = unknownOwnCards(v);
-  const fromCardEffects = planHandChange(v, { saveDeck: true, otherPlayerAnswersByAI: options.otherPlayerAnswersByAI, otherPlayerDuels: options.otherPlayerDuels });
+  const fromCardEffects = planHandChange(v, {
+    saveDeck: true,
+    otherPlayerAnswersByAI: options.otherPlayerAnswersByAI,
+    otherPlayerAnswersByHuman: options.otherPlayerAnswersByHuman,
+    otherPlayerDuels: options.otherPlayerDuels,
+  });
   if (fromCardEffects) return fromCardEffects;
 
   const search = playableTrainer(v, "Computer Search");

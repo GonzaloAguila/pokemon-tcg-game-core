@@ -442,6 +442,20 @@ export type GameState = {
    */
   pendingDuel?: PendingDuel;
   /**
+   * Single-player: a Trainer the AI plays (the side whose turn it is) waits for the other
+   * player's answer to one of its steps (`step.chooser: "opponent"`: Erika, Lt. Surge's Treaty,
+   * Blaine's Quiz #1). The card stays in the AI's hand; `answerOpponentTrainerStep` (domain/ai)
+   * goes on with the answer. `selections`: the answers so far; `coinResults`: coins flipped
+   * before the steps. Not swapped by swapSides.
+   */
+  pendingOpponentTrainerStep?: {
+    cardId: string;
+    trainerName: string;
+    selections: string[][];
+    coinResults: CoinFlipResult[];
+    step: SelectionStep;
+  };
+  /**
    * Misty's Duel: the last decisive round this turn (both picks, the winner; relative, swapped by
    * swapSides; public). Cleared by endTurn and when another duel starts.
    */

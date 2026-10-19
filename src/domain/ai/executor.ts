@@ -520,24 +520,75 @@ function executeTrainer(state: GameState, action: PlayTrainerAction): GameState 
     (s) => canPlayTrainerCard(s, cardId),
     (s) =>
       tryEffect(s, () => {
-        let coins = flipCoins(getTrainerCoinFlips(s, cardId));
-        const coinsForSteps = coins.length > 0 ? coins : undefined;
-        const selections = action.answerAtPlay
-          ? collectAnswers(
-              (answered) => getTrainerSteps(s, cardId, answered, coinsForSteps),
-              // A step the other player answers (only planned when that side is an AI too:
-              // cardEffects.OTHER_PLAYER_ANSWERS) gets the answerer's rules
-              (step) =>
-                step.chooser === "opponent"
-                  ? answerOpponentTrainerStepForAI(s, cardId, step)
-                  : answerTrainerStepForAI(s, cardId, trainerName, step)
-            )
-          : action.selections;
-        // A coin flipped after the choices (Blaine's Gamble)
-        if (coins.length === 0) coins = flipCoins(getTrainerCoinFlips(s, cardId, selections));
-        // skipEndTurn: a Trainer that ends the turn leaves it to the caller (after the swap back)
-        return playTrainerCard(s, cardId, selections, { coinResults: coins, skipEndTurn: true });
+        const coins = flipCoins(getTrainerCoinFlips(s, cardId));
+        if (!action.answerAtPlay) return finishTrainer(s, cardId, action.selections, coins);
+        return answerAndPlayTrainer(s, cardId, trainerName, [], coins, !!action.waitsForOtherPlayer);
       })
+  );
+}
+
+/**
+ * The AI answers the rest of its Trainer's steps (`answered`: the answers so far) and plays it.
+ * A step the other player answers (only planned when that side can answer:
+ * cardEffects.OTHER_PLAYER_ANSWERS) gets the answerer's rules, or with `waitsForOtherPlayer`
+ * stops at `pendingOpponentTrainerStep` until answerOpponentTrainerStep.
+ */
+function answerAndPlayTrainer(
+  view: GameState,
+  cardId: string,
+  trainerName: string,
+  answered: string[][],
+  coins: CoinFlipResult[],
+  waitsForOtherPlayer: boolean,
+): GameState {
+  const coinsForSteps = coins.length > 0 ? coins : undefined;
+  const selections = [...answered];
+  for (let guard = 0; guard < 10; guard++) {
+    const step = getTrainerSteps(view, cardId, selections, coinsForSteps);
+    if (!step) break;
+    if (step.chooser === "opponent" && waitsForOtherPlayer) {
+      return { ...view, pendingOpponentTrainerStep: { cardId, trainerName, selections, coinResults: coins, step } };
+    }
+    selections.push(
+      step.chooser === "opponent"
+        ? answerOpponentTrainerStepForAI(view, cardId, step)
+        : answerTrainerStepForAI(view, cardId, trainerName, step)
+    );
+  }
+  return finishTrainer(view, cardId, selections, coins);
+}
+
+function finishTrainer(view: GameState, cardId: string, selections: string[][], coins: CoinFlipResult[]): GameState {
+  // A coin flipped after the choices (Blaine's Gamble)
+  const coinResults = coins.length > 0 ? coins : flipCoins(getTrainerCoinFlips(view, cardId, selections));
+  // skipEndTurn: a Trainer that ends the turn leaves it to the caller (after the swap back)
+  return playTrainerCard(view, cardId, selections, { coinResults, skipEndTurn: true });
+}
+
+/**
+ * Single-player: the human's answer to the step of the AI's Trainer that waits for them
+ * (`state.pendingOpponentTrainerStep`; `state` in the human's view, the AI's turn). The AI answers
+ * the rest and plays the Trainer; another step for the human waits again. An answer the step
+ * doesn't allow leaves the state unchanged.
+ */
+export function answerOpponentTrainerStep(state: GameState, selection: string[]): GameState {
+  const pending = state.pendingOpponentTrainerStep;
+  if (!pending || state.isPlayerTurn) return state;
+  const { cardId, trainerName, selections, coinResults } = pending;
+  // A Trainer that can't be played any more just stops waiting
+  return actAs(
+    { ...state, pendingOpponentTrainerStep: undefined },
+    "opponent",
+    (s) => canPlayTrainerCard(s, cardId),
+    (s) => {
+      try {
+        return answerAndPlayTrainer(s, cardId, trainerName, [...selections, selection], coinResults, true);
+      } catch (error) {
+        // A rejected answer: keep asking
+        if (error instanceof IllegalActionError) return { ...s, pendingOpponentTrainerStep: pending };
+        throw error;
+      }
+    }
   );
 }
 
