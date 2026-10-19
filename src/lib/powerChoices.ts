@@ -7,6 +7,7 @@
  * | Invocar Secuaces (Summon Minions) | Dark Dragonite | up to 2 Basic Pokémon of the deck (Bench room), 0 allowed | deck card ids → Bench, deck shuffled |
  * | Ataque Furtivo (Sneak Attack) | Dark Golbat | 1 of the opponent's Pokémon, or none ("may") | its id → 10 damage, Weakness/Resistance applied |
  * | Recoger (Reel In) | Dark Slowbro | up to 3 Basic Pokémon / Evolution cards of the discard pile, 0 allowed | discard ids → hand |
+ * | Llamar al Jefe (Call the Boss) | Giovanni's Persian | the Trainer cards named Giovanni of the deck, 0 allowed (none in the deck: no step) | deck card id → hand (shown), deck shuffled either way |
  *
  * The trigger runs when the card is played from the hand: evolving (evolvePokemonCard),
  * Pokémon Breeder, or putting a Basic onto the Bench during the game (playBasicPokemon). It
@@ -172,6 +173,40 @@ export const ON_PLAY_POWERS: Record<string, OnPlayPowerDef> = {
       };
       return log(next, taken.length === 0 ? `${powerName(pokemon)}: no tomó cartas` : `${powerName(pokemon)}: puso ${taken.map((c) => c.name).join(", ")} en la mano`);
     },
+  },
+};
+
+/** Call the Boss: the Trainer it searches for. */
+const CALL_THE_BOSS_TRAINER = "Giovanni";
+const isBossCard = (c: GameCard) => c.kind === CardKind.Trainer && c.name === CALL_THE_BOSS_TRAINER;
+
+ON_PLAY_POWERS["Llamar al Jefe"] = {
+  step: (state, pokemon) => {
+    const cards = state.playerDeck.filter(isBossCard);
+    if (cards.length === 0) return null;
+    return {
+      title: powerName(pokemon),
+      description: `Puedes buscar en tu mazo la carta de Entrenador llamada ${CALL_THE_BOSS_TRAINER}, mostrarla y ponerla en tu mano`,
+      options: cards.map((c) => ({ id: c.id, label: c.name })),
+      maxSelections: 1,
+      minSelections: 0,
+      cards,
+      chooser: "self",
+    };
+  },
+  resolve: (state, pokemon, selection) => {
+    const taken = state.playerDeck.find((c) => isBossCard(c) && selection.includes(c.id));
+    const next: GameState = {
+      ...state,
+      playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== taken?.id)),
+      playerHand: taken ? [taken, ...state.playerHand] : state.playerHand,
+    };
+    return log(
+      next,
+      taken
+        ? `${powerName(pokemon)}: mostró ${taken.name} y lo puso en su mano. Se mezcló el mazo`
+        : `${powerName(pokemon)}: no tomó ninguna carta. Se mezcló el mazo`
+    );
   },
 };
 

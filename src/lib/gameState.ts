@@ -46,6 +46,12 @@ import {
   discardBrokenShapeshiftCards,
   isDamageBlocked,
   isPowerActive,
+  applyRelaxingScent,
+  getEnergyDrainPower,
+  getRebellionPower,
+  getShockBlastPower,
+  getSurviveKnockOutPower,
+  isScramming,
 } from "@/domain/powers";
 import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
 import { isLuckyDuel, type GameMode } from "@/domain/lucky-duel/mode";
@@ -1823,7 +1829,8 @@ export function knockOutOpponentActive(state: GameState): GameState {
  */
 export function checkKnockouts(state: GameState): GameState {
   // Shapeshift: a statused Ninetales loses its Evolution card first (its HP is its own again)
-  let next = processBenchKnockouts(discardBrokenShapeshiftCards(state));
+  // Scram: a Primeape with exactly 10 HP left goes into the deck before any Knock Out
+  let next = processBenchKnockouts(shuffleScrammingPokemon(discardBrokenShapeshiftCards(state)));
   // Actives use their current HP (a transformed Ditto's copy changes with the other Active)
   const isOut = (p: PokemonInPlay | null): boolean =>
     !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= getEffectiveHp(next, p) &&
@@ -1833,6 +1840,41 @@ export function checkKnockouts(state: GameState): GameState {
   // Defender / PlusPower of a Pokémon that left play go to the discard pile with it. Lucky Duel:
   // the other Active Knocked Out by the same action makes it a draw
   return releaseOrphanModifiers(settleLuckyDuelDraw(next === state ? state : endGameIfNoPokemonLeft(next)));
+}
+
+/**
+ * Scram (Brock's Primeape): every working Primeape (either side, Active or Benched) with exactly
+ * 10 HP left is shuffled with its cards into its owner's deck — not a Knock Out (no Prize); its
+ * owner promotes if it was the Active. Returns the same state when none.
+ */
+function shuffleScrammingPokemon(state: GameState): GameState {
+  let next = state;
+  for (const side of ["player", "opponent"] as const) {
+    const activeKey = side === "player" ? "playerActivePokemon" : "opponentActivePokemon";
+    const benchKey = side === "player" ? "playerBench" : "opponentBench";
+    const deckKey = side === "player" ? "playerDeck" : "opponentDeck";
+    const promoteKey = side === "player" ? "playerNeedsToPromote" : "opponentNeedsToPromote";
+    const active = next[activeKey];
+    const leaving = [active, ...next[benchKey]].filter((p): p is PokemonInPlay => !!p && isScramming(next, p));
+    if (leaving.length === 0) continue;
+    const activeLeft = !!active && leaving.includes(active);
+    const bench = next[benchKey].filter((p) => !leaving.includes(p));
+    const events = [...next.events];
+    for (const p of leaving) {
+      const powerName = isPokemonCard(p.pokemon) ? p.pokemon.power?.name ?? "" : "";
+      events.push(createGameEvent(`${powerName}: ¡${p.pokemon.name} y todas sus cartas se barajaron en el mazo de su dueño!`, "action"));
+    }
+    if (activeLeft && bench.length > 0) events.push(createGameEvent(`El dueño de ${active.pokemon.name} debe elegir un nuevo Pokémon activo`, "info"));
+    next = {
+      ...next,
+      [activeKey]: activeLeft ? null : active,
+      [benchKey]: bench,
+      [deckKey]: shuffle([...next[deckKey], ...leaving.flatMap((p) => cardsLeavingPlay(p))]),
+      ...(activeLeft && { [promoteKey]: bench.length > 0 }),
+      events,
+    };
+  }
+  return next;
 }
 
 /** Result lines a Lucky Duel draw replaces (exact engine texts, see settleLuckyDuelDraw). */
@@ -3624,6 +3666,12 @@ export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?
  */
 export type AttackCoinPlan = {
   smokescreen: number;
+  /**
+   * The attacker's power coins, after Smokescreen's and before the attack's own: Rebellion (Misty's
+   * Gyarados, 2 coins: both tails = the attack does nothing and it shuffles itself into the deck).
+   * Absent = 0. Flipped by the attacking player.
+   */
+  power?: number;
   attack: number | "untilTails";
   /** The attacker's optional Stadium coin (Vermilion City Gym); absent = 0 */
   stadium?: number;
@@ -3760,13 +3808,15 @@ export function counterAttackDamage(
 /**
  * What the attack's defender coin (one at most) is for, or null when there is none:
  * Transparency (whenever the attack can affect the Defending Pokémon), then Final Beam, Shadow
- * Images (flipped by the attacker), Crosscounter and Pollen Defense (whenever the attack can damage it).
+ * Images (flipped by the attacker), Crosscounter, Pollen Defense, Fortitude (used only if the
+ * attack Knocks it Out), Energy Drain and Shock Blast (used only if it damages it) — whenever the
+ * attack can damage it.
  */
 function defenderCoinKind(
   state: GameState,
   defender: PokemonInPlay | null,
   attack: Attack
-): "transparency" | "finalBeam" | "evade" | "counterAttack" | "damagedStatus" | null {
+): "transparency" | "finalBeam" | "evade" | "counterAttack" | "damagedStatus" | "fortitude" | "energyDrain" | "shockBlast" | null {
   if (!defender) return null;
   // Swift: nothing on the Defending Pokémon changes its damage (Transparency, Shadow Images)
   const unaffected = (attack.effects ?? []).some((e) => e.type === AttackEffectType.IgnoreDefenderEffects);
@@ -3777,6 +3827,10 @@ function defenderCoinKind(
   if (activeCounterAttack(state, defender)?.retaliationCoin) return "counterAttack";
   // Pollen Defense (Erika's Vileplume): it isn't a change to the damage, so Swift doesn't skip it
   if (getDamagedStatusFlip(state, defender)) return "damagedStatus";
+  // Gym Challenge: Giovanni's Machamp, Koga's Muk, Lt. Surge's Electrode
+  if (getSurviveKnockOutPower(state, defender)) return "fortitude";
+  if (getEnergyDrainPower(state, defender)) return "energyDrain";
+  if (getShockBlastPower(state, defender)) return "shockBlast";
   return null;
 }
 
@@ -3797,8 +3851,11 @@ export function getAttackCoinPlan(state: GameState, attack: number | Attack, opt
   const opponentFlips = (resolved.effects ?? []).some((e) => e.coinFlip && e.coinFlippedBy === "opponent");
   // Vermilion City Gym, only when the attacker opted in and the Stadium offers it
   const stadiumCoin = options.vermilionCoin && stadiumOffersAttackCoin(state, attacker);
+  // Rebellion (Misty's Gyarados): 2 coins whenever it attacks, before the attack's own
+  const powerCoins = getRebellionPower(state, attacker) ? 2 : 0;
   return {
     smokescreen: smokescreenCoins(attacker),
+    ...(powerCoins > 0 && { power: powerCoins }),
     attack: coinFlipCountFor(attacker, resolved, state),
     ...(stadiumCoin && { stadium: 1 }),
     defender: defenderCoin ? 1 : 0,
@@ -3807,10 +3864,11 @@ export function getAttackCoinPlan(state: GameState, attack: number | Attack, opt
   };
 }
 
-/** Flip the coins of a plan in order (smokescreen, the attack's own — until tails if so —, stadium, defender). */
+/** Flip the coins of a plan in order (smokescreen, power, the attack's own — until tails if so —, stadium, defender). */
 export function flipAttackCoins(plan: AttackCoinPlan, flip: () => CoinFlipResult): CoinFlipResult[] {
   const coins: CoinFlipResult[] = [];
   for (let i = 0; i < plan.smokescreen; i++) coins.push(flip());
+  for (let i = 0; i < (plan.power ?? 0); i++) coins.push(flip());
   if (plan.attack === "untilTails") {
     for (let guard = 0; guard < 1000; guard++) {
       const coin = flip();
@@ -3830,26 +3888,29 @@ function splitAttackCoins(
   plan: AttackCoinPlan,
   coins: CoinFlipResult[],
   attackName: string
-): { smokescreen: CoinFlipResult[]; attack: CoinFlipResult[]; stadium: CoinFlipResult[]; defender: CoinFlipResult[] } {
+): { smokescreen: CoinFlipResult[]; power: CoinFlipResult[]; attack: CoinFlipResult[]; stadium: CoinFlipResult[]; defender: CoinFlipResult[] } {
   const fail = (expected: string): never => {
     throw new Error(`executeAttack: "${attackName}" needs ${expected} coin result(s) (getAttackCoinPlan), got ${coins.length}`);
   };
   const stadiumCount = plan.stadium ?? 0;
   const after = stadiumCount + plan.defender;
+  const before = plan.smokescreen + (plan.power ?? 0);
   const smokescreen = coins.slice(0, plan.smokescreen);
-  const rest = coins.slice(plan.smokescreen);
+  const power = coins.slice(plan.smokescreen, before);
+  const rest = coins.slice(before);
   let attackCount: number;
   if (plan.attack === "untilTails") {
     const tailsAt = rest.indexOf("tails");
-    if (tailsAt === -1) fail(`${plan.smokescreen} + a run ending in tails + ${after}`);
+    if (tailsAt === -1) fail(`${before} + a run ending in tails + ${after}`);
     attackCount = tailsAt + 1;
-    if (rest.length !== attackCount + after) fail(`${plan.smokescreen} + ${attackCount} (until tails) + ${after}`);
+    if (rest.length !== attackCount + after) fail(`${before} + ${attackCount} (until tails) + ${after}`);
   } else {
     attackCount = plan.attack;
-    if (coins.length !== plan.smokescreen + attackCount + after) fail(String(plan.smokescreen + attackCount + after));
+    if (coins.length !== before + attackCount + after) fail(String(before + attackCount + after));
   }
   return {
     smokescreen,
+    power,
     attack: rest.slice(0, attackCount),
     stadium: rest.slice(attackCount, attackCount + stadiumCount),
     defender: rest.slice(attackCount + stadiumCount),
@@ -3869,7 +3930,7 @@ export function getAttackCoinFlipCount(state: GameState, attack: number | Attack
   const plan = getAttackCoinPlan(state, attack, options);
   // "untilTails" (Stone Barrage) has no fixed count: the minimum (tails at once) is returned;
   // callers must use getAttackCoinPlan + flipAttackCoins for those
-  return plan.smokescreen + (plan.attack === "untilTails" ? 1 : plan.attack) + (plan.stadium ?? 0) + plan.defender;
+  return plan.smokescreen + (plan.power ?? 0) + (plan.attack === "untilTails" ? 1 : plan.attack) + (plan.stadium ?? 0) + plan.defender;
 }
 
 /**
@@ -4278,6 +4339,34 @@ function executeAttackUnchecked(
     }
     gameState = { ...gameState, events: [...events, createGameEvent("[coin:heads] El ataque procede normalmente", "info")] };
   }
+  // Rebellion (Misty's Gyarados): both tails = the attack does nothing (no Energy discard either);
+  // Gyarados and every card attached go into its owner's deck (not a Knock Out: no Prize)
+  if (splitCoins && splitCoins.power.length > 0) {
+    const rebellion = getRebellionPower(gameState, attacker);
+    const tokens = splitCoins.power.map((c) => `[coin:${c}]`).join(" ");
+    const coinEvent = createGameEvent(`${rebellion?.name ?? "Rebelión"} de ${attacker.pokemon.name} - Monedas: ${tokens}`, "info");
+    if (splitCoins.power.every((c) => c === "tails")) {
+      const needsToPromote = gameState.playerBench.length > 0;
+      const shuffled: GameState = {
+        ...gameState,
+        playerActivePokemon: null,
+        playerDeck: shuffle([...gameState.playerDeck, ...cardsLeavingPlay(attacker)]),
+        playerNeedsToPromote: needsToPromote,
+        attackedThisTurn: true,
+        events: [
+          ...gameState.events,
+          coinEvent,
+          createGameEvent(`${attacker.pokemon.name} usó ${printedAttack.name} pero el ataque no hizo nada`, "action"),
+          createGameEvent(`¡${attacker.pokemon.name} y todas sus cartas se barajaron en el mazo de su dueño!`, "action"),
+          ...(needsToPromote ? [createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")] : []),
+        ],
+      };
+      const done = releaseOrphanModifiers(endGameIfNoPokemonLeft(shuffled));
+      // The turn waits for the promotion, as after the attacker's own Knock Out
+      return skipEndTurn || done.gameResult !== null || done.playerNeedsToPromote ? done : endTurn(done);
+    }
+    gameState = { ...gameState, events: [...gameState.events, coinEvent] };
+  }
   // What to run again once a question asked mid-attack is answered (ESP, Charity, Flee)
   const resumeAttack = (): AttackResume => ({ kind: "attack", attackIndex, ...(copiedAttack && { copiedAttack }), options: { ...options!, reactions } });
 
@@ -4343,6 +4432,11 @@ function executeAttackUnchecked(
   const counterAttackCoin = defenderCoinFor === "counterAttack" ? defenderCoin : undefined;
   // Pollen Defense (Erika's Vileplume): heads = the attacker is Confused if this attack damages it
   const damagedStatusCoin = defenderCoinFor === "damagedStatus" ? defenderCoin : undefined;
+  // Gym Challenge defender coins: Fortitude (heads: survives with 10 HP), Energy Drain (heads: its
+  // owner discards an Energy card of the attacker), Shock Blast (tails: 20 to each Active)
+  const fortitudeCoin = defenderCoinFor === "fortitude" ? defenderCoin : undefined;
+  const energyDrainCoin = defenderCoinFor === "energyDrain" ? defenderCoin : undefined;
+  const shockBlastCoin = defenderCoinFor === "shockBlast" ? defenderCoin : undefined;
   // Shadow Images: tails = this attack does no damage to the Defending Pokémon
   const evadeCoin = defenderCoinFor === "evade" ? defenderCoin : undefined;
 
@@ -4549,6 +4643,10 @@ function executeAttackUnchecked(
   const damagePower = ignoresDefenderEffects ? { damage } : applyDamagePowers(defender, damage, gameState, attacker);
   const reducedByPower = damagePower.damage < damage ? damagePower.power : undefined;
   damage = damagePower.damage;
+  // Relaxing Scent (Erika's Ivysaur, an Active on either side): halved, rounded up (Swift ignores powers)
+  const scent = ignoresDefenderEffects ? { damage } : applyRelaxingScent(gameState, damage);
+  const halvedByScent = scent.damage < damage ? scent.power : undefined;
+  damage = scent.damage;
 
   // Verificar si el defensor está protegido o tiene barrera de daño
   const defenderIsProtected = !ignoresDefenderEffects && protectionBlocksDamage(defender, damage);
@@ -4618,8 +4716,14 @@ function executeAttackUnchecked(
     (drainTo ? Math.max(0, defenderCard.hp - (drainTo.amount ?? 10) - (defender.currentDamage ?? 0)) : 0);
 
   // Aplicar daño al defensor
-  const newDamage = (defender.currentDamage || 0) + effectiveDamage + namedDefenderDamage + defenderCounters + counterDelta;
+  let newDamage = (defender.currentDamage || 0) + effectiveDamage + namedDefenderDamage + defenderCounters + counterDelta;
   const defenderHP = defenderCard.hp;
+  // Fortitude (Giovanni's Machamp): its coin is used only if the attack's damage would Knock it Out
+  const attackDamageToDefender = effectiveDamage + namedDefenderDamage;
+  const fortitudeUsed = !!fortitudeCoin && attackDamageToDefender > 0 && newDamage >= defenderHP;
+  const fortitudeHolds = fortitudeUsed && fortitudeCoin === "heads";
+  if (fortitudeHolds) newDamage = Math.max(0, defenderHP - 10);
+  const defenderPowerName = isPokemonCard(defender.pokemon) ? defender.pokemon.power?.name ?? "" : "";
 
   // Flee (Misty's Tentacruel): damaged as the Active and not Knocked Out → its owner may switch it
   // with a Benched Pokémon before the attack's other effects; the attack waits for the answer
@@ -4766,9 +4870,22 @@ function executeAttackUnchecked(
     )
   );
 
+  if (halvedByScent && effectiveDamage > 0) {
+    events.push(createGameEvent(`${halvedByScent.name}: el daño a ${defender.pokemon.name} se redujo a la mitad`, "info"));
+  }
+
   // Coin protection that didn't happen (Scrunch, Stiffen, Withdraw, Agility on tails)
   if (coinResolution?.missed.some((e) => e.type === AttackEffectType.Protection)) {
     events.push(createGameEvent(`${attacker.pokemon.name} no logró protegerse`, "info"));
+  }
+
+  // Gym Challenge defender coins, logged only when their power is used
+  if (fortitudeUsed) {
+    events.push(createGameEvent(`${defenderPowerName} de ${defender.pokemon.name} - Moneda: [coin:${fortitudeCoin}]`, "info"));
+    if (fortitudeHolds) events.push(createGameEvent(`¡${defender.pokemon.name} no queda Fuera de Combate: le quedan 10 PS!`, "action"));
+  }
+  if ((energyDrainCoin || shockBlastCoin) && attackDamageToDefender > 0) {
+    events.push(createGameEvent(`${defenderPowerName} de ${defender.pokemon.name} - Moneda: [coin:${energyDrainCoin ?? shockBlastCoin}]`, "info"));
   }
 
   // Verificar si el defensor fue noqueado
@@ -6404,8 +6521,22 @@ function executeAttackUnchecked(
     opponentNeedsToPromote: opponentNeedsToPromote,
   };
 
+  // Shock Blast (Lt. Surge's Electrode) tails, after the attack: 20 damage to each Active Pokémon
+  // (the attacker and Electrode if it is still in play; no Weakness / Resistance), Knock Outs together
+  if (shockBlastCoin === "tails" && attackDamageToDefender > 0 && stateAfterAttack.gameResult === null) {
+    const blast = (p: PokemonInPlay | null, id: string) => (p && p.pokemon.id === id ? { ...p, currentDamage: (p.currentDamage ?? 0) + 20 } : p);
+    stateAfterAttack = {
+      ...stateAfterAttack,
+      playerActivePokemon: blast(stateAfterAttack.playerActivePokemon, attacker.pokemon.id),
+      opponentActivePokemon: blast(stateAfterAttack.opponentActivePokemon, defender.pokemon.id),
+      events: [...stateAfterAttack.events, createGameEvent(`${defenderPowerName}: hace 20 de daño a cada Pokémon Activo`, "action")],
+    };
+  }
+
   // Knock Outs the attack caused indirectly: a transformed Ditto whose copy changed (new
-  // Defending Pokémon) or that stopped being a copy (Asleep...) with damage >= its new HP
+  // Defending Pokémon) or that stopped being a copy (Asleep...) with damage >= its new HP;
+  // Scram (Brock's Primeape) left with 10 HP; Shock Blast's damage
+  // (a Defending Pokémon that leaves play there sets opponentNeedsToPromote, as Fling does)
   stateAfterAttack = checkKnockouts(stateAfterAttack);
 
   // No terminar el turno si el juego terminó o si el jugador puede tomar premio
@@ -6416,6 +6547,12 @@ function executeAttackUnchecked(
   // Choices left to a player (Hyper Beam, Terror Strike, Prophecy, Wildfire, Energy Conversion,
   // Scavenge): a pending attack choice blocks the end of the turn until it is answered
   const choiceEffects = (attack.effects ?? []).filter((e) => !e.coinFlip && isAttackChoiceEffect(e));
+  // Energy Drain (Koga's Muk) heads, damaged (even Knocked Out): its owner chooses 1 Energy card
+  // attached to the attacker to discard — after the attack's own choices
+  const attackerNow = stateAfterAttack.playerActivePokemon;
+  if (energyDrainCoin === "heads" && attackDamageToDefender > 0 && attackerNow?.pokemon.id === attacker.pokemon.id && attackerNow.attachedEnergy.length > 0) {
+    choiceEffects.push({ type: AttackEffectType.DiscardAttackerEnergy, target: AttackTarget.Self, sourceName: defenderPowerName });
+  }
   if (choiceEffects.length > 0) {
     stateAfterAttack = startAttackChoices(stateAfterAttack, choiceEffects, {
       attackName: attack.name,

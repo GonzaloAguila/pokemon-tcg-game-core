@@ -662,6 +662,8 @@ export const gymChallengeCards: Card[] = [
       name: "Fuego Curativo",
       text: "Cada vez que unas una carta de Energía Fuego de tu mano a Blaine's Ninetales, retira 1 contador de daño de él, si tiene alguno. Este poder deja de funcionar mientras Blaine's Ninetales esté Dormido, Confundido o Paralizado.",
       type: PokemonPowerType.HealOnEnergyAttach,
+      amount: 10,
+      energyType: Fire,
       worksFromBench: true,
     },
     attacks: [
@@ -1036,6 +1038,7 @@ export const gymChallengeCards: Card[] = [
       name: "Largarse",
       text: "Si a Brock's Primeape le quedan exactamente 10 PS, barájalo junto con todas las cartas unidas a él en tu mazo. Este poder deja de funcionar mientras Brock's Primeape esté Dormido, Confundido o Paralizado.",
       type: PokemonPowerType.ShuffleSelfAtHp,
+      amount: 10,
       worksFromBench: true,
     },
     attacks: [
@@ -1117,6 +1120,8 @@ export const gymChallengeCards: Card[] = [
       name: "Empaparse",
       text: "Una vez durante tu turno (antes de atacar), puedes tomar hasta 2 cartas de Energía Planta unidas a tus otros Pokémon y unirlas a Erika's Bellsprout. Este poder no puede usarse si Erika's Bellsprout está Dormido, Confundido o Paralizado.",
       type: PokemonPowerType.TakeEnergyToSelf,
+      amount: 2,
+      energyType: Grass,
       worksFromBench: true,
     },
     attacks: [

@@ -25,6 +25,9 @@
  * | Carga de Energía / Energy Charge (Lt. Surge's Magneton, while Active, repeatable) | – | [[lightningEnergyIdOnAnotherOwnPokemon]] |
  * | Trampa Aromática / Fragrance Trap (Erika's Victreebel, once per turn) | 1 | heads: [[opponentBenchedPokemonId]]; tails: [] |
  * | Curación Natural / Natural Healing (Blaine's Vulpix, once per turn) | – | [] |
+ * | Cambio de Forma / Shapeshift (Brock's Ninetales, once per turn) | – | see its entry |
+ * | Empaparse / Soak Up (Erika's Bellsprout, once per turn) | – | [[grassEnergyIdOnAnotherOwnPokemon, … up to 2]] |
+ * | Emerger / Emerge (Koga's Kakuna, once per turn) | 1 | [] (heads: its Evolution card from the deck, the first found) |
  *
  * Passive powers (Shell Armor, Strange Barrier, Pollen Defense, Restless Sleep, Rebirth, Flee,
  * Bench Guard, Photosynthesis, Strikes Back, Invisible Wall, Thick Skinned, Retreat Aid, Toxic Gas,
@@ -63,7 +66,7 @@ import {
   getEffectiveHp,
   getShapeshiftCard,
 } from "@/domain/powers";
-import { allOwnPokemon, findInPlay } from "@/domain/board";
+import { allOwnPokemon, evolvePokemonInPlay, findInPlay, getEvolutionBlocker } from "@/domain/board";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import type { CardEffectDef, SelectionOption } from "./types";
 import { energyOption, pokemonOption } from "./trainers";
@@ -955,6 +958,88 @@ const GYM_HEROES_POWER_EFFECTS: Record<string, CardEffectDef> = {
 
 Object.assign(POWER_EFFECTS, GYM_HEROES_POWER_EFFECTS);
 
+// ============================================================================
+// Gym Challenge
+// ============================================================================
+
+/** Evolution cards of the deck that evolve from the Pokémon `pokemonId` (Emerge: Koga's Beedrill). */
+function deckEvolutionsOf(state: GameState, pokemonId: string): GameCard[] {
+  const self = ownPokemonById(state, pokemonId);
+  if (!self) return [];
+  return state.playerDeck.filter((c) => isPokemonCard(c) && c.stage !== PokemonStage.Basic && c.evolvesFrom === self.pokemon.name);
+}
+
+const GYM_CHALLENGE_POWER_EFFECTS: Record<string, CardEffectDef> = {
+  // Soak Up (Erika's Bellsprout): once per turn, up to `amount` (2) Energy cards of `energyType` (Grass) from your other Pokémon
+  "Empaparse": {
+    canUse: (state, pokemonId) => {
+      const type = powerOf(state, pokemonId)?.energyType ?? EnergyType.Grass;
+      return gatherableEnergies(state, pokemonId).length > 0 ? null : `Tus otros Pokémon no tienen cartas de Energía ${getEnergyTypeInSpanish(type)}`;
+    },
+    getSteps: (state, pokemonId, selections) => {
+      if (selections.length > 0) return null;
+      const power = powerOf(state, pokemonId);
+      const type = power?.energyType ?? EnergyType.Grass;
+      const options = gatherableEnergies(state, pokemonId);
+      const max = Math.min(power?.amount ?? 2, options.length);
+      return {
+        title: power?.name ?? "Empaparse",
+        description: `Elige hasta ${max} carta${max === 1 ? "" : "s"} de Energía ${getEnergyTypeInSpanish(type)} de tus otros Pokémon para unirlas a este Pokémon`,
+        options: options.map(({ energy, holder }) => ({ id: energy.id, label: `${energyCardLabel(energy)} (${holder.pokemon.name})` })),
+        maxSelections: max,
+        minSelections: 1,
+        thumbnails: options.map(({ energy }) => energy),
+        disableAutoSelect: true,
+      };
+    },
+    resolve: (state, pokemonId, selections) => {
+      const power = powerOf(state, pokemonId)!;
+      const picked = gatherableEnergies(state, pokemonId).filter((g) => selections[0].includes(g.energy.id));
+      let next = state;
+      for (const { energy, holder } of picked) {
+        const from = ownPokemonById(next, holder.pokemon.id)!;
+        next = replaceOwn(next, holder.pokemon.id, { ...from, attachedEnergy: from.attachedEnergy.filter((e) => e.id !== energy.id) });
+        const receiver = ownPokemonById(next, pokemonId)!;
+        next = replaceOwn(next, pokemonId, { ...receiver, attachedEnergy: [...receiver.attachedEnergy, energy] });
+      }
+      const receiver = ownPokemonById(next, pokemonId)!;
+      const moved = picked.map(({ energy, holder }) => `${energyCardLabel(energy)} de ${holder.pokemon.name}`).join(", ");
+      return markPowerAsUsed(
+        { ...next, events: [...state.events, createGameEvent(`${power.name}: movió ${moved} a ${receiver.pokemon.name}`, "action")] },
+        pokemonId
+      );
+    },
+  },
+
+  // Emerge (Koga's Kakuna): once per turn, flip; heads = search the deck for its Evolution card and
+  // put it on it ("counts as evolving", but not limited by the played-this-turn / first-turn rules;
+  // Prehistoric Power still blocks it), then shuffle
+  "Emerger": {
+    canUse: (state) => getEvolutionBlocker(state) ?? (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
+    coinFlips: () => 1,
+    getSteps: () => null,
+    resolve: (state, pokemonId, _selections, { coinResults }) => {
+      const power = powerOf(state, pokemonId)!;
+      const heads = coinResults?.[0] === "heads";
+      const events = [...state.events, createGameEvent(`${power.name} - Moneda: [coin:${heads ? "heads" : "tails"}]`, "info")];
+      if (!heads) return markPowerAsUsed({ ...state, events }, pokemonId);
+      const self = ownPokemonById(state, pokemonId)!;
+      const card = deckEvolutionsOf(state, pokemonId)[0];
+      if (!card) {
+        events.push(createGameEvent(`${power.name}: no había ninguna carta de Evolución de ${self.pokemon.name} en el mazo. Se mezcló el mazo`, "action"));
+        return markPowerAsUsed({ ...state, playerDeck: shuffle(state.playerDeck), events }, pokemonId);
+      }
+      const evolved = evolvePokemonInPlay(self, card, state.turnNumber);
+      const next = replaceOwn({ ...state, playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== card.id)) }, pokemonId, evolved);
+      events.push(createGameEvent(`${power.name}: ${self.pokemon.name} evolucionó a ${card.name}. Se mezcló el mazo`, "action"));
+      // A transformed Ditto facing it copies the new card (checkKnockouts)
+      return checkKnockouts(markPowerAsUsed({ ...next, events }, pokemonId));
+    },
+  },
+};
+
+Object.assign(POWER_EFFECTS, GYM_CHALLENGE_POWER_EFFECTS);
+
 /** Power types whose effect the player activates (each must have a POWER_EFFECTS entry). */
 export const ACTIVATED_POWER_TYPES: readonly PokemonPowerType[] = [
   PokemonPowerType.UnlimitedEnergyAttach,
@@ -978,5 +1063,7 @@ export const ACTIVATED_POWER_TYPES: readonly PokemonPowerType[] = [
   PokemonPowerType.SwitchOpponentOnFlip,
   PokemonPowerType.SelfHeal,
   PokemonPowerType.ShapeshiftEvolution,
+  PokemonPowerType.TakeEnergyToSelf,
+  PokemonPowerType.SearchOwnEvolutionFlip,
 ];
 

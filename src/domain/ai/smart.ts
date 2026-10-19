@@ -849,6 +849,8 @@ function coinScenarios(v: GameState, attack: number | Attack, vermilionCoin = fa
     { p: 0.5, coins: ["tails" as CoinFlipResult] },
   ];
   for (let i = 0; i < plan.smokescreen; i++) extend(oneCoin);
+  // Rebellion's coins (Misty's Gyarados): both tails = the attack does nothing and it leaves play
+  for (let i = 0; i < (plan.power ?? 0); i++) extend(oneCoin);
   if (plan.attack === "untilTails") {
     extend([0, 1, 2, 3, 4].map((heads) => ({
       p: heads === 4 ? Math.pow(0.5, 4) : Math.pow(0.5, heads + 1),

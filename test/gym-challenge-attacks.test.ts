@@ -176,7 +176,7 @@ describe("Gym Challenge attacks on the existing effect vocabulary", () => {
   it.each([
     [6, "Puño Huracán", [H, T, H, H], 90],
     [27, "Giro Rápido", [H, H], 60],
-    [41, "Doble Hoja Afilada", [H, T], 40],
+    // #41 Doble Hoja Afilada (Erika's Ivysaur): its own Relaxing Scent halves it (gym-challenge-powers.test.ts)
     [43, "Doble Arañazo", [T, T], 0],
     [52, "Bola Potente", [H, T, H], 50],
     [63, "Golpes Furia", [H, H, T], 20],
@@ -545,7 +545,7 @@ describe("Gym Challenge attacks on the existing effect vocabulary", () => {
 
   it.each([
     [3, "Fuego Fatuo", 30],
-    [13, "Maremoto", 70],
+    // #13 Maremoto (Misty's Gyarados): Rebellion's coins come first (gym-challenge-powers.test.ts)
     [14, "Psicoquemadura", 60],
     [33, "Crin de Fuego", 20],
     [46, "Mordisco", 20],

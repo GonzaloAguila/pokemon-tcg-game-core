@@ -541,7 +541,7 @@ export function planStadiumAction(view: GameState): AIAction | null {
   return { type: "useStadium", stadiumName: view.stadium.card.name, selections: [[active.pokemon.id], [spare.id]], delay: 800 };
 }
 
-/** Gather Fire / Strange Behavior uses worth making now (in order). */
+/** Gather Fire / Strange Behavior / Energy Charge / Soak Up / Emerge uses worth making now (in order). */
 export function planSupportPowers(view: GameState): AIAction[] {
   const actions: AIAction[] = [];
   const active = view.playerActivePokemon;
@@ -549,6 +549,13 @@ export function planSupportPowers(view: GameState): AIAction[] {
 
   // Natural Healing: whenever Vulpix has damage counters
   for (const vulpix of withUsablePower(view, "Curación Natural")) actions.push(usePower(vulpix));
+
+  // Emerge (Koga's Kakuna): always worth a try (heads evolves it for free)
+  for (const kakuna of withUsablePower(view, "Emerger")) actions.push(usePower(kakuna));
+
+  // Soak Up (Erika's Bellsprout): Grass Energy onto an Active Bellsprout that can't attack yet
+  const soaker = withUsablePower(view, "Empaparse").find((p) => p.pokemon.id === active.pokemon.id);
+  if (soaker && !activeCanAttack(view)) actions.push(usePower(soaker));
 
   // Gather Fire: only onto an Active that can't attack yet
   const gatherer = withUsablePower(view, "Reunir Fuego").find((p) => p.pokemon.id === active.pokemon.id);
@@ -816,7 +823,8 @@ export function answerPowerStepForAI(view: GameState, name: string, step: Select
     case "Comportamiento Extraño":
       return prefer(view, step, [(_c, id) => id === view.playerActivePokemon?.pokemon.id]);
     case "Reunir Fuego":
-    case "Carga de Energía": {
+    case "Carga de Energía":
+    case "Empaparse": {
       // From the holder with the most Energy attached
       const holderSize = (energyId: string) => ownPokemon(view).find((p) => p.attachedEnergy.some((e) => e.id === energyId))?.attachedEnergy.length ?? 0;
       const ids = enabledIds(step).sort((a, b) => holderSize(b) - holderSize(a));

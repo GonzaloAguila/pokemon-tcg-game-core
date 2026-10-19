@@ -18,7 +18,7 @@ import {
 } from "@/lib/gameState";
 import { cardsLeavingPlay, isEnergyCard, isPlayableAsBasic, isPokemonCard, isTrainerInPlay, toInPlayCard } from "@/domain/cards";
 import { GamePhase, PokemonStage } from "@/domain/constants";
-import { attachEnergyWithRainDance, canAutoAttachEnergy, getEvolutionBlockingPokemon, getTrainerBlockingPokemon } from "@/domain/powers";
+import { attachEnergyWithRainDance, canAutoAttachEnergy, getEvolutionBlockingPokemon, getTrainerBlockingPokemon, healOnEnergyAttach } from "@/domain/powers";
 import { assertLegal } from "@/shared/errors";
 import { allOwnPokemon, findInPlay } from "./locate";
 import { isBenchFull } from "./bench";
@@ -270,6 +270,8 @@ export function attachEnergyCard(state: GameState, energyCardId: string, targetP
     };
   }
 
+  // Healing Fire (Blaine's Ninetales): a Fire Energy card from the hand heals it
+  next = healOnEnergyAttach(next, "player", targetPokemonId, card);
   const onAttach = ENERGY_ATTACH_EFFECTS[card.name];
   return onAttach ? checkKnockouts(onAttach(next, card, targetPokemonId)) : next;
 }

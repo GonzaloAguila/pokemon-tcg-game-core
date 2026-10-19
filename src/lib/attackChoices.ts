@@ -52,7 +52,7 @@
  */
 
 import type { AttackEffect } from "@/domain/cards";
-import { cardsLeavingPlay, isEnergyCard, isPokemonCard, type DeckCardFilter } from "@/domain/cards";
+import { cardOutOfPlay, cardsLeavingPlay, isEnergyCard, isPokemonCard, type DeckCardFilter } from "@/domain/cards";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkCoins, checkSelection } from "@/domain/effects/validate";
 import { AttackEffectType, AttackTarget, CardKind, GamePhase, PokemonPowerType, PokemonStage, StatusCondition, type CoinFlipResult } from "@/domain/constants";
@@ -158,6 +158,7 @@ export function isAttackChoiceEffect(effect: AttackEffect): boolean {
     case AttackEffectType.AttachEnergyFromDeck:
     case AttackEffectType.AttachEnergyFromDiscard:
     case AttackEffectType.ReturnPokemonToHand:
+    case AttackEffectType.DiscardAttackerEnergy:
       return true;
     case AttackEffectType.SelfSwitch:
       return !!effect.optional;
@@ -508,6 +509,24 @@ function stepFor(
         minSelections: count,
         thumbnails: energies,
         chooser: "self",
+      };
+    }
+    case AttackEffectType.DiscardAttackerEnergy: {
+      // Energy Drain (Koga's Muk): its owner picks the attacker's Energy card
+      const attacker = attackerOf(state, context);
+      if (!attacker || attacker.attachedEnergy.length === 0) return null;
+      const powerName = effect.sourceName ?? title;
+      return {
+        title: powerName,
+        description: `Tu rival elige 1 carta de Energía de ${attacker.pokemon.name} para descartar (${powerName})`,
+        answererDescription: `${powerName}: elige 1 carta de Energía unida a ${attacker.pokemon.name} para descartar`,
+        options: attacker.attachedEnergy.map((e) => ({ id: e.id, label: energyLabel(e) })),
+        maxSelections: 1,
+        thumbnails: attacker.attachedEnergy,
+        disableAutoSelect: true,
+        chooser: "opponent",
+        // Answer clock: the first Energy card
+        defaultSelection: [attacker.attachedEnergy[0].id],
       };
     }
     case AttackEffectType.ForceSwitch: {
@@ -1095,6 +1114,19 @@ function applyChoice(
         playerHand: state.playerHand.filter((c) => !selection.includes(c.id)),
       };
       return { state: log(next, `${name}: unió ${taken.map(energyLabel).join(", ")} de la mano a ${attacker.pokemon.name}`) };
+    }
+    case AttackEffectType.DiscardAttackerEnergy: {
+      const attacker = state.playerActivePokemon!;
+      const energy = attacker.attachedEnergy.find((e) => e.id === selection[0])!;
+      const next = log(
+        {
+          ...state,
+          playerActivePokemon: { ...attacker, attachedEnergy: attacker.attachedEnergy.filter((e) => e.id !== energy.id) },
+          playerDiscard: [...state.playerDiscard, cardOutOfPlay(energy)],
+        },
+        `${effect.sourceName ?? name}: se descartó ${energyLabel(energy)} de ${attacker.pokemon.name}`
+      );
+      return { state: next };
     }
     case AttackEffectType.DiscardEnergyEachOpponent: {
       const target = [state.opponentActivePokemon, ...state.opponentBench].find((p) => p?.attachedEnergy.some((e) => e.id === selection[0]))!;

@@ -12,6 +12,7 @@
  * | Flee (reaction, AI defends) | switch when, without it, the Defending Pokémon would be left with ≤ 30 HP or a new Special Condition; to the Benched Pokémon it would promote (choosePromotion, its turn next) |
  * | Bench Guard (reaction) | while the guard keeps > 30 HP: the hit Benched Pokémon, least HP left first |
  * | ForceSwitch chosen by the defender (Terror Strike, AI defends) | the Benched Pokémon it would promote (its turn next) |
+ * | Energy Drain (its Koga's Muk, AI defends) | the attacker's Energy card worth the most (getEnergyValue) |
  * | Fairy Power | its Pokémon with ≤ 20 HP left (the Active only while another Pokémon stays in play) |
  * | Magic Pollen | Paralyzed, Asleep, Confused, Poisoned (in that order; a Paralyzed Defending Pokémon gets Poisoned) |
  * | Sleight of Hand | step 1: the cards of the hand it values ≤ 15 (no more than the basic Energy it may find); step 2: needed Energy first |
@@ -23,7 +24,7 @@
  */
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
-import { hasStatusCondition, resolveAttackChoice } from "@/lib/gameState";
+import { getEnergyValue, hasStatusCondition, resolveAttackChoice } from "@/lib/gameState";
 import { isBasicEnergy } from "@/domain/cards";
 import { AttackEffectType, StatusCondition } from "@/domain/constants";
 import { swapSides } from "@/domain/board";
@@ -65,6 +66,13 @@ export function answerAttackChoiceForAI(attackerView: GameState): string[] {
   if (step.chooser === "opponent") {
     // Terror Strike: the defender picks the Benched Pokémon that comes up (it moves next)
     if (pending.effect?.type === AttackEffectType.ForceSwitch) return promotionAnswer(answererView, step) ?? answerStepForAI(step);
+    // Energy Drain (its Koga's Muk): the attacker's Energy card worth the most
+    if (pending.effect?.type === AttackEffectType.DiscardAttackerEnergy) {
+      const attacker = attackerView.playerActivePokemon;
+      const ids = enabledIds(step);
+      const best = attacker?.attachedEnergy.filter((e) => ids.includes(e.id)).sort((a, b) => getEnergyValue(b) - getEnergyValue(a))[0];
+      return best ? [best.id] : answerStepForAI(step);
+    }
     return answerStepForAI(step);
   }
   switch (pending.effect?.type) {

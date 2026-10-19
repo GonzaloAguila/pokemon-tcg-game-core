@@ -176,6 +176,11 @@ export const AttackEffectType = {
   /** Fairy Power: return any number of your Pokémon in play, with every card attached, to your hand */
   ReturnPokemonToHand: "returnPokemonToHand",
   /**
+   * Energy Drain (Koga's Muk, a power, never in card data): the Defending Pokémon's owner chooses 1
+   * Energy card attached to the attacker to discard. Added by executeAttack; attack choice (chooser "opponent")
+   */
+  DiscardAttackerEnergy: "discardAttackerEnergy",
+  /**
    * Crosscounter / Fire Wall: if an attack damages this Pokémon during the opponent's next turn
    * (even a Knock Out), it does damage to the attacker: `amount`, or the damage × `damageMultiplier`;
    * `retaliationCoin`: only if the defending player's coin is heads; `applyWeaknessResistance`
@@ -367,19 +372,18 @@ export const PokemonPowerType = {
   EnergyTypeOverride: "energyTypeOverride",
   /** Blaine's Vulpix's Natural Healing: once per turn, remove 1 damage counter from itself */
   SelfHeal: "selfHeal",
-  // ---------------------------------------------------------------- Gym Challenge (DATA ONLY: placeholders, no behavior yet;
-  // the plan's power tasks implement them and may replace a value with an existing type)
+  // ---------------------------------------------------------------- Gym Challenge (all implemented: Tasks 4-5)
   /** Brock's Ninetales' Shapeshift: once per turn attach an Evolution card from the hand and act as that Pokémon */
   ShapeshiftEvolution: "shapeshiftEvolution",
-  /** Giovanni's Machamp's Fortitude: would be Knocked Out by an opponent's attack → flip; heads = stays at 10 HP */
+  /** Giovanni's Machamp's Fortitude: would be Knocked Out by an opponent's attack while Active → defender coin; heads = stays at 10 HP */
   SurviveKnockOutFlip: "surviveKnockOutFlip",
-  /** Misty's Gyarados' Rebellion: whenever it attacks, flip 2; both tails = the attack does nothing and it shuffles itself into the deck */
+  /** Misty's Gyarados' Rebellion: whenever it attacks, flip 2 (AttackCoinPlan.power); both tails = the attack does nothing and it shuffles itself into the deck */
   AttackRebellionFlip: "attackRebellionFlip",
   /** Sabrina's Alakazam's Psylink: has a copy of every attack of your Psychic Pokémon in play */
   CopyTeamAttacks: "copyTeamAttacks",
   /** Blaine's Ninetales' Healing Fire: attaching a Fire Energy card from the hand to it removes 1 damage counter */
   HealOnEnergyAttach: "healOnEnergyAttach",
-  /** Koga's Muk's Energy Drain: damaged by an opponent's attack → flip; heads = discard an Energy card from the attacker */
+  /** Koga's Muk's Energy Drain: damaged by an opponent's attack while Active → defender coin; heads = its owner discards an Energy card from the attacker (attack choice) */
   DamagedDiscardAttackerEnergy: "damagedDiscardAttackerEnergy",
   /** Brock's Primeape's Scram: with exactly 10 HP left, it shuffles itself and its cards into the deck */
   ShuffleSelfAtHp: "shuffleSelfAtHp",

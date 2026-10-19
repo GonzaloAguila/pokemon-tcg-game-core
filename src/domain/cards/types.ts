@@ -68,6 +68,8 @@ export type AttackEffect = {
   benchExcludeTypes?: EnergyType[];
   /** Names for BonusDamage "namedOnBench" / "namedInPlay" and DamageNamedInPlay (Magnetism, Mass Explosion) */
   names?: string[];
+  /** The power that added this effect to the attack (Energy Drain's DiscardAttackerEnergy): its step's title */
+  sourceName?: string;
   /** SelfSwitch: "you may switch" — the attacker may decline (Teleport Blast), asked as a pending attack choice */
   optional?: boolean;
   /** IgnoreWeaknessResistance: only Resistance is ignored (Hook Shot) */

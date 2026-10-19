@@ -385,7 +385,9 @@ export function applyAttackDamageReductions(
   state: GameState | undefined,
   attacker: PokemonInPlay | null | undefined
 ): number {
-  return applyDamagePowers(pokemon, applyDamageHalving(pokemon, damage, state), state, attacker).damage;
+  const reduced = applyDamagePowers(pokemon, applyDamageHalving(pokemon, damage, state), state, attacker).damage;
+  // Relaxing Scent (Erika's Ivysaur): every attack damage, last
+  return applyRelaxingScent(state, reduced).damage;
 }
 
 /**
@@ -396,6 +398,84 @@ export function applyAttackDamageReductions(
 export function getDamagedStatusFlip(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonPower | undefined {
   if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.DamagedStatusFlip) return undefined;
   return isPowerActive(state, pokemon, { ignoreBlockingStatus: true }) ? pokemon.pokemon.power : undefined;
+}
+
+// ============================================================================
+// Gym Challenge trigger powers (coins: getAttackCoinPlan's power / defender slots)
+// ============================================================================
+
+/**
+ * Rebellion (Misty's Gyarados): its AttackRebellionFlip power when it works now. "Works even if
+ * Confused" (Asleep / Paralyzed can't attack anyway): only Toxic Gas / Dark Wave stop it.
+ */
+export function getRebellionPower(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonPower | undefined {
+  if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.AttackRebellionFlip) return undefined;
+  return isPowerActive(state, pokemon, { ignoreBlockingStatus: true }) ? pokemon.pokemon.power : undefined;
+}
+
+/**
+ * Fortitude (Giovanni's Machamp) / Energy Drain (Koga's Muk): working when the opponent attacks
+ * (not "already Asleep, Confused or Paralyzed", no Toxic Gas). `pokemon` as it was before the attack.
+ */
+export function getSurviveKnockOutPower(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonPower | undefined {
+  return activePowerOfType(state, pokemon, PokemonPowerType.SurviveKnockOutFlip);
+}
+export function getEnergyDrainPower(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonPower | undefined {
+  return activePowerOfType(state, pokemon, PokemonPowerType.DamagedDiscardAttackerEnergy);
+}
+
+/** Shock Blast (Lt. Surge's Electrode): works while statused ("even if already Asleep..."); Toxic Gas stops it. */
+export function getShockBlastPower(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonPower | undefined {
+  if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.DamagedActivesDamageFlip) return undefined;
+  return isPowerActive(state, pokemon, { ignoreBlockingStatus: true }) ? pokemon.pokemon.power : undefined;
+}
+
+/**
+ * Scram (Brock's Primeape): a working ShuffleSelfAtHp power with exactly `amount` (10) HP left.
+ * checkKnockouts shuffles it into its owner's deck before the Knock Outs.
+ */
+export function isScramming(state: GameState | null | undefined, pokemon: PokemonInPlay): boolean {
+  const power = activePowerOfType(state, pokemon, PokemonPowerType.ShuffleSelfAtHp);
+  return !!power && getEffectiveHp(state, pokemon) - (pokemon.currentDamage ?? 0) === (power.amount ?? 10);
+}
+
+/**
+ * Relaxing Scent (Erika's Ivysaur): while a working Ivysaur is an Active Pokémon (either side),
+ * attack damage to any Pokémon (after Weakness / Resistance and the modifiers) is halved, rounded
+ * up to the nearest 10 — once per Active Ivysaur. Returns the damage and the power, if any.
+ */
+export function applyRelaxingScent(state: GameState | null | undefined, damage: number): { damage: number; power?: PokemonPower } {
+  if (!state || damage <= 0) return { damage };
+  let power: PokemonPower | undefined;
+  for (const active of [state.playerActivePokemon, state.opponentActivePokemon]) {
+    const scent = active ? activePowerOfType(state, active, PokemonPowerType.HalveAllAttackDamage) : undefined;
+    if (!scent) continue;
+    power = scent;
+    damage = Math.ceil(damage / 2 / 10) * 10;
+  }
+  return { damage, power };
+}
+
+/**
+ * Healing Fire (Blaine's Ninetales): a basic Energy card of the power's type (Fire) attached
+ * from the hand to it removes 1 damage counter (stops while Asleep / Confused / Paralyzed).
+ * `side`'s Pokémon `pokemonId` just received `card`. Returns the same state when nothing happens.
+ */
+export function healOnEnergyAttach(state: GameState, side: "player" | "opponent", pokemonId: string, card: GameCard): GameState {
+  const activeKey = side === "player" ? "playerActivePokemon" : "opponentActivePokemon";
+  const benchKey = side === "player" ? "playerBench" : "opponentBench";
+  const target = state[activeKey]?.pokemon.id === pokemonId ? state[activeKey] : state[benchKey].find((p) => p.pokemon.id === pokemonId);
+  if (!target || (target.currentDamage ?? 0) <= 0) return state;
+  const power = activePowerOfType(state, target, PokemonPowerType.HealOnEnergyAttach);
+  if (!power || !isEnergyCard(card) || !card.isBasic || card.energyType !== (power.energyType ?? EnergyTypeEnum.Fire)) return state;
+  const healed: PokemonInPlay = { ...target, currentDamage: Math.max(0, (target.currentDamage ?? 0) - (power.amount ?? 10)) };
+  return {
+    ...state,
+    ...(state[activeKey] === target
+      ? { [activeKey]: healed }
+      : { [benchKey]: state[benchKey].map((p) => (p === target ? healed : p)) }),
+    events: [...state.events, createGameEvent(`${power.name}: ${target.pokemon.name} se curó ${power.amount ?? 10} de daño`, "action")],
+  };
 }
 
 /**
