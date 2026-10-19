@@ -394,11 +394,13 @@ export {
   fossilCards,
   teamRocketCards,
   gymHeroesCards,
+  gymChallengeCards,
   getBaseSetImageUrl,
   getJungleImageUrl,
   getFossilImageUrl,
   getTeamRocketImageUrl,
   getGymHeroesImageUrl,
+  getGymChallengeImageUrl,
   getCardImageUrl as getCatalogImageUrl,
   // Set registry: iterate these instead of hard-coding the sets
   CARD_SETS,
@@ -409,6 +411,7 @@ export {
   findCardById,
   findCardDefinition,
   findCardByName,
+  isSetInDevelopment,
   // Pokédex lengths (Blaine's Quiz #1)
   POKEDEX_HEIGHTS,
   pokedexSpecies,

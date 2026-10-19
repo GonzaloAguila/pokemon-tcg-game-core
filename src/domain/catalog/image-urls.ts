@@ -95,3 +95,24 @@ export const getGymHeroesImageUrl = (card: CardImageInput): string => {
     .replace(/\s+/g, "-");
   return `https://pkmncards.com/wp-content/uploads/${slug}-gym-heroes-${card.number}.jpg`;
 };
+
+/**
+ * Generates the image URL for a Gym Challenge card: Gym Heroes' rules (the dot kept, no set
+ * code: lt.-surges-raichu-gym-challenge-11.jpg) plus ♀/♂ → female/male
+ * (giovannis-nidoran-female-gym-challenge-75.jpg); "#" dropped (blaines-quiz-2-gym-challenge-111.jpg).
+ * pkmncards misspells one file: Lt. Surge's Jolteon #28 is lit.-surges-jolteon-gym-challenge-28.jpg.
+ * Checked with `npm run check-images -- --set gym-challenge` (all 122 answer 200, 2026-10-19).
+ */
+export const getGymChallengeImageUrl = (card: CardImageInput): string => {
+  if (card.name === "Lt. Surge's Jolteon") return "https://pkmncards.com/wp-content/uploads/lit.-surges-jolteon-gym-challenge-28.jpg";
+  const slug = card.name
+    .toLowerCase()
+    .replace(/é/g, "e")
+    .replace(/♀/g, "female")
+    .replace(/♂/g, "male")
+    .replace(/'/g, "")
+    .replace(/[^a-z0-9.\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-");
+  return `https://pkmncards.com/wp-content/uploads/${slug}-gym-challenge-${card.number}.jpg`;
+};

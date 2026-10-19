@@ -138,9 +138,9 @@ export function buildThemeDeck(rng: Rng): Deck {
   return pick(rng, themeDecks);
 }
 
-/** All set ids known to the registry */
+/** All set ids known to the registry, but those still in development (pass them with --sets to include them) */
 export function allSetIds(): CardSetId[] {
-  return CARD_SETS.map((s) => s.id);
+  return CARD_SETS.filter((s) => !s.inDevelopment).map((s) => s.id);
 }
 
 /**
@@ -165,7 +165,7 @@ export function buildMixDeck(rng: Rng, setIds: readonly CardSetId[], name = "mix
 
   // A line whose earlier stages aren't in the chosen sets takes them from any set (Team
   // Rocket's Dark Raichu evolves from Base Set / Jungle Pikachu)
-  const everyCard = CARD_SETS.flatMap((s) => s.cards);
+  const everyCard = CARD_SETS.filter((s) => !s.inDevelopment || setIds.includes(s.id)).flatMap((s) => s.cards);
   const stagesNamed = (from: string, cards: readonly Card[]): Card[] =>
     cards.filter((c) => c.name === from && (c.kind === CardKind.Pokemon || (c.kind === CardKind.Trainer && !!c.playsAsBasic)));
   /** Basic (or Mysterious Fossil) → … → card, picking one card per name at random */

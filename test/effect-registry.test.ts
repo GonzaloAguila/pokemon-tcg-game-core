@@ -15,7 +15,7 @@ import {
   getPowerCoinFlips,
   usePokemonPower,
 } from "@/domain/effects";
-import { ALL_CARDS } from "@/domain/catalog";
+import { ALL_CARDS, isSetInDevelopment } from "@/domain/catalog";
 import { IllegalActionError } from "@/shared/errors";
 import { EnergyType, StatusCondition, PokemonStage, TrainerType } from "@/domain/constants";
 import { makeState, inPlay, gameCard, energy, energies, deepFreeze, names } from "./helpers/state";
@@ -30,8 +30,10 @@ describe("registry coverage", () => {
       (name) => !TRAINER_EFFECTS[name] && !UNSUPPORTED_TRAINERS.includes(name) && !isPlayedAsBasic(name) && !isStadium(name)
     );
     expect(missing).toEqual([]);
-    // Every catalog Trainer is playable (the last Gym Heroes ones, Tasks 10–14, are in)
-    expect([...UNSUPPORTED_TRAINERS]).toEqual([]);
+    // Every catalog Trainer is playable but those of a set still in development (Gym Challenge:
+    // each leaves the allow-list as its plan task implements it)
+    const inDevelopment = new Set(ALL_CARDS.filter((c) => c.kind === "trainer" && isSetInDevelopment(c)).map((c) => c.name));
+    expect(UNSUPPORTED_TRAINERS.filter((name) => !inDevelopment.has(name))).toEqual([]);
     expect(isPlayedAsBasic("Mysterious Fossil") && isPlayedAsBasic("Clefairy Doll")).toBe(true);
   });
 

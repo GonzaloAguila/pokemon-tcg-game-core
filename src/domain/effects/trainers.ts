@@ -702,7 +702,29 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  * in ALL_CARDS must have a TRAINER_EFFECTS entry (enforced by a test).
  */
 export const UNSUPPORTED_TRAINERS: readonly string[] = [
-  // None left (the Gym Heroes ones that needed new machinery were removed as they were implemented)
+  // Gym Challenge (catalog only, 2026-10-19): each name leaves this list when its plan task
+  // implements it (docs/superpowers/plans/2026-10-19-gym-challenge.md). Its 7 Stadiums need no
+  // entry here: they fall back to playStadium (in play, no rule yet).
+  "Blaine",
+  "Giovanni",
+  "Koga",
+  "Sabrina",
+  "Brock's Protection",
+  "Erika's Kindness",
+  "Giovanni's Last Resort",
+  "Lt. Surge's Secret Plan",
+  "Misty's Wish",
+  "Blaine's Quiz #2",
+  "Blaine's Quiz #3",
+  "Koga's Ninja Trick",
+  "Master Ball",
+  "Max Revive",
+  "Misty's Tears",
+  "Rocket's Secret Experiment",
+  "Sabrina's Psychic Control",
+  "Fervor",
+  "Transparent Walls",
+  "Warp Point",
 ];
 
 // ============================================================================

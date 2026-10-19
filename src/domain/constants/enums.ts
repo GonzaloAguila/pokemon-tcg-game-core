@@ -49,6 +49,7 @@ export const CardSet = {
   Fossil: "Fossil",
   TeamRocket: "Team Rocket",
   GymHeroes: "Gym Heroes",
+  GymChallenge: "Gym Challenge",
 } as const;
 export type CardSet = (typeof CardSet)[keyof typeof CardSet];
 
@@ -319,6 +320,32 @@ export const PokemonPowerType = {
   EnergyTypeOverride: "energyTypeOverride",
   /** Blaine's Vulpix's Natural Healing: once per turn, remove 1 damage counter from itself */
   SelfHeal: "selfHeal",
+  // ---------------------------------------------------------------- Gym Challenge (DATA ONLY: placeholders, no behavior yet;
+  // the plan's power tasks implement them and may replace a value with an existing type)
+  /** Brock's Ninetales' Shapeshift: once per turn attach an Evolution card from the hand and act as that Pokémon */
+  ShapeshiftEvolution: "shapeshiftEvolution",
+  /** Giovanni's Machamp's Fortitude: would be Knocked Out by an opponent's attack → flip; heads = stays at 10 HP */
+  SurviveKnockOutFlip: "surviveKnockOutFlip",
+  /** Misty's Gyarados' Rebellion: whenever it attacks, flip 2; both tails = the attack does nothing and it shuffles itself into the deck */
+  AttackRebellionFlip: "attackRebellionFlip",
+  /** Sabrina's Alakazam's Psylink: has a copy of every attack of your Psychic Pokémon in play */
+  CopyTeamAttacks: "copyTeamAttacks",
+  /** Blaine's Ninetales' Healing Fire: attaching a Fire Energy card from the hand to it removes 1 damage counter */
+  HealOnEnergyAttach: "healOnEnergyAttach",
+  /** Koga's Muk's Energy Drain: damaged by an opponent's attack → flip; heads = discard an Energy card from the attacker */
+  DamagedDiscardAttackerEnergy: "damagedDiscardAttackerEnergy",
+  /** Brock's Primeape's Scram: with exactly 10 HP left, it shuffles itself and its cards into the deck */
+  ShuffleSelfAtHp: "shuffleSelfAtHp",
+  /** Erika's Bellsprout's Soak Up: once per turn, move up to 2 Grass Energy cards from your other Pokémon to it */
+  TakeEnergyToSelf: "takeEnergyToSelf",
+  /** Erika's Ivysaur's Relaxing Scent: while Active, every attack damage to any Pokémon is halved (rounded up) */
+  HalveAllAttackDamage: "halveAllAttackDamage",
+  /** Koga's Kakuna's Emerge: once per turn, flip; heads = evolve it into Koga's Beedrill from the deck */
+  SearchOwnEvolutionFlip: "searchOwnEvolutionFlip",
+  /** Lt. Surge's Electrode's Shock Blast: damaged while Active → flip; tails = 20 to each Active Pokémon (works while statused) */
+  DamagedActivesDamageFlip: "damagedActivesDamageFlip",
+  /** Sabrina's Gastly's Gaseous Form: +10 HP per Psychic Energy card attached (works while statused) */
+  HpPerEnergy: "hpPerEnergy",
 } as const;
 export type PokemonPowerType = (typeof PokemonPowerType)[keyof typeof PokemonPowerType];
 

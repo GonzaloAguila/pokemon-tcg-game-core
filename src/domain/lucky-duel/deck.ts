@@ -7,7 +7,7 @@
  * Randomness only comes from the `rng` parameter (the server's RNG; a seeded one in tests).
  */
 
-import { ALL_CARDS } from "@/domain/catalog";
+import { ALL_CARDS as CATALOG, isSetInDevelopment } from "@/domain/catalog";
 import type { Card, EnergyCard, PokemonCard, TrainerCard } from "@/domain/cards/types";
 import { isLimitedInDeck } from "@/domain/cards/guards";
 import { EnergyType, GamePhase, PokemonStage } from "@/domain/constants";
@@ -57,6 +57,9 @@ function shuffleWith<T>(rng: Rng, items: readonly T[]): T[] {
   }
   return out;
 }
+
+/** The catalog without the sets still in development (their effects aren't implemented). */
+const ALL_CARDS: readonly Card[] = CATALOG.filter((c) => !isSetInDevelopment(c));
 
 const POKEMON: readonly PokemonCard[] = ALL_CARDS.filter((c): c is PokemonCard => c.kind === "pokemon");
 

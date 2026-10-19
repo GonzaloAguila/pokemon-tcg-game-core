@@ -91,7 +91,7 @@ export const POKEDEX_HEIGHTS: Readonly<Record<string, string>> = {
 };
 
 /** Card names that aren't their species' Pokédex name. */
-const SPECIES_ALIASES: Readonly<Record<string, string>> = { Nidoran: "Nidoran♂" };
+const SPECIES_ALIASES: Readonly<Record<string, string>> = { Nidoran: "Nidoran♂", "Nidoran ♀": "Nidoran♀", "Nidoran ♂": "Nidoran♂" };
 
 /** The Pokédex species of a Pokémon card name ("Brock's Onix" → "Onix", "Dark Charizard" → "Charizard"). */
 export function pokedexSpecies(name: string): string {

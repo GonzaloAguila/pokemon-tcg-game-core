@@ -14,16 +14,25 @@ import { jungleCards } from "./jungle";
 import { fossilCards } from "./fossil";
 import { teamRocketCards } from "./team-rocket";
 import { gymHeroesCards } from "./gym-heroes";
-import { getBaseSetImageUrl, getJungleImageUrl, getFossilImageUrl, getTeamRocketImageUrl, getGymHeroesImageUrl, type CardImageInput } from "./image-urls";
+import { gymChallengeCards } from "./gym-challenge";
+import {
+  getBaseSetImageUrl,
+  getJungleImageUrl,
+  getFossilImageUrl,
+  getTeamRocketImageUrl,
+  getGymHeroesImageUrl,
+  getGymChallengeImageUrl,
+  type CardImageInput,
+} from "./image-urls";
 
 /** Stable slug of a set (also the prefix of its card ids). */
-export type CardSetId = "base-set" | "jungle" | "fossil" | "team-rocket" | "gym-heroes";
+export type CardSetId = "base-set" | "jungle" | "fossil" | "team-rocket" | "gym-heroes" | "gym-challenge";
 
 export type CardSetInfo = {
   id: CardSetId;
   /** Value of `card.set` for the set's cards */
   name: CardSet;
-  /** Short printed code ("BS", "JU", "FO", "TR", "G1") */
+  /** Short printed code ("BS", "JU", "FO", "TR", "G1", "G2") */
   code: string;
   /** ISO date (YYYY-MM-DD) of the original English release */
   releaseDate: string;
@@ -33,6 +42,12 @@ export type CardSetInfo = {
   cards: Card[];
   /** Image URL (pkmncards.com) for a card of this set */
   imageUrl(card: CardImageInput): string;
+  /**
+   * The set's cards are cataloged but their effects aren't implemented yet: kept out of the
+   * engine's random pools (simulator default sets, Lucky Duel). Consumers must hide it too
+   * (boosters, collection, deck builder, catalog pages) while it is set. Use `isSetInDevelopment`.
+   */
+  inDevelopment?: boolean;
 };
 
 export const CARD_SETS: readonly CardSetInfo[] = [
@@ -82,7 +97,23 @@ export const CARD_SETS: readonly CardSetInfo[] = [
     cards: gymHeroesCards,
     imageUrl: getGymHeroesImageUrl,
   },
+  {
+    id: "gym-challenge",
+    name: CardSet.GymChallenge,
+    code: "G2",
+    releaseDate: "2000-10-16",
+    totalCards: 132,
+    cards: gymChallengeCards,
+    imageUrl: getGymChallengeImageUrl,
+    // Catalog only (2026-10-19): effects come with docs/superpowers/plans/2026-10-19-gym-challenge.md
+    inDevelopment: true,
+  },
 ];
+
+/** Whether a card's set is still in development (see CardSetInfo.inDevelopment). */
+export function isSetInDevelopment(card: Pick<Card, "set">): boolean {
+  return !!getSetForCard(card)?.inDevelopment;
+}
 
 /** Every catalog card of every set, in registry order (Base Set first). */
 export const ALL_CARDS: readonly Card[] = CARD_SETS.flatMap((set) => set.cards);

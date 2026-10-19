@@ -1,5 +1,5 @@
-/** Gym Heroes / Gym Challenge owners: the name prefix of their Pokémon ("Brock's Onix"). */
-export const POKEMON_OWNERS = ["Brock", "Misty", "Erika", "Lt. Surge", "Sabrina", "Blaine", "Rocket"] as const;
+/** Gym Heroes / Gym Challenge owners: the name prefix of their Pokémon ("Brock's Onix"; Giovanni and Koga are Gym Challenge's). */
+export const POKEMON_OWNERS = ["Brock", "Misty", "Erika", "Lt. Surge", "Sabrina", "Blaine", "Rocket", "Giovanni", "Koga"] as const;
 export type PokemonOwner = (typeof POKEMON_OWNERS)[number];
 
 /** The owner in a card's name, or null ("Brock's Onix" → "Brock"; "Onix" → null). */
