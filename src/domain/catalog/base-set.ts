@@ -1516,6 +1516,7 @@ export const baseSetCards: Card[] = [
           cost: [EnergyType.Water, EnergyType.Water],
           text:
             "Elige 1 de los ataques del Pokémon Defensor. Ese Pokémon no puede usar ese ataque durante el próximo turno de tu rival.",
+          effects: [{ type: AttackEffectType.LockDefenderAttack, target: AttackTarget.Defender }],
         },
         {
           name: "Bofetón Doble",

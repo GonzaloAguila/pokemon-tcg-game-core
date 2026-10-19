@@ -52,10 +52,12 @@ export type SelectionStep = {
   answererDescription?: string;
   /**
    * The step shows hidden information of the other player to the chooser: "opponentHand" =
-   * `cards` is the opponent's whole hand (Rocket's Sneak Attack). In multiplayer the server
-   * must build this step from the real (unmasked) state.
+   * `cards` is the opponent's whole hand (Rocket's Sneak Attack, Psyscan); "opponentCards" =
+   * `cards` are other hidden cards of the opponent (Surprise: a random card of their hand; False
+   * Charity: the top card of their deck). In multiplayer the server must build this step from the
+   * real (unmasked) state and never send `cards` to the other player.
    */
-  reveals?: "opponentHand";
+  reveals?: "opponentHand" | "opponentCards";
   /**
    * The answer given for a player who doesn't answer in time (the multiplayer server's answer
    * clock): always a valid selection for this step (checkSelection accepts it) and harmless to

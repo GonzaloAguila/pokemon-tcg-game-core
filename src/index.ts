@@ -207,6 +207,9 @@ export type { GameMode, LuckyDuelDraw } from "./domain/lucky-duel";
 export {
   executeAttack,
   executeMetronome,
+  executeCopiedAttack,
+  getCopiedAttackCoinPlan,
+  energyRemovalBlocked,
   getAttackCoinFlipCount,
   getAttackCoinPlan,
   flipAttackCoins,

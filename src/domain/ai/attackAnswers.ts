@@ -15,6 +15,10 @@
  * | Fairy Power | its Pokémon with ≤ 20 HP left (the Active only while another Pokémon stays in play) |
  * | Magic Pollen | Paralyzed, Asleep, Confused, Poisoned (in that order; a Paralyzed Defending Pokémon gets Poisoned) |
  * | Sleight of Hand | step 1: the cards of the hand it values ≤ 15 (no more than the basic Energy it may find); step 2: needed Energy first |
+ * | Group Attack's search (reaction), Growth | as many as allowed |
+ * | Helping Hand's count | every counter (the most cards) |
+ * | Amnesia, ESP's copy | the Defending Pokémon's attack with the most printed damage |
+ * | Invigorate | the first option (its own discard pile is listed first) |
  * | anything else | answerStepForAI (the first options) |
  */
 
@@ -54,6 +58,8 @@ export function answerAttackChoiceForAI(attackerView: GameState): string[] {
         return answerFlee(attackerView, answererView, reaction.pokemonId, step);
       case "benchGuard":
         return answerBenchGuard(answererView, reaction.pokemonId, step);
+      case "beforeDamageSearch":
+        return enabledIds(step).slice(0, step.maxSelections);
     }
   }
   if (step.chooser === "opponent") {
@@ -66,6 +72,14 @@ export function answerAttackChoiceForAI(attackerView: GameState): string[] {
       return answerFairyPower(answererView, step);
     case AttackEffectType.ChooseStatus:
       return answerChooseStatus(answererView, step);
+    case AttackEffectType.AttachEnergyFromHand:
+      return enabledIds(step).slice(0, step.maxSelections);
+    case AttackEffectType.HealOpponentToDraw:
+      // Step 2 (how many counters): all of them
+      return pending.picked ? [enabledIds(step).at(-1) ?? "0"] : answerStepForAI(step);
+    case AttackEffectType.LockDefenderAttack:
+    case AttackEffectType.CopyDefenderAttackChoice:
+      return answerStrongestAttack(answererView, step);
     case AttackEffectType.SearchDeckChoice:
       if (pending.effect.putBackFromHand) return answerSleightOfHand(answererView, step, !pending.picked);
       return answerStepForAI(step);
@@ -134,6 +148,15 @@ function answerFairyPower(view: GameState, step: SelectionStep): string[] {
   // Never everything: the Active goes back only while another Pokémon stays in play
   if (chosen.length >= inPlay.length) return chosen.filter((id) => id !== view.playerActivePokemon?.pokemon.id);
   return chosen.slice(0, step.maxSelections);
+}
+
+/** Amnesia / ESP's copy: the offered attack of the Defending Pokémon with the most printed damage. */
+function answerStrongestAttack(view: GameState, step: SelectionStep): string[] {
+  const card = view.opponentActivePokemon?.pokemon;
+  const attacks = card && card.kind === "pokemon" ? card.attacks : [];
+  const printed = (id: string) => parseInt(String(attacks.find((a) => a.name === id)?.damage ?? 0), 10) || 0;
+  const best = [...enabledIds(step)].sort((a, b) => printed(b) - printed(a))[0];
+  return best ? [best] : answerStepForAI(step);
 }
 
 /** Magic Pollen: the strongest Special Condition the Defending Pokémon doesn't have (Poisoned stacks). */

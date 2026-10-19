@@ -57,7 +57,7 @@ import { returnSetAsideHand, type SetAsideHand } from "@/domain/trainers/set-asi
 export type { SetAsideHand } from "@/domain/trainers/set-aside";
 import type { LastDuel, PendingDuel } from "@/domain/duel/rps";
 export type { LastDuel, PendingDuel, RpsChoice } from "@/domain/duel/rps";
-import { isAttackChoiceEffect, matchesDeckCardFilter, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
+import { isAttackChoiceEffect, matchesDeckCardFilter, newBenchedPokemon, startAttackChoices, type AttackChoiceContext } from "./attackChoices";
 export { resolveAttackChoice, getAttackChoiceCoinPlan, isAttackChoiceEffect, matchesDeckCardFilter } from "./attackChoices";
 export type { AttackChoiceContext } from "./attackChoices";
 import type { PendingPowerChoice } from "./powerChoices";
@@ -218,6 +218,8 @@ export type AttackReactions = {
   espReflip?: CoinFlipResult[] | null;
   /** Charity (attached to the attacker): how much the attacker reduced its damage to the Defending Pokémon (0 = none). */
   charityReduction?: number;
+  /** Group Attack: ids of the deck cards the attacker put on its Bench before the damage (empty = none) */
+  beforeDamageSearch?: string[];
 };
 
 /**
@@ -227,7 +229,7 @@ export type AttackReactions = {
  * damage went to a Benched Pokémon (ChooseTargetDamage).
  */
 export type AttackResume =
-  | { kind: "attack"; attackIndex: number; copiedAttack?: Attack; options: ExecuteAttackOptions }
+  | { kind: "attack"; attackIndex: number; copiedAttack?: Attack; copySource?: string; options: ExecuteAttackOptions }
   | { kind: "benchDamage"; pending: NonNullable<GameState["pendingBenchDamageSelection"]>; selection: string[]; reactions: AttackReactions }
   | { kind: "attackChoice"; pending: PendingAttackChoice; selection: string[]; reactions: AttackReactions };
 
@@ -1148,6 +1150,15 @@ const STATUS_NAMES_ES: Partial<Record<string, string>> = {
   [StatusCondition.Paralyzed]: "Paralizado",
   [StatusCondition.Poisoned]: "Envenenado",
 };
+
+/**
+ * Whether an effect of `by` can't take an attached Energy card off `pokemon` (Brock's Protection,
+ * Task 7 of the Gym Challenge plan). Every path that discards or moves an opponent's attached
+ * Energy asks it (Super Removal now). Nobody blocks it yet.
+ */
+export function energyRemovalBlocked(_state: GameState, _pokemon: PokemonInPlay, _by: "opponent"): boolean {
+  return false;
+}
 
 /**
  * Stop before an attack (or the step in `resume`) does anything: `state` is returned as it was
@@ -3608,6 +3619,8 @@ const DEFENDER_EFFECT_TYPES: ReadonlySet<string> = new Set([
   AttackEffectType.MoveDamageCountersToDefender,
   AttackEffectType.SetRemainingHp,
   AttackEffectType.IntimidateLock,
+  AttackEffectType.DiscardEnergyEachOpponent,
+  AttackEffectType.LockDefenderAttack,
 ]);
 
 /** Can the attack do anything to the Defending Pokémon (damage, or an effect on it)? */
@@ -4054,6 +4067,11 @@ export function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipR
       missed.push(effect);
       continue;
     }
+    // ESP (Misty's Psyduck): the effect needs exactly `exactHits` matching coins
+    if (coinFlip.exactHits !== undefined && hits !== coinFlip.exactHits) {
+      missed.push(effect);
+      continue;
+    }
 
     if (effect.type === AttackEffectType.CoinFlipDamage || effect.type === AttackEffectType.BonusDamage) {
       hasCoinDamage = true;
@@ -4308,6 +4326,42 @@ function executeAttackUnchecked(
         createGameEvent(`No puedes usar ${attack.name}: el Pokémon defensor no cumple el requisito del ataque`, "info"),
       ],
     };
+  }
+
+  // Group Attack: "before doing damage, you may search your deck for Basic Pokémon named X and put
+  // them onto your Bench" — asked of the attacker before anything else of the attack happens
+  const preSearch = options ? attack.effects?.find((e) => e.type === AttackEffectType.SearchDeckChoice && e.beforeDamage) : undefined;
+  if (preSearch) {
+    const room = maxBenchSize(gameState, "player") - gameState.playerBench.length;
+    const found = gameState.playerDeck.filter((c) => matchesDeckCardFilter(c, preSearch.deckFilter));
+    if (reactions.beforeDamageSearch === undefined && room > 0 && found.length > 0) {
+      const max = Math.min(room, found.length);
+      return pauseForReaction(
+        inputState,
+        { answers: "beforeDamageSearch", powerName: printedAttack.name, pokemonId: attacker.pokemon.id, side: "player", resume: resumeAttack() },
+        {
+          title: printedAttack.name,
+          description: `Antes de hacer el daño puedes buscar en tu mazo hasta ${max} Pokémon Básicos llamados ${preSearch.deckFilter?.names?.join(" o ") ?? ""} para ponerlos en tu Banca`,
+          options: found.map((c) => ({ id: c.id, label: c.name })),
+          maxSelections: max,
+          minSelections: 0,
+          cards: found,
+          disableAutoSelect: true,
+          chooser: "self",
+          defaultSelection: [],
+        },
+        reactionContext(attacker, defender, printedAttack.name, gameState)
+      );
+    }
+    const taken = found.filter((c) => reactions.beforeDamageSearch?.includes(c.id)).slice(0, Math.max(0, room));
+    if (taken.length > 0) {
+      gameState = {
+        ...gameState,
+        playerDeck: shuffle(gameState.playerDeck.filter((c) => !taken.some((t) => t.id === c.id))),
+        playerBench: [...gameState.playerBench, ...taken.map((c) => newBenchedPokemon(c, gameState.turnNumber))],
+        events: [...gameState.events, createGameEvent(`${printedAttack.name}: ${taken.map((c) => c.name).join(", ")} a la Banca. Se mezcló el mazo`, "action")],
+      };
+    }
   }
 
   // Block DeckSearch attacks when bench is full (TCG rule: "No puedes usar este ataque si tu Banca está llena.")
@@ -5717,7 +5771,13 @@ function executeAttackUnchecked(
       // with no Bench, its owner loses)
       if (effect.type === AttackEffectType.ShuffleSelfIntoDeck && newPlayerActive && !attackerKnockedOut) {
         const leaving = newPlayerActive;
-        if (effect.withAttachedCards) {
+        if (effect.deckTop) {
+          // Messenger: on top of the deck; the attack's search shuffles after (nothing to find: now)
+          newPlayerDeck = [...cardsLeavingPlay(leaving), ...newPlayerDeck];
+          const search = attack.effects?.find((e) => e.type === AttackEffectType.SearchDeckChoice);
+          if (!search || !newPlayerDeck.some((c) => matchesDeckCardFilter(c, search.deckFilter))) newPlayerDeck = shuffle(newPlayerDeck);
+          events.push(createGameEvent(`¡${leaving.pokemon.name} y todas sus cartas se pusieron encima del mazo de su dueño!`, "action"));
+        } else if (effect.withAttachedCards) {
           newPlayerDeck = shuffle([...newPlayerDeck, ...cardsLeavingPlay(leaving)]);
           events.push(createGameEvent(`¡${leaving.pokemon.name} y todas sus cartas se barajaron en el mazo de su dueño!`, "action"));
         } else {
@@ -6444,6 +6504,37 @@ export function executeMetronome(
   skipDefenderPromotion: boolean = false
 ): GameState {
   assertLegal(canExecuteMetronome(gameState, copiedAttack));
+  return executeCopiedAttack(gameState, copiedAttack, skipEndTurnOrOptions, skipDefenderPromotion);
+}
+
+/**
+ * The coins an attack copied by the Active (ESP's 3 heads) needs, laid out like getAttackCoinPlan
+ * for the copy executeCopiedAttack runs (no Energy cost; the Smokescreen coin of the attack that
+ * copies it was already flipped, so the Active must not be under one: callers clear it first).
+ */
+export function getCopiedAttackCoinPlan(state: GameState, copiedAttack: Attack): AttackCoinPlan {
+  const attacker = state.playerActivePokemon;
+  if (!attacker || !isPokemonCard(attacker.pokemon)) return { smokescreen: 0, attack: 0, defender: 0 };
+  const card = getEffectivePokemonCard(state, attacker) ?? (attacker.pokemon as PokemonCard);
+  const temp: PokemonInPlay = {
+    ...attacker,
+    pokemon: { ...card, ...(card.transformedFrom && { power: undefined }), attacks: [{ ...copiedAttack, cost: [] }] } as PokemonCard,
+  };
+  return getAttackCoinPlan({ ...state, playerActivePokemon: temp }, 0);
+}
+
+/**
+ * Run `copiedAttack` (one of the Defending Pokémon's attacks) as the Active's attack, without its
+ * Energy cost or Energy discards: Metronome (executeMetronome checks it is legal first) and ESP's
+ * 3 heads (Misty's Psyduck). No legality check here. `source` names what copied it in the log.
+ */
+export function executeCopiedAttack(
+  gameState: GameState,
+  copiedAttack: Attack,
+  skipEndTurnOrOptions: boolean | ExecuteAttackOptions = false,
+  skipDefenderPromotion: boolean = false,
+  source: string = "Metrónomo"
+): GameState {
   const attacker = gameState.playerActivePokemon;
   const defender = gameState.opponentActivePokemon;
 
@@ -6464,7 +6555,7 @@ export function executeMetronome(
   // Log del uso de Metronomo
   const events = [
     ...gameState.events,
-    createGameEvent(`¡${attacker.pokemon.name} usó Metrónomo y copió ${copiedAttack.name}!`, "action"),
+    createGameEvent(`¡${attacker.pokemon.name} usó ${source} y copió ${copiedAttack.name}!`, "action"),
   ];
 
   // Crear un ataque temporal que use el daño y efectos del ataque copiado
@@ -6507,10 +6598,13 @@ export function executeMetronome(
     : executeAttackUnchecked(tempState, 0, !!skipEndTurnOrOptions, skipDefenderPromotion, undefined);
 
   // A power asked mid-attack (Flee, Bench Guard): nothing happened, Metronome is used again with the answer
-  if (resultState.pendingAttackChoice?.reaction?.resume.kind === "attack") {
+  const paused = resultState.pendingAttackChoice;
+  if (paused?.reaction?.resume.kind === "attack") {
+    // The copy is run again (executeCopiedAttack) with the answer, logged with the same source
+    const resume = source === "Metrónomo" ? paused.reaction.resume : { ...paused.reaction.resume, copySource: source };
     return {
       ...gameState,
-      pendingAttackChoice: resultState.pendingAttackChoice,
+      pendingAttackChoice: { ...paused, reaction: { ...paused.reaction, resume } },
       events: [...gameState.events, ...resultState.events.slice(tempState.events.length)],
     };
   }

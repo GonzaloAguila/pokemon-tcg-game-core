@@ -6,6 +6,7 @@
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
 import {
+  getAttackChoiceCoinPlan,
   resolvePowerChoice,
   applyForceSwitch,
   applySelfSwitch,
@@ -161,7 +162,11 @@ export function resolveOwnAttackPendings(view: GameState, options: { flip?: () =
           : resolveAttackChoice(state, answerStepForAI(step), NO_END);
         continue;
       }
-      state = resolveAttackChoice(state, answerAttackChoiceForAI(state), NO_END);
+      // An answer that needs coins (ESP's copied attack): its own flips, else (judging) heads
+      const answer = answerAttackChoiceForAI(state);
+      const plan = getAttackChoiceCoinPlan(state, answer);
+      const coinResults = plan ? flipAttackCoins(plan, options.flip ?? (() => "heads")) : undefined;
+      state = resolveAttackChoice(state, answer, { ...NO_END, ...(coinResults && { coinResults }) });
       continue;
     }
     if (state.pendingBenchDamageSelection) {

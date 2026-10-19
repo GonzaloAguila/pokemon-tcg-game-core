@@ -232,6 +232,29 @@ export const AttackEffectType = {
   IntimidateLock: "intimidateLock",
   /** Focus Energy (Lt. Surge's Raticate): during your next turn `attackName`'s damage (and its damage to itself) is doubled */
   DoubleAttackNextTurn: "doubleAttackNextTurn",
+  // Gym Challenge choices (pending attack choices, lib/attackChoices.ts)
+  /** Growth: up to `amount` basic Energy cards of `energyType` from the hand to the attacker */
+  AttachEnergyFromHand: "attachEnergyFromHand",
+  /** Super Removal: 1 Energy card (the attacker picks) of each opposing Pokémon that has any is discarded */
+  DiscardEnergyEachOpponent: "discardEnergyEachOpponent",
+  /** Lunar Power: a deck card that evolves from 1 of your Benched Pokémon goes on it (evolving by effect) */
+  EvolveBenchedFromDeck: "evolveBenchedFromDeck",
+  /** False Charity: the attacker looks at the opponent's top deck card; a Trainer goes to their discard pile, anything else to their hand */
+  RevealOpponentDeckTop: "revealOpponentDeckTop",
+  /** Pranks: a card of the opponent's discard pile (the attacker picks) goes on top of their deck */
+  OpponentDiscardToDeckTop: "opponentDiscardToDeckTop",
+  /** Surprise: a random card of the opponent's hand, seen by the attacker only, is shuffled into their deck */
+  ShuffleRandomHandCard: "shuffleRandomHandCard",
+  /** Psyscan: the attacker looks at the opponent's hand */
+  LookAtOpponentHand: "lookAtOpponentHand",
+  /** Invigorate: a Basic Pokémon card from either discard pile to its owner's Bench with half its HP in damage counters */
+  ReviveBasicToBench: "reviveBasicToBench",
+  /** Helping Hand: any number of damage counters off 1 of the opponent's Pokémon, then draw that many cards */
+  HealOpponentToDraw: "healOpponentToDraw",
+  /** Amnesia: 1 attack of the Defending Pokémon (the attacker picks) can't be used during the opponent's next turn */
+  LockDefenderAttack: "lockDefenderAttack",
+  /** ESP (Misty's Psyduck, 3 heads): copy 1 of the Defending Pokémon's attacks except its Energy cost (Metronome's flow) */
+  CopyDefenderAttackChoice: "copyDefenderAttackChoice",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

@@ -23,6 +23,21 @@
  * | `SearchDeckChoice` | Moonwatching, Jellyfish Pod, Call for Friend (Gym Heroes) | self | deck cards matching `deckFilter` (to the hand or the Bench; the deck is shuffled) |
  * | `ChooseStatus` | Magic Pollen (Erika's Gloom) | self | 1 Special Condition of `statusOptions` for the Defending Pokémon |
  * | `SearchDeckChoice` + `putBackFromHand` | Sleight of Hand (Sabrina's Mr. Mime) | self | step 1: 0..N cards of the hand (on top of the deck); step 2: that many basic Energy cards of the deck |
+ * | `SearchDeckChoice` + `beforeDamage` | Group Attack (Koga's Zubat) | self | asked as a `reaction` before the damage (`beforeDamageSearch`): 0..N deck cards to the Bench |
+ * | `AttachEnergyFromHand` | Growth (Erika's Venusaur) | self | 0..`amount` basic Energy cards of `energyType` in the hand (`source: "hand"`) |
+ * | `DiscardEnergyEachOpponent` | Super Removal (Misty's Golduck) | self | one step per opposing Pokémon with Energy (Active first): 1 of its Energy cards |
+ * | `EvolveBenchedFromDeck` | Lunar Power (Erika's Clefairy) | self | step 1: 0–1 deck card that evolves from a Benched Pokémon; step 2 (several of them): which one |
+ * | `RevealOpponentDeckTop` | False Charity (Giovanni's Meowth) | self | nothing (`[]`): the step shows their top card (`reveals: "opponentCards"`) |
+ * | `OpponentDiscardToDeckTop` | Pranks (Blaine's Mankey) | self | 1 card of the opponent's discard pile |
+ * | `ShuffleRandomHandCard` | Surprise (Lt. Surge's Eevee) | self | nothing (`[]`): the step shows the random card (`reveals: "opponentCards"`) |
+ * | `LookAtOpponentHand` | Psyscan (Sabrina's Abra) | self | nothing (`[]`): the step shows their hand (`reveals: "opponentHand"`) |
+ * | `ReviveBasicToBench` | Invigorate (Sabrina's Hypno) | self | 1 Basic Pokémon card of either discard pile whose owner's Bench has room |
+ * | `HealOpponentToDraw` | Helping Hand (Sabrina's Jynx) | self | step 1: 1 damaged opposing Pokémon; step 2: how many counters, "0".."n" |
+ * | `LockDefenderAttack` | Amnesia (Misty's Poliwag, Poliwhirl) | self | 1 attack name of the Defending Pokémon |
+ * | `CopyDefenderAttackChoice` | ESP (Misty's Psyduck, 3 heads) | self | 1 attack name of the Defending Pokémon; its coins come with the answer (getAttackChoiceCoinPlan) |
+ *
+ * Hidden cards (Surprise, Psyscan, False Charity) are only in the step's `cards`: the log never
+ * names a card that doesn't become public.
  *
  * Damage done by a choice (ChooseTargetDamage) is attack damage: PlusPower and Defender when the
  * target is the Defending Pokémon, Kabuto Armor, protection / Invisible Wall, Strikes Back,
@@ -65,7 +80,6 @@ import {
   benchGuardStep,
   executeAttack,
   executeBenchDamage,
-  executeMetronome,
   pauseForReaction,
   ESP_REFLIP_OPTION,
   checkKnockouts,
@@ -77,6 +91,11 @@ import {
   energyCardLabel,
   energyProvidesType,
   energyToMove,
+  energyRemovalBlocked,
+  canEvolveInto,
+  executeCopiedAttack,
+  getAttackRequirementFailure,
+  getCopiedAttackCoinPlan,
   getEnergyTypeInSpanish,
   knockOutPlayerActive,
   knockOutRetaliationDamage,
@@ -85,6 +104,7 @@ import {
   shuffle,
 } from "./gameState";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
+import { getLuckyDuelAttackBlocker } from "@/domain/lucky-duel/rules";
 
 /** What the attack left behind for its choices (captured when it resolved). */
 export type AttackChoiceContext = {
@@ -113,6 +133,19 @@ export type AttackChoiceContext = {
 export function isAttackChoiceEffect(effect: AttackEffect): boolean {
   switch (effect.type) {
     case AttackEffectType.SearchDeckChoice:
+      // Group Attack's search is asked before the damage (executeAttack), not after
+      return !effect.beforeDamage;
+    case AttackEffectType.AttachEnergyFromHand:
+    case AttackEffectType.DiscardEnergyEachOpponent:
+    case AttackEffectType.EvolveBenchedFromDeck:
+    case AttackEffectType.RevealOpponentDeckTop:
+    case AttackEffectType.OpponentDiscardToDeckTop:
+    case AttackEffectType.ShuffleRandomHandCard:
+    case AttackEffectType.LookAtOpponentHand:
+    case AttackEffectType.ReviveBasicToBench:
+    case AttackEffectType.HealOpponentToDraw:
+    case AttackEffectType.LockDefenderAttack:
+    case AttackEffectType.CopyDefenderAttackChoice:
     case AttackEffectType.ChooseStatus:
     case AttackEffectType.ReorderDeckTop:
     case AttackEffectType.DiscardEnergyForMill:
@@ -175,7 +208,55 @@ export function matchesDeckCardFilter(card: GameCard, filter: DeckCardFilter = {
   if (filter.names && !filter.names.includes(card.name)) return false;
   if (filter.nameIncludes && !(isPokemonCard(card) && card.name.includes(filter.nameIncludes))) return false;
   if (filter.trainer && card.kind !== CardKind.Trainer) return false;
+  if (filter.pokemon && !isPokemonCard(card)) return false;
+  if (filter.excludeNames?.includes(card.name)) return false;
   return true;
+}
+
+/** A card put onto the Bench by an effect (not played from the hand: no on-play power). */
+export function newBenchedPokemon(card: GameCard, turnNumber: number, damage = 0): PokemonInPlay {
+  return {
+    pokemon: card,
+    attachedEnergy: [],
+    attachedTrainers: [],
+    previousEvolutions: [],
+    statusConditions: [],
+    currentDamage: damage,
+    playedOnTurn: turnNumber,
+  };
+}
+
+/** The opponent's Active, unless it is the Defending Pokémon and the attack can't affect it (Agility, Transparency...). */
+function affectableOpponentActive(state: GameState, context: AttackChoiceContext): PokemonInPlay | null {
+  const active = state.opponentActivePokemon;
+  if (!active) return null;
+  return active.pokemon.id === context.defenderId ? defenderOf(state, context) : active;
+}
+
+/** Super Removal: the opposing Pokémon that still have an Energy card to lose (Active first), not `done`. */
+function superRemovalTargets(state: GameState, context: AttackChoiceContext, done: string[]): PokemonInPlay[] {
+  return [affectableOpponentActive(state, context), ...state.opponentBench].filter(
+    (p): p is PokemonInPlay => !!p && p.attachedEnergy.length > 0 && !done.includes(p.pokemon.id) && !energyRemovalBlocked(state, p, "opponent")
+  );
+}
+
+/** Lunar Power: the Benched Pokémon `card` can evolve. */
+const benchedEvolvableBy = (state: GameState, card: GameCard) => state.playerBench.filter((p) => canEvolveInto(card, p.pokemon));
+
+/** The Defending Pokémon's attacks ESP can copy now (requirements met, allowed in the mode). */
+function copyableAttacks(state: GameState, context: AttackChoiceContext) {
+  const defender = defenderOf(state, context);
+  const card = defender ? getEffectivePokemonCard(state, defender) : undefined;
+  if (!defender || !card || !attackerOf(state, context)) return [];
+  return card.attacks.filter(
+    (a) => !getAttackRequirementFailure(a, defender, undefined, state.opponentBench, state.playerBench) && !getLuckyDuelAttackBlocker(state, a)
+  );
+}
+
+/** ESP's copy runs without the Smokescreen coin (flipped already for ESP itself). */
+function withoutSmokescreen(state: GameState): GameState {
+  const active = state.playerActivePokemon;
+  return active ? { ...state, playerActivePokemon: { ...active, mustFlipToAttack: undefined, mustFlipToAttackTurn: undefined } } : state;
 }
 
 /** The deck cards a SearchDeckChoice can take now (none for the Bench when it is full). */
@@ -489,6 +570,194 @@ function stepFor(
         chooser: "self",
       };
     }
+    case AttackEffectType.AttachEnergyFromHand: {
+      const attacker = attackerOf(state, context);
+      const cards = state.playerHand.filter((c) => isEnergyCard(c) && c.isBasic && c.energyType === effect.energyType);
+      if (!attacker || cards.length === 0) return null;
+      const max = Math.min(effect.amount ?? 1, cards.length);
+      return {
+        title,
+        description: `Puedes unir hasta ${max} carta${max === 1 ? "" : "s"} de Energía ${getEnergyTypeInSpanish(effect.energyType ?? "")} de tu mano a ${attacker.pokemon.name}`,
+        options: cards.map((c) => ({ id: c.id, label: energyLabel(c) })),
+        maxSelections: max,
+        minSelections: 0,
+        source: "hand",
+        disableAutoSelect: true,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.DiscardEnergyEachOpponent: {
+      const target = superRemovalTargets(state, context, picked ?? [])[0];
+      if (!target) return null;
+      const where = target === state.opponentActivePokemon ? "Activo rival" : "Banca rival";
+      return {
+        title,
+        description: `Elige 1 carta de Energía de ${target.pokemon.name} (${where}) para descartar`,
+        options: target.attachedEnergy.map((e) => ({ id: e.id, label: energyLabel(e) })),
+        maxSelections: 1,
+        thumbnails: target.attachedEnergy,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.EvolveBenchedFromDeck: {
+      if (getEvolutionBlocker(state)) return null;
+      if (!picked) {
+        const cards = state.playerDeck.filter((c) => isPokemonCard(c) && c.stage !== PokemonStage.Basic && benchedEvolvableBy(state, c).length > 0);
+        if (cards.length === 0) return null;
+        return {
+          title,
+          description: "Elige una carta de tu mazo que evolucione de 1 de tus Pokémon en la Banca",
+          options: cards.map((c) => ({ id: c.id, label: c.name })),
+          maxSelections: 1,
+          minSelections: 0,
+          cards,
+          chooser: "self",
+        };
+      }
+      const card = state.playerDeck.find((c) => c.id === picked[0]);
+      const targets = card ? benchedEvolvableBy(state, card) : [];
+      if (!card || targets.length < 2) return null;
+      return {
+        title,
+        description: `Elige el Pokémon de tu Banca que evoluciona a ${card.name}`,
+        options: targets.map((p) => pokemonChoice(p, "Banca")),
+        maxSelections: 1,
+        thumbnails: targets.map((p) => p.pokemon),
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.RevealOpponentDeckTop: {
+      const top = state.opponentDeck[0];
+      if (!top) return null;
+      return {
+        title,
+        description: "La carta superior del mazo de tu rival: si es una carta de Entrenador va a su pila de descartes; si no, a su mano",
+        options: [{ id: top.id, label: "Carta superior del mazo de tu rival", disabled: true }],
+        maxSelections: 0,
+        minSelections: 0,
+        cards: [top],
+        reveals: "opponentCards",
+        disableAutoSelect: true,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.ShuffleRandomHandCard: {
+      const hand = state.opponentHand;
+      if (hand.length === 0) return null;
+      // Picked at random by the engine (the server in multiplayer); only the attacker sees it
+      const card = hand[Math.floor(Math.random() * hand.length)];
+      return {
+        title,
+        description: "Una carta al azar de la mano de tu rival: tu rival la baraja en su mazo",
+        options: [{ id: card.id, label: "Carta al azar de la mano de tu rival", disabled: true }],
+        maxSelections: 0,
+        minSelections: 0,
+        cards: [card],
+        reveals: "opponentCards",
+        disableAutoSelect: true,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.LookAtOpponentHand: {
+      const hand = state.opponentHand;
+      if (hand.length === 0) return null;
+      return {
+        title,
+        description: "Mano de tu rival",
+        options: hand.map((c) => ({ id: c.id, label: c.name, disabled: true })),
+        maxSelections: 0,
+        minSelections: 0,
+        cards: hand,
+        reveals: "opponentHand",
+        disableAutoSelect: true,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.OpponentDiscardToDeckTop: {
+      const cards = state.opponentDiscard;
+      if (cards.length === 0) return null;
+      return {
+        title,
+        description: "Elige una carta de la pila de descartes de tu rival para ponerla encima de su mazo",
+        options: cards.map((c) => ({ id: c.id, label: isEnergyCard(c) ? energyLabel(c) : c.name })),
+        maxSelections: 1,
+        cards,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.ReviveBasicToBench: {
+      const basics = (side: "player" | "opponent") => {
+        const bench = side === "player" ? state.playerBench : state.opponentBench;
+        if (bench.length >= maxBenchSize(state, side)) return [];
+        return (side === "player" ? state.playerDiscard : state.opponentDiscard).filter((c) => isPokemonCard(c) && c.stage === PokemonStage.Basic);
+      };
+      const own = basics("player");
+      const theirs = basics("opponent");
+      if (own.length + theirs.length === 0) return null;
+      return {
+        title,
+        description: "Elige 1 Pokémon Básico de cualquier pila de descartes: va a la Banca de su dueño con la mitad de sus PS en contadores de daño",
+        options: [
+          ...own.map((c) => ({ id: c.id, label: `${c.name} (tu pila de descartes)` })),
+          ...theirs.map((c) => ({ id: c.id, label: `${c.name} (descartes de tu rival)` })),
+        ],
+        maxSelections: 1,
+        cards: [...own, ...theirs],
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.HealOpponentToDraw: {
+      if (!picked) {
+        const targets = [affectableOpponentActive(state, context), ...state.opponentBench].filter(
+          (p): p is PokemonInPlay => !!p && (p.currentDamage ?? 0) > 0
+        );
+        if (targets.length === 0) return null;
+        return {
+          title,
+          description: "Elige 1 de los Pokémon de tu rival: le quitas contadores de daño y robas esa misma cantidad de cartas",
+          options: targets.map((p) => pokemonChoice(p, p === state.opponentActivePokemon ? "Activo rival" : "Banca rival")),
+          maxSelections: 1,
+          thumbnails: targets.map((p) => p.pokemon),
+          chooser: "self",
+        };
+      }
+      const target = [state.opponentActivePokemon, ...state.opponentBench].find((p) => p?.pokemon.id === picked[0]);
+      const counters = Math.floor((target?.currentDamage ?? 0) / 10);
+      if (!target || counters === 0) return null;
+      return {
+        title,
+        description: `¿Cuántos contadores de daño quitas de ${target.pokemon.name}? Robas esa misma cantidad de cartas`,
+        options: Array.from({ length: counters + 1 }, (_, n) => ({ id: String(n), label: `${n} contador${n === 1 ? "" : "es"}` })),
+        maxSelections: 1,
+        disableAutoSelect: true,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.LockDefenderAttack: {
+      const defender = defenderOf(state, context);
+      const card = defender ? getEffectivePokemonCard(state, defender) : undefined;
+      if (!defender || !card || card.attacks.length === 0) return null;
+      return {
+        title,
+        description: `Elige el ataque que ${defender.pokemon.name} no podrá usar durante el próximo turno de tu rival`,
+        options: card.attacks.map((a) => ({ id: a.name, label: a.name })),
+        maxSelections: 1,
+        disableAutoSelect: true,
+        chooser: "self",
+      };
+    }
+    case AttackEffectType.CopyDefenderAttackChoice: {
+      const attacks = copyableAttacks(state, context);
+      if (attacks.length === 0) return null;
+      return {
+        title,
+        description: `Elige el ataque de ${state.opponentActivePokemon!.pokemon.name} que copias (sin su coste de Energía)`,
+        options: attacks.map((a) => ({ id: a.name, label: a.name })),
+        maxSelections: 1,
+        disableAutoSelect: true,
+        chooser: "self",
+      };
+    }
     case AttackEffectType.RecoverFromDiscard: {
       const kind = effect.recoverCardKind === "trainer" ? CardKind.Trainer : CardKind.Energy;
       const cards = state.playerDiscard.filter((c) => c.kind === kind && context.discardIdsBefore.includes(c.id));
@@ -541,7 +810,8 @@ function applyChoice(
   state: GameState,
   pending: PendingAttackChoice,
   selection: string[],
-  reactions: AttackReactions = {}
+  reactions: AttackReactions = {},
+  coins?: CoinFlipResult[]
 ): { state: GameState; next?: PendingAttackChoice } {
   const { context } = pending;
   const effect = pending.effect!;
@@ -810,6 +1080,124 @@ function applyChoice(
         ),
       };
     }
+    case AttackEffectType.AttachEnergyFromHand: {
+      if (selection.length === 0) return { state: log(state, `${name}: no se unió ninguna Energía`) };
+      const attacker = state.playerActivePokemon!;
+      const taken = state.playerHand.filter((c) => selection.includes(c.id));
+      const next: GameState = {
+        ...state,
+        playerActivePokemon: { ...attacker, attachedEnergy: [...attacker.attachedEnergy, ...taken] },
+        playerHand: state.playerHand.filter((c) => !selection.includes(c.id)),
+      };
+      return { state: log(next, `${name}: unió ${taken.map(energyLabel).join(", ")} de la mano a ${attacker.pokemon.name}`) };
+    }
+    case AttackEffectType.DiscardEnergyEachOpponent: {
+      const target = [state.opponentActivePokemon, ...state.opponentBench].find((p) => p?.attachedEnergy.some((e) => e.id === selection[0]))!;
+      const energy = target.attachedEnergy.find((e) => e.id === selection[0])!;
+      const lose = (p: PokemonInPlay): PokemonInPlay => (p.pokemon.id === target.pokemon.id ? { ...p, attachedEnergy: p.attachedEnergy.filter((e) => e.id !== energy.id) } : p);
+      const next = log(
+        {
+          ...state,
+          opponentActivePokemon: state.opponentActivePokemon && lose(state.opponentActivePokemon),
+          opponentBench: state.opponentBench.map(lose),
+          opponentDiscard: [...state.opponentDiscard, energy],
+        },
+        `${name}: se descartó ${energyLabel(energy)} de ${target.pokemon.name}`
+      );
+      return { state: next, next: followUp(next, [...(pending.picked ?? []), target.pokemon.id]) };
+    }
+    case AttackEffectType.EvolveBenchedFromDeck: {
+      const cardId = pending.picked ? pending.picked[0] : selection[0];
+      if (!cardId) return { state: log({ ...state, playerDeck: shuffle(state.playerDeck) }, `${name}: no evolucionó ningún Pokémon. Se mezcló el mazo`) };
+      if (!pending.picked) {
+        const follow = followUp(state, [cardId]);
+        if (follow) return { state, next: follow };
+      }
+      const card = state.playerDeck.find((c) => c.id === cardId)!;
+      const target = pending.picked ? state.playerBench.find((p) => p.pokemon.id === selection[0])! : benchedEvolvableBy(state, card)[0];
+      const evolved = evolvePokemonInPlay(target, card, state.turnNumber);
+      const next: GameState = {
+        ...state,
+        playerBench: state.playerBench.map((p) => (p.pokemon.id === target.pokemon.id ? evolved : p)),
+        playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== card.id)),
+      };
+      return { state: log(next, `${name}: ${target.pokemon.name} evolucionó a ${card.name}. Se mezcló el mazo`) };
+    }
+    case AttackEffectType.RevealOpponentDeckTop: {
+      const top = state.opponentDeck.find((c) => c.id === pending.step.cards?.[0]?.id);
+      if (!top) return { state };
+      const deck = state.opponentDeck.filter((c) => c.id !== top.id);
+      return top.kind === CardKind.Trainer
+        ? { state: log({ ...state, opponentDeck: deck, opponentDiscard: [...state.opponentDiscard, top] }, `${name}: ${top.name}, la carta superior del mazo del defensor, fue a su pila de descartes`) }
+        : { state: log({ ...state, opponentDeck: deck, opponentHand: [...state.opponentHand, top] }, `${name}: la carta superior del mazo del defensor fue a su mano`) };
+    }
+    case AttackEffectType.ShuffleRandomHandCard: {
+      const card = state.opponentHand.find((c) => c.id === pending.step.cards?.[0]?.id);
+      if (!card) return { state };
+      const next: GameState = {
+        ...state,
+        opponentHand: state.opponentHand.filter((c) => c.id !== card.id),
+        opponentDeck: shuffle([...state.opponentDeck, card]),
+      };
+      return { state: log(next, `${name}: el atacante miró una carta al azar de la mano del defensor, que la barajó en su mazo`) };
+    }
+    case AttackEffectType.LookAtOpponentHand:
+      return { state: log(state, `${name}: el atacante miró la mano del defensor`) };
+    case AttackEffectType.OpponentDiscardToDeckTop: {
+      const card = state.opponentDiscard.find((c) => c.id === selection[0])!;
+      const next: GameState = {
+        ...state,
+        opponentDiscard: state.opponentDiscard.filter((c) => c.id !== card.id),
+        opponentDeck: [card, ...state.opponentDeck],
+      };
+      return { state: log(next, `${name}: ${card.name} pasó de la pila de descartes del defensor a la parte superior de su mazo`) };
+    }
+    case AttackEffectType.ReviveBasicToBench: {
+      const own = state.playerDiscard.find((c) => c.id === selection[0]);
+      const card = (own ?? state.opponentDiscard.find((c) => c.id === selection[0]))!;
+      const hp = isPokemonCard(card) ? card.hp : 0;
+      const damage = Math.floor(hp / 20) * 10;
+      const benched = newBenchedPokemon(card, state.turnNumber, damage);
+      const next: GameState = own
+        ? { ...state, playerDiscard: state.playerDiscard.filter((c) => c.id !== card.id), playerBench: [...state.playerBench, benched] }
+        : { ...state, opponentDiscard: state.opponentDiscard.filter((c) => c.id !== card.id), opponentBench: [...state.opponentBench, benched] };
+      return { state: log(next, `${name}: ${card.name} volvió a la Banca ${own ? "del atacante" : "del defensor"} con ${damage} de daño`) };
+    }
+    case AttackEffectType.HealOpponentToDraw: {
+      if (!pending.picked) return { state, next: followUp(state, selection) };
+      const count = Number(selection[0]);
+      const heal = (p: PokemonInPlay): PokemonInPlay =>
+        p.pokemon.id === pending.picked![0] ? { ...p, currentDamage: Math.max(0, (p.currentDamage ?? 0) - count * 10) } : p;
+      const target = [state.opponentActivePokemon, ...state.opponentBench].find((p) => p?.pokemon.id === pending.picked![0])!;
+      let deck = state.playerDeck;
+      let hand = state.playerHand;
+      for (let i = 0; i < count; i++) {
+        const drawn = drawCard(deck, hand);
+        if (!drawn.success) break;
+        deck = drawn.newDeck;
+        hand = drawn.newHand;
+      }
+      const next: GameState = {
+        ...state,
+        opponentActivePokemon: state.opponentActivePokemon && heal(state.opponentActivePokemon),
+        opponentBench: state.opponentBench.map(heal),
+        playerDeck: deck,
+        playerHand: hand,
+      };
+      return { state: log(next, `${name}: se quitaron ${count} contador${count === 1 ? "" : "es"} de daño de ${target.pokemon.name} y se robaron ${hand.length - state.playerHand.length} carta(s)`) };
+    }
+    case AttackEffectType.LockDefenderAttack: {
+      const defender = state.opponentActivePokemon!;
+      const onTurn = state.turnNumber + 1;
+      // A whole-turn lock already on that turn (Tunneling) stays
+      const keep = defender.attackLock?.onTurn === onTurn && !defender.attackLock.attackName;
+      const next: GameState = keep ? state : { ...state, opponentActivePokemon: { ...defender, attackLock: { onTurn, attackName: selection[0] } } };
+      return { state: log(next, `${name}: ${defender.pokemon.name} no podrá usar ${selection[0]} durante el próximo turno`) };
+    }
+    case AttackEffectType.CopyDefenderAttackChoice: {
+      const copied = copyableAttacks(state, context).find((a) => a.name === selection[0])!;
+      return { state: executeCopiedAttack(withoutSmokescreen(state), copied, { coinResults: coins ?? [], skipEndTurn: true }, false, name) };
+    }
     case AttackEffectType.RecoverFromDiscard: {
       const taken = state.playerDiscard.filter((c) => selection.includes(c.id));
       const next: GameState = {
@@ -1027,14 +1415,16 @@ export function resolveAttackChoice(state: GameState, selection: string[], optio
   const pending = state.pendingAttackChoice;
   if (!pending) throw new IllegalActionError("No hay ninguna elección de ataque pendiente");
   checkSelection(pending.step, selection);
-  // Sabrina's ESP's re-flip: the caller's new coins must fit the attack's coins
-  const coinPlan = getAttackChoiceCoinPlan(state, selection);
-  if (coinPlan) checkCoins(coinPlan.attack, options.coinResults ?? []);
+  // Sabrina's ESP's re-flip: the caller's new coins must fit the attack's coins (ESP's copy: the
+  // copied attack checks its own coins)
+  const reflipPlan = pending.reflip && selection.includes(pending.reflip.option) ? pending.reflip.plan : null;
+  if (reflipPlan) checkCoins(reflipPlan.attack, options.coinResults ?? []);
   const cleared: GameState = { ...state, pendingAttackChoice: undefined };
   if (pending.reaction) return resumeAfterReaction(cleared, pending.reaction, selection, options);
-  const applied = applyChoice(cleared, pending, selection, options.reactions);
-  // Bench Guard asked for the damage this choice does: nothing happened yet
-  if (applied.state.pendingAttackChoice?.reaction) return applied.state;
+  const applied = applyChoice(cleared, pending, selection, options.reactions, options.coinResults);
+  // Bench Guard asked for the damage this choice does (nothing happened yet), or the attack ESP
+  // copied left its own choice: that one is asked now
+  if (applied.state.pendingAttackChoice) return applied.state;
   const next = applied.next ?? nextChoice(applied.state, pending.queue, pending.context);
   if (next) return { ...applied.state, pendingAttackChoice: next };
   const done = checkKnockouts(applied.state);
@@ -1048,8 +1438,17 @@ export function resolveAttackChoice(state: GameState, selection: string[], optio
  * (`attack`: their number, or "untilTails"; `attackFlipper` when the defending player flips them).
  */
 export function getAttackChoiceCoinPlan(state: GameState, selection: string[]): AttackCoinPlan | null {
-  const reflip = state.pendingAttackChoice?.reflip;
-  return reflip && selection.includes(reflip.option) ? reflip.plan : null;
+  const pending = state.pendingAttackChoice;
+  const reflip = pending?.reflip;
+  if (reflip) return selection.includes(reflip.option) ? reflip.plan : null;
+  // ESP's 3 heads: the copied attack's coins (no Smokescreen coin: ESP's was already flipped)
+  if (pending && !pending.reaction && pending.effect?.type === AttackEffectType.CopyDefenderAttackChoice) {
+    const copied = copyableAttacks(state, pending.context).find((a) => a.name === selection[0]);
+    if (!copied) return null;
+    const plan = getCopiedAttackCoinPlan(withoutSmokescreen(state), copied);
+    return plan.attack === 0 && plan.defender === 0 ? null : plan;
+  }
+  return null;
 }
 
 /**
@@ -1071,6 +1470,8 @@ function withAnswer(
       return { ...previous, charityReduction: Number(selection[0] ?? 0) };
     case "benchGuard":
       return { ...previous, benchGuard: { ...previous.benchGuard, [reaction.side]: selection } };
+    case "beforeDamageSearch":
+      return { ...previous, beforeDamageSearch: selection };
   }
 }
 
@@ -1091,7 +1492,10 @@ function resumeAfterReaction(
   switch (resume.kind) {
     case "attack": {
       const opts = { ...resume.options, reactions: withAnswer(reaction, selection, resume.options.reactions, coins), skipEndTurn: !!options.skipEndTurn };
-      return resume.copiedAttack ? executeMetronome(state, resume.copiedAttack, opts) : executeAttack(state, resume.attackIndex, opts);
+      // Checked when it was first used (the state is the same): run again as it was
+      return resume.copiedAttack
+        ? executeCopiedAttack(state, resume.copiedAttack, opts, false, resume.copySource)
+        : executeAttack(state, resume.attackIndex, opts);
     }
     case "benchDamage":
       return executeBenchDamage({ ...state, pendingBenchDamageSelection: resume.pending }, resume.selection, {

@@ -48,6 +48,8 @@ export type AttackEffect = {
     untilTails?: boolean;
     /** The effect happens only with at least this many matching coins (Petal Whirlwind: 2 or more heads) */
     minHits?: number;
+    /** The effect happens only with exactly this many matching coins (ESP: 1 heads draw, 2 heads damage, 3 heads copy) */
+    exactHits?: number;
   };
   /** The attack's own coins are flipped by the opponent (Knock Down, Bench Manipulation): see AttackCoinPlan.attackFlipper */
   coinFlippedBy?: "opponent";
@@ -74,6 +76,10 @@ export type AttackEffect = {
   defenderOnly?: boolean;
   /** ShuffleSelfIntoDeck: the cards attached go into the deck too (Phoenix Flame, Take Away); default: discarded (Vanish) */
   withAttachedCards?: boolean;
+  /** ShuffleSelfIntoDeck: on top of the deck, not shuffled (Messenger: a SearchDeckChoice of the same attack shuffles after) */
+  deckTop?: boolean;
+  /** SearchDeckChoice: asked before the attack's damage (Group Attack), not after the attack */
+  beforeDamage?: boolean;
   /** ChooseTargetDamage: who can be chosen ("opponentAny": Active or Benched; "opponentBench") */
   targetScope?: "opponentAny" | "opponentBench";
   /** ChooseTargetDamage: apply Weakness and Resistance (Drag Off). Default: don't (Stare, Flitter...). CounterAttack: to its damage (Fire Wall) */
@@ -202,6 +208,10 @@ export type DeckCardFilter = {
   nameIncludes?: string;
   /** Trainer cards (Errand-Running) */
   trainer?: boolean;
+  /** Any Pokémon card, Basic or Evolution (Messenger; Trainers played as Pokémon aren't) */
+  pokemon?: boolean;
+  /** Not these names (Messenger: not Koga's Pidgey) */
+  excludeNames?: string[];
 };
 
 export type Attack = {
