@@ -68,7 +68,8 @@ import { isAttackChoiceEffect, matchesDeckCardFilter, newBenchedPokemon, startAt
 export { resolveAttackChoice, getAttackChoiceCoinPlan, isAttackChoiceEffect, matchesDeckCardFilter } from "./attackChoices";
 export type { AttackChoiceContext } from "./attackChoices";
 import type { PendingPowerChoice } from "./powerChoices";
-import { attackBonusFromModifiers, defenderReduction as attachedDefenderReduction, modifierAppliesTo, modifierHoldsCard, releaseOrphanModifiers } from "./modifiers";
+import { attackBonusFromModifiers, defenderReduction as attachedDefenderReduction, kogaPoisons, modifierAppliesTo, modifierHoldsCard, releaseOrphanModifiers } from "./modifiers";
+import { expireSideTurns } from "@/domain/trainers/side-marks";
 export { resolvePowerChoice, triggerOnPlayPower, ON_PLAY_POWERS } from "./powerChoices";
 export type { PendingPowerChoice, OnPlayPowerDef } from "./powerChoices";
 import { assertLegal, IllegalActionError } from "@/shared/errors";
@@ -173,6 +174,12 @@ export type PokemonInPlay = {
    * does `damage` base damage. Ends when it is Benched (it can be Knocked Out then).
    */
   hpOverride?: { hp: number; attackName?: string; damage?: number };
+  /**
+   * Giovanni (Gym Challenge): during this turn number it may evolve though it was just put into
+   * play / evolved or it is the first turn (canEvolve). Kept when it evolves, so what it evolves
+   * into may evolve again that turn.
+   */
+  evolveAnyTimeOnTurn?: number;
   /** Deflector (HalveDamageNextTurn): damage done to it during turn `onTurn` is halved. Cleared on bench/evolve. */
   halveDamage?: { onTurn: number; attackName: string };
   /** Crystal Beam (BlockEnergyAttach): its owner can't attach Energy cards to it during this turn. Cleared on bench/evolve. */
@@ -199,9 +206,11 @@ export type GameModifier = {
    * plusPower / defender: the attached Trainer kept as a modifier (`card` is in play here and
    * goes to the discard pile when it expires). misty (Gym Heroes' Misty): this turn's attack of a
    * Pokémon with Misty in its name does `amount` more; the card is already in the discard pile
-   * (`card` is only a reference, see modifierHoldsCard).
+   * (`card` is only a reference, see modifierHoldsCard). koga (Gym Challenge's Koga): this turn, an
+   * attack of a Pokémon with Koga in its name that damages the Defending Pokémon Poisons it
+   * (`amount` 0; no card held either).
    */
-  source: "plusPower" | "defender" | "misty";
+  source: "plusPower" | "defender" | "misty" | "koga";
   card: GameCard;
   targetPokemonId?: string; // Para Defender: qué pokemon protege
   amount: number; // +10 para PlusPower, -20 para Defender, +20 para Misty
@@ -211,6 +220,9 @@ export type GameModifier = {
 
 /** "draw": both Actives Knocked Out at the same time in a Lucky Duel (standard games never draw). */
 export type GameResult = "victory" | "defeat" | "draw" | null;
+
+/** A turn number per side ("player" / "opponent" of the state's perspective; see domain/trainers/side-marks.ts). */
+export type SideTurns = Partial<Record<"player" | "opponent", number>>;
 
 /**
  * Answers of the Pokémon Powers a player may use in the middle of an attack (Gym Heroes), given
@@ -449,6 +461,17 @@ export type GameState = {
    * (getAvailableAttacks: indices after its own attacks). Dropped by endTurn.
    */
   recallActiveOnTurn?: number;
+  /**
+   * Rocket's Secret Experiment (Gym Challenge) tails: each side's last turn number without Trainer
+   * cards (getTrainerBlocker). Swapped by swapSides; dropped by endTurn once over.
+   */
+  trainerLockUntilTurn?: SideTurns;
+  /**
+   * Transparent Walls (Gym Challenge): each side's last turn number during which attack damage to
+   * its Benched Pokémon is prevented (applyAttackDamageReductions). Swapped by swapSides; dropped
+   * by endTurn once over.
+   */
+  benchProtectedUntilTurn?: SideTurns;
   /**
    * Tickling Machine (Gym Heroes): hands set aside face down, at most one pile per side (see
    * domain/trainers/set-aside.ts). endTurn puts a side's pile back into its hand at the end of its
@@ -2771,6 +2794,17 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   }
   // Recall: only for the attack of the turn it was played
   if (updatedState.recallActiveOnTurn !== undefined) delete updatedState.recallActiveOnTurn;
+  // Rocket's Secret Experiment / Transparent Walls: marks whose last turn is over
+  if (updatedState.trainerLockUntilTurn) {
+    const kept = expireSideTurns(updatedState.trainerLockUntilTurn, newTurnNumber);
+    if (kept) updatedState.trainerLockUntilTurn = kept;
+    else delete updatedState.trainerLockUntilTurn;
+  }
+  if (updatedState.benchProtectedUntilTurn) {
+    const kept = expireSideTurns(updatedState.benchProtectedUntilTurn, newTurnNumber);
+    if (kept) updatedState.benchProtectedUntilTurn = kept;
+    else delete updatedState.benchProtectedUntilTurn;
+  }
 
 
   // =====================================================================
@@ -4936,6 +4970,14 @@ function executeAttackUnchecked(
       // Shadow Images lasts until it takes damage
       ...(newDamage > (defender.currentDamage || 0) && { evadeOnFlip: undefined }),
     };
+    // Koga (Gym Challenge): this turn, a Koga's Pokémon's attack that damages the Defending Pokémon Poisons it
+    if (newDamage > (defender.currentDamage || 0) && kogaPoisons(gameState, attacker) && !hasStatusImmunity(newOpponentActive, gameState)) {
+      const poisoned = applyStatusCondition(newOpponentActive, StatusCondition.Poisoned, gameState.turnNumber);
+      if (poisoned !== newOpponentActive) {
+        newOpponentActive = poisoned;
+        events.push(createGameEvent(`Koga: ¡${poisoned.pokemon.name} está envenenado!`, "action"));
+      }
+    }
   }
 
   // Destiny Bond: if the defender was KO'd and had Destiny Bond active, KO the attacker too

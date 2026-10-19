@@ -8,12 +8,14 @@ import { swapStadium } from "./stadium";
 import { swapBenchTrim } from "./bench";
 import { swapSetAsideHands } from "@/domain/trainers/set-aside";
 import { swapLastDuel, swapPendingDuel } from "@/domain/duel/rps";
+import { swapSideTurns } from "@/domain/trainers/side-marks";
 
 /**
  * Swap the "player"/"opponent" sides of a state: zones, ready/prize/promotion flags, turn
  * ownership, PlusPower/Defender owner, starting player, who played the Stadium, whose Bench
  * must be trimmed (pendingBenchTrim), whose hand is set aside (setAsideHands), the Misty's Duel
- * picks (pendingDuel) and result (lastDuel), and the game result. Swapping twice
+ * picks (pendingDuel) and result (lastDuel), the Gym Challenge side marks (trainerLockUntilTurn,
+ * benchProtectedUntilTurn), and the game result. Swapping twice
  * returns an equal state. Pending attack flags (pendingForceSwitch...) and power prompts are
  * NOT swapped: they belong to the acting side and must be resolved in that perspective.
  */
@@ -50,5 +52,7 @@ export function swapSides(state: GameState): GameState {
     ...(state.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(state.setAsideHands) }),
     ...(state.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(state.pendingDuel) }),
     ...(state.lastDuel !== undefined && { lastDuel: swapLastDuel(state.lastDuel) }),
+    ...(state.trainerLockUntilTurn !== undefined && { trainerLockUntilTurn: swapSideTurns(state.trainerLockUntilTurn) }),
+    ...(state.benchProtectedUntilTurn !== undefined && { benchProtectedUntilTurn: swapSideTurns(state.benchProtectedUntilTurn) }),
   };
 }

@@ -56,6 +56,19 @@
  * | Celadon City Gym (Stadium action) | its Active is Asleep / Confused / Paralyzed and keeps an attack it can pay after discarding the Energy card |
  * | Stadiums (GH) | planStadium: the one that helps it most by its rule (stadiumValue, read through the Stadium rule hooks) when it beats the Stadium in play for the AI — never its own replaced by a worse one (played alone, the turn is planned again) |
  * | Energy Removal, Super Energy Removal under No Removal Gym | only with 2 cards it can spare for the cost (spareHandCards; smart.ts trainerCandidates) |
+ * | Blaine (GC) | whenever playable (no Energy attached yet, a Blaine's Pokémon, 2 Fire Energy cards): the Active first (hand change) |
+ * | Giovanni (GC) | an Evolution card in hand could evolve a Giovanni's Pokémon only with its help (hand change) |
+ * | Giovanni's Last Resort (GC) | a Giovanni's Pokémon lost half its HP (or ≤ 30 left) and the rest of the hand is of little value (≤ 15) (hand change) |
+ * | Master Ball (GC) | deck > 5 and a Pokémon card may be in it (hand change) |
+ * | Max Revive (GC) | 2 or fewer Benched Pokémon and 3+ Energy cards in hand (hand change) |
+ * | Misty's Tears (GC) | it needs Water, holds none, the deck may have some and a card of little value (≤ 25) to discard (hand change) |
+ * | Fervor (GC) | it needs Fire and the deck holds 10+ (hand change) |
+ * | Rocket's Secret Experiment (GC) | deck > 5 and no other Trainer in hand (a tails locks them) (hand change) |
+ * | Warp Point (GC) | only when the other player can answer (OTHER_PLAYER_ANSWERS): its Active can't attack and a Benched Pokémon can |
+ * | Erika's Kindness (GC) | it heals 20+ of its own damage and more than the other side's |
+ * | Koga (GC) | it will attack with a Koga's Active and the Defending Pokémon can be Poisoned |
+ * | Transparent Walls (GC) | the opposing Active has an attack that damages its Bench |
+ * | Sabrina (GC) | the Energy of a Benched Sabrina's Pokémon lets its Sabrina's Active attack |
  *
  * Attack choices (its own attack's and the defender's: Fairy Power, Magic Pollen, Sleight of
  * Hand, ESP, Charity, Flee, Bench Guard...) are answered in attackAnswers.ts.
@@ -63,11 +76,11 @@
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { canUseAttack, energyProvidesType, getAvailableAttacks, getEnergyValue, hasStatusCondition } from "@/lib/gameState";
-import { isBenchFull } from "@/domain/board";
+import { canEvolve, isBenchFull } from "@/domain/board";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import { isBasicEnergy, isEnergyCard, isPokemonCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
-import { EnergyType, PokemonStage, StatusCondition, TrainerType } from "@/domain/constants";
+import { AttackEffectType, BenchDamageTarget, EnergyType, PokemonStage, StatusCondition, TrainerType } from "@/domain/constants";
 import { stadiumBenchLimit, stadiumExtraTrainerDiscards, stadiumFavoredOwner, stadiumRetreatModifier } from "@/domain/stadiums/rules";
 import {
   ACTIVATED_POWER_TYPES,
@@ -99,7 +112,7 @@ export const AI_NEVER_PLAYS: ReadonlySet<string> = new Set(["Challenge!", "Digge
  * consumer asks (`otherPlayerAnswersByHuman`: the executor stops at
  * `state.pendingOpponentTrainerStep`, answered with answerOpponentTrainerStep).
  */
-export const OTHER_PLAYER_ANSWERS: ReadonlySet<string> = new Set(["Erika", "Lt. Surge's Treaty", "Blaine's Quiz #1"]);
+export const OTHER_PLAYER_ANSWERS: ReadonlySet<string> = new Set(["Erika", "Lt. Surge's Treaty", "Blaine's Quiz #1", "Warp Point"]);
 
 
 // ============================================================================
@@ -296,7 +309,7 @@ export function planHandChange(view: GameState, options: HandChangeOptions = {})
   const [exchange] = withUsablePower(view, "Intercambio de Materia");
   if (exchange && deck.length >= 5 && spareCard(view)) return usePower(exchange);
 
-  return planGymHeroesHandChange(view, options);
+  return planGymChallengeHandChange(view, options) ?? planGymHeroesHandChange(view, options);
 }
 
 // ---------------------------------------------------------------------------- Gym Heroes
@@ -351,6 +364,8 @@ function planOpponentAnsweredTrainers(view: GameState, affords: (count: number) 
   if (treaty && view.playerDeck.length >= 5 && view.playerPrizes.length <= view.opponentPrizes.length) return playTrainer(treaty);
   const quiz = playable(view, "Blaine's Quiz #1");
   if (quiz && view.playerDeck.length >= 6 && affords(2)) return playTrainer(quiz);
+  const warp = playable(view, "Warp Point");
+  if (warp && wantsWarpPoint(view)) return playTrainer(warp);
   return null;
 }
 
@@ -413,6 +428,173 @@ function planGymHeroesHandChange(view: GameState, options: HandChangeOptions): A
   if (!options.otherPlayerAnswersByHuman) return null;
   const answered = planOpponentAnsweredTrainers(view, affords);
   return answered?.type === "playTrainer" ? { ...answered, waitsForOtherPlayer: true } : answered;
+}
+
+// ---------------------------------------------------------------------------- Gym Challenge
+
+/** The AI's Giovanni's Pokémon that an Evolution card of its hand could evolve only with Giovanni's help (just played / first turn). */
+function giovanniTarget(view: GameState): PokemonInPlay | undefined {
+  return ownPokemon(view).find((p) => {
+    if (!hasOwner(p.pokemon, "Giovanni")) return false;
+    const marked = p.pokemon.id === view.playerActivePokemon?.pokemon.id
+      ? { ...view, playerActivePokemon: { ...p, evolveAnyTimeOnTurn: view.turnNumber } }
+      : { ...view, playerBench: view.playerBench.map((b) => (b === p ? { ...p, evolveAnyTimeOnTurn: view.turnNumber } : b)) };
+    return view.playerHand.some((c) => canEvolve(view, c.id, p.pokemon.id) !== null && canEvolve(marked, c.id, p.pokemon.id) === null);
+  });
+}
+
+/** A damaged Giovanni's Pokémon worth a whole hand (Giovanni's Last Resort): lost half its HP or 30 HP or fewer left. */
+function lastResortTarget(view: GameState): PokemonInPlay | undefined {
+  return ownPokemon(view)
+    .filter((p) => hasOwner(p.pokemon, "Giovanni") && isPokemonCard(p.pokemon) && (p.currentDamage ?? 0) > 0)
+    .filter((p) => (p.currentDamage ?? 0) >= remainingHp(p) || remainingHp(p) <= 30)
+    .sort((a, b) => (b.currentDamage ?? 0) - (a.currentDamage ?? 0))[0];
+}
+
+/** Gym Challenge Trainers that change the AI's hand or board (played alone, the turn is planned again). */
+function planGymChallengeHandChange(view: GameState, options: HandChangeOptions): AIAction | null {
+  const deck = view.playerDeck;
+  const hand = view.playerHand;
+  const pool = unknownOwnCards(view);
+  const needed = neededEnergyTypes(view);
+
+  const blaine = playable(view, "Blaine");
+  if (blaine) return playTrainer(blaine);
+
+  const giovanni = playable(view, "Giovanni");
+  if (giovanni && giovanniTarget(view)) return playTrainer(giovanni);
+
+  const lastResort = playable(view, "Giovanni's Last Resort");
+  if (lastResort && lastResortTarget(view) && hand.every((c) => c.id === lastResort.id || handCardValue(view, c) <= 15)) {
+    return playTrainer(lastResort);
+  }
+
+  const master = playable(view, "Master Ball");
+  if (master && deck.length > 5 && pool.some((c) => isPokemonCard(c))) return playTrainer(master);
+
+  const revive = playable(view, "Max Revive");
+  if (revive && view.playerBench.length <= 2 && hand.filter(isEnergyCard).length >= 3) return playTrainer(revive);
+
+  const tears = playable(view, "Misty's Tears");
+  if (
+    tears && needed.includes(EnergyType.Water) && !hand.some((c) => isBasicEnergy(c) && c.energyType === EnergyType.Water) &&
+    pool.some((c) => isBasicEnergy(c) && c.energyType === EnergyType.Water) && lowValueCards(view, tears.id, 25).length > 0
+  ) {
+    return playTrainer(tears);
+  }
+
+  const fervor = playable(view, "Fervor");
+  if (fervor && needed.includes(EnergyType.Fire) && deck.length >= 10 && (!options.saveDeck || canAffordDraws(view, 3))) return playTrainer(fervor);
+
+  // A tails locks its Trainers: only with no other Trainer in hand
+  const experiment = playable(view, "Rocket's Secret Experiment");
+  if (experiment && deck.length > 5 && !hand.some((c) => c.id !== experiment.id && isTrainerCard(c))) return playTrainer(experiment);
+
+  return null;
+}
+
+/** Warp Point: its Active is stuck (can't attack) and a Benched Pokémon can attack now. */
+function wantsWarpPoint(view: GameState): boolean {
+  if (!view.playerActivePokemon || activeCanAttack(view)) return false;
+  return view.playerBench.some((p) => canAttackWith(view, p));
+}
+
+/** Sabrina: the Energy of a Benched Sabrina's Pokémon would let its Sabrina's Active attack now. */
+function sabrinaMove(view: GameState): { from: PokemonInPlay; to: PokemonInPlay } | undefined {
+  const active = view.playerActivePokemon;
+  if (!active || !hasOwner(active.pokemon, "Sabrina") || activeCanAttack(view)) return undefined;
+  for (const from of view.playerBench) {
+    if (!hasOwner(from.pokemon, "Sabrina") || from.attachedEnergy.length === 0) continue;
+    const after: GameState = {
+      ...view,
+      playerActivePokemon: { ...active, attachedEnergy: [...active.attachedEnergy, ...from.attachedEnergy] },
+      playerBench: view.playerBench.map((p) => (p === from ? { ...p, attachedEnergy: [] } : p)),
+    };
+    if (activeCanAttack(after)) return { from, to: active };
+  }
+  return undefined;
+}
+
+/** Damage Erika's Kindness heals on each side (2 counters each, 1 if only 1). */
+function kindnessHealing(view: GameState): { own: number; theirs: number } {
+  const healed = (list: (PokemonInPlay | null)[]) => list.reduce((sum, p) => sum + Math.min(20, p?.currentDamage ?? 0), 0);
+  return {
+    own: healed([view.playerActivePokemon, ...view.playerBench]),
+    theirs: healed([view.opponentActivePokemon, ...view.opponentBench]),
+  };
+}
+
+/** The opposing Active has an attack that damages the AI's Bench (Transparent Walls). */
+function threatensBench(view: GameState): boolean {
+  const attacker = view.opponentActivePokemon;
+  if (!attacker || view.playerBench.length === 0) return false;
+  const card = getEffectivePokemonCard(view, attacker);
+  return (card?.attacks ?? []).some((a) =>
+    (a.effects ?? []).some(
+      (e) => (e.type === AttackEffectType.BenchDamage && e.benchTarget !== BenchDamageTarget.Own) || (e.type === AttackEffectType.ChooseTargetDamage && e.targetScope !== undefined)
+    )
+  );
+}
+
+/** Gym Challenge Trainers played before attacking (planTrainers). */
+function planGymChallengeTrainers(view: GameState, options: { willAttack: boolean }, add: (name: string, when: (card: GameCard) => boolean) => void): void {
+  const active = view.playerActivePokemon;
+  const defender = view.opponentActivePokemon;
+  add("Erika's Kindness", () => {
+    const { own, theirs } = kindnessHealing(view);
+    return own >= 20 && own > theirs;
+  });
+  add(
+    "Koga",
+    () =>
+      options.willAttack && !!active && hasOwner(active.pokemon, "Koga") && !!defender && !isTrainerInPlay(defender.pokemon) &&
+      !hasStatusCondition(defender, StatusCondition.Poisoned) && !hasStatusImmunity(defender, view)
+  );
+  add("Transparent Walls", () => threatensBench(view));
+  add("Sabrina", () => sabrinaMove(view) !== undefined);
+}
+
+/** The AI's answers to the Gym Challenge Trainers' steps (AI view); null = not one of them. */
+function answerGymChallengeStep(view: GameState, cardId: string, name: string, step: SelectionStep): string[] | null {
+  const hpOf = (c: GameCard | undefined) => (c && isPokemonCard(c) ? c.hp : 0);
+  switch (name) {
+    case "Giovanni":
+      return prefer(view, step, [(_c, id) => id === giovanniTarget(view)?.pokemon.id]);
+    case "Giovanni's Last Resort":
+      return prefer(view, step, [(_c, id) => id === lastResortTarget(view)?.pokemon.id]);
+    case "Master Ball":
+    case "Rocket's Secret Experiment":
+      return prefer(view, step, [
+        ...wantedFromDeck(view),
+        (c) => evolvesFromInPlay(view, c),
+        isNeededEnergy(view),
+        (c) => !!c && isPokemonCard(c) && c.stage === PokemonStage.Basic,
+      ]);
+    case "Max Revive":
+      if (step.source === "hand") return bestIds(view, step, (c) => -(c ? handCardValue(view, c) : 0)).slice(0, step.maxSelections);
+      return bestIds(view, step, hpOf).slice(0, 1);
+    case "Misty's Tears":
+      if (step.source === "hand") return bestIds(view, step, (c) => -(c ? handCardValue(view, c) : 0)).slice(0, 1);
+      return enabledIds(step).slice(0, step.maxSelections);
+    case "Warp Point": {
+      // Its own switch: a Benched Pokémon that can attack, the healthiest first
+      const bench = view.playerBench;
+      return bestIds(view, step, (_c, id) => {
+        const p = bench.find((b) => b.pokemon.id === id);
+        return p ? (canAttackWith(view, p) ? 1000 : 0) + remainingHp(p) : 0;
+      }).slice(0, 1);
+    }
+    case "Sabrina": {
+      const move = sabrinaMove(view);
+      const wanted = step.options.some((o) => o.id === move?.from.pokemon.id) ? move?.from : move?.to;
+      return prefer(view, step, [(_c, id) => id === wanted?.pokemon.id]);
+    }
+    case "Blaine":
+      // The Active first (ownPokemonChoices lists it first), then the first 2 Fire Energy cards
+      return enabledIds(step).slice(0, step.maxSelections === 2 ? 2 : 1);
+    default:
+      return null;
+  }
 }
 
 /** Share of the cards the AI wants (needed basic Energy, evolutions of its Pokémon in play). */
@@ -621,6 +803,9 @@ export function planTrainers(view: GameState, options: { willAttack: boolean }):
   add("Misty", (card) => options.willAttack && !!active && hasOwner(active.pokemon, "Misty") && spareHandCards(view, card.id, 2, 25) !== null);
   add("Erika's Perfume", () => view.opponentHand.length >= 3 && !isBenchFull(view, "opponent"));
   add("Trash Exchange", () => view.playerDiscard.length >= 4 && usefulShare(view, view.playerDiscard) > usefulShare(view, unknownOwnCards(view)) + 0.2);
+
+  // Gym Challenge
+  planGymChallengeTrainers(view, options, add);
   return actions;
 }
 
@@ -722,7 +907,7 @@ export function answerTrainerStepForAI(view: GameState, cardId: string, name: st
         (c) => !!c && isPokemonCard(c) && c.stage === PokemonStage.Basic,
       ]);
     default:
-      return answerGymHeroesStep(view, cardId, name, step);
+      return answerGymChallengeStep(view, cardId, name, step) ?? answerGymHeroesStep(view, cardId, name, step);
   }
 }
 
@@ -790,6 +975,7 @@ function answerGymHeroesStep(view: GameState, cardId: string, name: string, step
  * | Erika | the most cards it can draw without emptying its deck |
  * | Lt. Surge's Treaty | "prizes" when the AI has as many Prizes left as the Trainer's player or fewer (it gains as much or more; on 1 Prize it wins), else "draw"; its own Prize: any position (face down) |
  * | Blaine's Quiz #1 | a random length among the 4 offered (Math.random: seeded by the simulator) |
+ * | Warp Point | its Benched Pokémon with the most HP left |
  * | anything else (Challenge!) | answerStepForAI |
  */
 export function answerOpponentTrainerStepForAI(trainerView: GameState, cardId: string, step: SelectionStep): string[] {
@@ -806,6 +992,13 @@ export function answerOpponentTrainerStepForAI(trainerView: GameState, cardId: s
       return answerStepForAI(step);
     case "Blaine's Quiz #1":
       return enabled.length > 0 ? [enabled[Math.min(enabled.length - 1, Math.floor(Math.random() * enabled.length))]] : [];
+    case "Warp Point": {
+      const left = (id: string) => {
+        const p = trainerView.opponentBench.find((b) => b.pokemon.id === id);
+        return p ? remainingHp(p) : 0;
+      };
+      return enabled.length > 0 ? [[...enabled].sort((a, b) => left(b) - left(a))[0]] : [];
+    }
     default:
       return answerStepForAI(step);
   }

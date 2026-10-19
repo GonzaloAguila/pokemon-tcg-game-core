@@ -16,6 +16,7 @@ import type { PokemonPower, EnergyType, PokemonCard } from "@/domain/cards/types
 import { EnergyType as EnergyTypeEnum, PokemonPowerType, PokemonStage, StatusCondition } from "@/domain/constants";
 import { createGameEvent, energyProvidesType } from "@/lib/gameState";
 import { isPokemonCard, isEnergyCard, isTrainerInPlay, cardOutOfPlay } from "@/domain/cards";
+import { isBenchProtected } from "@/domain/trainers/side-marks";
 
 export * from "./types";
 
@@ -385,6 +386,8 @@ export function applyAttackDamageReductions(
   state: GameState | undefined,
   attacker: PokemonInPlay | null | undefined
 ): number {
+  // Transparent Walls (Gym Challenge): no attack damage to that side's Benched Pokémon
+  if (state && isBenchProtected(state, pokemon)) return 0;
   const reduced = applyDamagePowers(pokemon, applyDamageHalving(pokemon, damage, state), state, attacker).damage;
   // Relaxing Scent (Erika's Ivysaur): every attack damage, last
   return applyRelaxingScent(state, reduced).damage;

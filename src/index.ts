@@ -25,6 +25,7 @@ export type {
   StadiumInPlay,
   BenchTrim,
   SetAsideHand,
+  SideTurns,
   PendingDuel,
   LastDuel,
   RpsChoice,
@@ -159,6 +160,7 @@ export {
 
 // Tickling Machine: hands set aside face down (state.setAsideHands; consumers mask them for BOTH players)
 export { setAsideCards, swapSetAsideHands } from "./domain/trainers/set-aside";
+export { isTrainerLocked, isBenchProtected, swapSideTurns } from "./domain/trainers/side-marks";
 
 // Misty's Duel: Rock-Paper-Scissors (state.pendingDuel; see domain/duel/rps.ts for the SP / MP contract)
 export {

@@ -59,7 +59,8 @@
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { applyStatusCondition, clearStatusConditionsOnRetreat, createGameEvent, drawCard, endTurn, energyCardLabel, getEnergyTypeInSpanish, shuffle, triggerOnPlayPower } from "@/lib/gameState";
-import { arePrizesRevealed, hasStatusImmunity } from "@/domain/powers";
+import { arePrizesRevealed, hasStatusImmunity, healOnEnergyAttach } from "@/domain/powers";
+import { markSide } from "@/domain/trainers/side-marks";
 import { modifiersAttachedTo } from "@/lib/modifiers";
 import { ALL_CARDS, heightInInches, pokedexHeight, pokedexSpecies, quizLengthOptions } from "@/domain/catalog";
 import { cardOutOfPlay, cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
@@ -67,8 +68,8 @@ import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { attachTrainer, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
 import { setAsideHand, TICKLING_MACHINE } from "@/domain/trainers/set-aside";
 import { MISTYS_DUEL, startDuel } from "@/domain/duel/rps";
-import { CardKind, GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
-import { isBenchFull, maxBenchSize, findInPlay, getEvolutionBlocker } from "@/domain/board";
+import { CardKind, EnergyType, GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
+import { isBenchFull, maxBenchSize, findInPlay, getEvolutionBlocker, newPokemonInPlay } from "@/domain/board";
 import {
   playBill,
   playSwitch,
@@ -705,26 +706,13 @@ export const UNSUPPORTED_TRAINERS: readonly string[] = [
   // Gym Challenge (catalog only, 2026-10-19): each name leaves this list when its plan task
   // implements it (docs/superpowers/plans/2026-10-19-gym-challenge.md). Its 7 Stadiums need no
   // entry here: they fall back to playStadium (in play, no rule yet).
-  "Blaine",
-  "Giovanni",
-  "Koga",
-  "Sabrina",
   "Brock's Protection",
-  "Erika's Kindness",
-  "Giovanni's Last Resort",
   "Lt. Surge's Secret Plan",
   "Misty's Wish",
   "Blaine's Quiz #2",
   "Blaine's Quiz #3",
   "Koga's Ninja Trick",
-  "Master Ball",
-  "Max Revive",
-  "Misty's Tears",
-  "Rocket's Secret Experiment",
   "Sabrina's Psychic Control",
-  "Fervor",
-  "Transparent Walls",
-  "Warp Point",
 ];
 
 // ============================================================================
@@ -2016,6 +2004,477 @@ Object.assign(TRAINER_EFFECTS, {
 
 // Gym Heroes: Stadiums with an on-play effect (every other Stadium falls back to playStadium)
 Object.assign(TRAINER_EFFECTS, STADIUM_EFFECTS);
+
+// ============================================================================
+// Gym Challenge
+// ============================================================================
+
+const allInPlay = (state: GameState): PokemonInPlay[] =>
+  [state.playerActivePokemon, ...state.playerBench, state.opponentActivePokemon, ...state.opponentBench].filter((p): p is PokemonInPlay => p != null);
+const isGiovannisPokemon = (p: PokemonInPlay) => hasOwner(p.pokemon, "Giovanni");
+const isBlainesPokemon = (p: PokemonInPlay) => hasOwner(p.pokemon, "Blaine");
+const isBasicOfType = (type: EnergyType) => (c: GameCard) => isBasicEnergy(c) && c.energyType === type;
+const handFireEnergy = (state: GameState, cardId: string) => otherHandCards(state, cardId).filter(isBasicOfType(EnergyType.Fire));
+const handEnergyCards = (state: GameState, cardId: string) => otherHandCards(state, cardId).filter(isEnergyCard);
+
+/** Replace the player's Pokémon `pokemonId` (Active or Benched) with `update(it)`. */
+function updateOwnPokemon(state: GameState, pokemonId: string, update: (p: PokemonInPlay) => PokemonInPlay): GameState {
+  return {
+    ...state,
+    playerActivePokemon: state.playerActivePokemon?.pokemon.id === pokemonId ? update(state.playerActivePokemon) : state.playerActivePokemon,
+    playerBench: state.playerBench.map((p) => (p.pokemon.id === pokemonId ? update(p) : p)),
+  };
+}
+
+/** A Benched Pokémon of `side` becomes its Active; the old Active goes to the Bench without its Special Conditions (as Switch). */
+function switchWithBenched(state: GameState, side: "player" | "opponent", benchedId: string, source: string): GameState {
+  const active = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
+  const bench = side === "player" ? state.playerBench : state.opponentBench;
+  const index = bench.findIndex((p) => p.pokemon.id === benchedId);
+  if (!active || index < 0) return state;
+  const incoming = bench[index];
+  const benched: PokemonInPlay = { ...clearStatusConditionsOnRetreat(active), modifiedWeakness: undefined, modifiedResistance: undefined };
+  const newBench = [...bench.filter((_, i) => i !== index), benched];
+  const event = createGameEvent(`${source}: ${incoming.pokemon.name} pasa a ser el Pokémon Activo y ${active.pokemon.name} va a la Banca`, "action");
+  return side === "player"
+    ? { ...state, playerActivePokemon: incoming, playerBench: newBench, events: [...state.events, event] }
+    : { ...state, opponentActivePokemon: incoming, opponentBench: newBench, events: [...state.events, event] };
+}
+
+/** Warp Point's halves in order: the opponent's switch first, then the player's (a side without a Bench is skipped). */
+function warpPointOrder(state: GameState): ("opponent" | "player")[] {
+  return [
+    ...(state.opponentActivePokemon && state.opponentBench.length > 0 ? ["opponent" as const] : []),
+    ...(state.playerActivePokemon && state.playerBench.length > 0 ? ["player" as const] : []),
+  ];
+}
+
+const benchedOption = (p: PokemonInPlay): SelectionOption => ({ id: p.pokemon.id, label: p.pokemon.name, sublabel: `${remainingHp(p)} PS` });
+
+Object.assign(TRAINER_EFFECTS, {
+  // "Remove 2 damage counters from each of your Pokémon and each of your opponent's Pokémon (1 if it has only 1)"
+  "Erika's Kindness": immediate(
+    (state, cardId) => {
+      const healed: string[] = [];
+      const heal = (p: PokemonInPlay): PokemonInPlay => {
+        if (!isDamaged(p)) return p;
+        healed.push(p.pokemon.name);
+        return { ...p, currentDamage: Math.max(0, (p.currentDamage ?? 0) - 20) };
+      };
+      const played = discardPlayed(state, cardId, "Jugaste Erika's Kindness");
+      return {
+        ...played,
+        playerActivePokemon: played.playerActivePokemon && heal(played.playerActivePokemon),
+        playerBench: played.playerBench.map(heal),
+        opponentActivePokemon: played.opponentActivePokemon && heal(played.opponentActivePokemon),
+        opponentBench: played.opponentBench.map(heal),
+        events: [...played.events, createGameEvent(`Erika's Kindness: se quitaron hasta 2 contadores de daño de ${healed.join(", ")}`, "info")],
+      };
+    },
+    (state) => (allInPlay(state).some(isDamaged) ? null : "Ningún Pokémon en juego tiene contadores de daño")
+  ),
+
+  // "Remove all damage counters from 1 of your Pokémon with Giovanni in its name. Then, discard your hand."
+  "Giovanni's Last Resort": singleStep(
+    (state) => ({
+      title: "Giovanni's Last Resort",
+      description: "Elige 1 de tus Pokémon con Giovanni en su nombre: se le quitan todos los contadores de daño. Después, descartas tu mano",
+      ...ownPokemonChoices(state, (p) => isGiovannisPokemon(p) && isDamaged(p), true),
+      maxSelections: 1,
+    }),
+    (state) =>
+      ownPokemonChoices(state, (p) => isGiovannisPokemon(p) && isDamaged(p)).options.length > 0
+        ? null
+        : "Necesitas un Pokémon con Giovanni en su nombre que tenga contadores de daño",
+    (state, cardId, [pokemonId]) => {
+      const played = discardPlayed(state, cardId, "Jugaste Giovanni's Last Resort");
+      const target = findInPlay(played, "player", pokemonId)!.pokemon;
+      const healed = updateOwnPokemon(played, pokemonId, (p) => ({ ...p, currentDamage: 0 }));
+      return {
+        ...healed,
+        playerHand: [],
+        playerDiscard: [...healed.playerDiscard, ...healed.playerHand],
+        events: [
+          ...healed.events,
+          createGameEvent(`Giovanni's Last Resort: se quitaron todos los contadores de daño de ${target.pokemon.name}`, "info"),
+          createGameEvent(`Giovanni's Last Resort: quien lo jugó descartó su mano (${cardsCount(healed.playerHand.length)})`, "info"),
+        ],
+      };
+    }
+  ),
+
+  // "Look at the top 7 cards of your deck. You may choose a Basic Pokémon or Evolution card from among them..."
+  "Master Ball": {
+    canUse: (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length > 0) return null;
+      const top = state.playerDeck.slice(0, 7);
+      const anyPokemon = top.some(isPokemonCard);
+      return {
+        title: "Master Ball",
+        description: anyPokemon
+          ? "Las 7 cartas superiores de tu mazo: puedes elegir 1 carta de Pokémon Básico o de Evolución para ponerla en tu mano"
+          : "Las 7 cartas superiores de tu mazo: no hay cartas de Pokémon",
+        options: top.map((c) => ({ ...cardOption(c), disabled: !isPokemonCard(c) })),
+        maxSelections: anyPokemon ? 1 : 0,
+        minSelections: 0,
+        cards: top,
+        disableAutoSelect: true,
+      };
+    },
+    resolve: (state, cardId, selections) => {
+      const chosen = state.playerDeck.slice(0, 7).find((c) => c.id === selections[0]?.[0]);
+      const played = discardPlayed(state, cardId, "Jugaste Master Ball");
+      return {
+        ...played,
+        playerHand: chosen ? [...played.playerHand, chosen] : played.playerHand,
+        playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== chosen?.id)),
+        events: [
+          ...played.events,
+          createGameEvent(chosen ? `Master Ball: se mostró ${chosen.name} y se puso en la mano` : "Master Ball: no se tomó ninguna carta", "info"),
+          createGameEvent("Se mezcló el mazo", "info"),
+        ],
+      };
+    },
+  },
+
+  // "Discard 2 Energy cards from your hand in order to put 1 Basic Pokémon card from your discard pile onto your Bench."
+  "Max Revive": {
+    canUse: (state, cardId) => {
+      if (isBenchFull(state, "player")) return "Tu Banca está llena";
+      if (handEnergyCards(state, cardId).length < 2) return "Necesitas descartar 2 cartas de Energía de tu mano";
+      return state.playerDiscard.some(isBasicPokemonCard) ? null : "No hay Pokémon Básicos en tu pila de descartes";
+    },
+    getSteps: (state, cardId, selections) => {
+      if (selections.length === 0) {
+        return {
+          title: "Max Revive",
+          description: "Descarta 2 cartas de Energía de tu mano",
+          options: handEnergyCards(state, cardId).map(cardOption),
+          maxSelections: 2,
+          source: "hand",
+        };
+      }
+      if (selections.length === 1) {
+        const basics = state.playerDiscard.filter(isBasicPokemonCard);
+        return {
+          title: "Max Revive",
+          description: "Elige un Pokémon Básico de tu pila de descartes para ponerlo en tu Banca",
+          options: basics.map(cardOption),
+          maxSelections: 1,
+          cards: basics,
+        };
+      }
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const discarded = state.playerHand.filter((c) => selections[0].includes(c.id));
+      const basic = state.playerDiscard.find((c) => c.id === selections[1][0])!;
+      const paid: GameState = { ...state, playerHand: state.playerHand.filter((c) => !selections[0].includes(c.id)) };
+      const played = discardPlayed(paid, cardId, "Jugaste Max Revive");
+      return {
+        ...played,
+        playerDiscard: [...played.playerDiscard.filter((c) => c.id !== basic.id), ...discarded],
+        // Not "played from the hand": no on-play power
+        playerBench: [...played.playerBench, newPokemonInPlay(basic, state.turnNumber)],
+        events: [
+          ...played.events,
+          createGameEvent(`Max Revive: se descartaron ${listNames(discarded)}`, "info"),
+          createGameEvent(`Max Revive: ${basic.name} pasa de la pila de descartes a la Banca`, "action"),
+        ],
+      };
+    },
+  },
+
+  // "Discard 1 of the other cards from your hand in order to search your deck for up to 2 Water Energy cards..."
+  "Misty's Tears": {
+    canUse: (state, cardId) => (otherHandCards(state, cardId).length > 0 ? null : "Necesitas descartar otra carta de tu mano"),
+    getSteps: (state, cardId, selections) => {
+      if (selections.length === 0) {
+        return {
+          title: "Misty's Tears",
+          description: "Descarta 1 carta de tu mano",
+          options: otherHandCards(state, cardId).map(cardOption),
+          maxSelections: 1,
+          source: "hand",
+        };
+      }
+      if (selections.length > 1) return null;
+      const waters = state.playerDeck.filter(isBasicOfType(EnergyType.Water));
+      if (waters.length === 0) return null;
+      return {
+        title: "Misty's Tears",
+        description: "Elige hasta 2 cartas de Energía Agua de tu mazo",
+        options: waters.map(energyOption),
+        maxSelections: Math.min(2, waters.length),
+        minSelections: 0,
+        cards: waters,
+      };
+    },
+    resolve: (state, cardId, selections) => {
+      const cost = state.playerHand.find((c) => c.id === selections[0][0])!;
+      const taken = state.playerDeck.filter((c) => (selections[1] ?? []).includes(c.id));
+      const paid: GameState = { ...state, playerHand: state.playerHand.filter((c) => c.id !== cost.id), playerDiscard: [...state.playerDiscard, cost] };
+      const played = discardPlayed(paid, cardId, "Jugaste Misty's Tears");
+      return {
+        ...played,
+        playerHand: [...played.playerHand, ...taken],
+        playerDeck: shuffle(state.playerDeck.filter((c) => !taken.includes(c))),
+        events: [
+          ...played.events,
+          createGameEvent(`Misty's Tears: se descartó ${cost.name}`, "info"),
+          createGameEvent(
+            taken.length > 0 ? `Misty's Tears: se mostraron ${cardsCount(taken.length)} de Energía Agua y se pusieron en la mano` : "Misty's Tears: no se tomó ninguna Energía Agua",
+            "info"
+          ),
+          createGameEvent("Se mezcló el mazo", "info"),
+        ],
+      };
+    },
+  },
+
+  // "Show the top 3 cards of your deck to all players. Put any Fire Energy cards among them into your hand and discard the rest."
+  "Fervor": immediate(
+    (state, cardId) => {
+      const top = state.playerDeck.slice(0, 3);
+      const fire = top.filter(isBasicOfType(EnergyType.Fire));
+      const rest = top.filter((c) => !fire.includes(c));
+      const played = discardPlayed(state, cardId, "Jugaste Fervor");
+      return {
+        ...played,
+        playerDeck: played.playerDeck.slice(top.length),
+        playerHand: [...played.playerHand, ...fire],
+        playerDiscard: [...played.playerDiscard, ...rest],
+        events: [
+          ...played.events,
+          createGameEvent(`Fervor: se mostraron ${listNames(top)}`, "info"),
+          createGameEvent(`Fervor: ${cardsCount(fire.length)} de Energía Fuego a la mano y ${cardsCount(rest.length)} a la pila de descartes`, "info"),
+        ],
+      };
+    },
+    (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null)
+  ),
+
+  // "Your opponent switches 1 of his or her Benched Pokémon with his or her Active Pokémon, if any.
+  // Then, you switch 1 of your Benched Pokémon with your Active Pokémon, if any."
+  "Warp Point": {
+    canUse: (state) => (warpPointOrder(state).length > 0 ? null : "Ningún jugador tiene Pokémon en la Banca"),
+    getSteps: (state, _cardId, selections) => {
+      const who = warpPointOrder(state)[selections.length];
+      if (who === "opponent") {
+        const options = state.opponentBench.map(benchedOption);
+        return {
+          title: "Warp Point",
+          description: "Tu rival elige 1 de sus Pokémon en la Banca: pasa a ser su Pokémon Activo",
+          answererDescription: "Tu rival jugó Warp Point: elige 1 de tus Pokémon en la Banca para cambiarlo por tu Pokémon Activo",
+          options,
+          maxSelections: 1,
+          thumbnails: state.opponentBench.map((p) => p.pokemon),
+          disableAutoSelect: true,
+          chooser: "opponent",
+          // Answer clock: the first Benched Pokémon (the switch is forced)
+          defaultSelection: options.slice(0, 1).map((o) => o.id),
+        };
+      }
+      if (who === "player") {
+        return {
+          title: "Warp Point",
+          description: "Elige 1 de tus Pokémon en la Banca: pasa a ser tu Pokémon Activo",
+          options: state.playerBench.map(benchedOption),
+          maxSelections: 1,
+          thumbnails: state.playerBench.map((p) => p.pokemon),
+          disableAutoSelect: true,
+        };
+      }
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const order = warpPointOrder(state);
+      let next = discardPlayed(state, cardId, "Jugaste Warp Point");
+      order.forEach((side, i) => {
+        next = switchWithBenched(next, side, selections[i][0], "Warp Point");
+      });
+      return next;
+    },
+  },
+
+  // "Take all Energy cards attached to 1 of your Pokémon with Sabrina in its name and attach them to another..."
+  "Sabrina": {
+    canUse: (state) => {
+      if (ownPokemonChoices(state, isSabrinasPokemon).options.length < 2) return "Necesitas 2 Pokémon con Sabrina en su nombre en juego";
+      return ownPokemonChoices(state, (p) => isSabrinasPokemon(p) && hasEnergy(p)).options.length > 0
+        ? null
+        : "Ninguno de tus Pokémon con Sabrina en su nombre tiene Energía unida";
+    },
+    getSteps: (state, _cardId, selections) => {
+      if (selections.length === 0) {
+        return {
+          title: "Sabrina",
+          description: "Elige 1 de tus Pokémon con Sabrina en su nombre: se mueven todas sus cartas de Energía",
+          ...ownPokemonChoices(state, (p) => isSabrinasPokemon(p) && hasEnergy(p)),
+          maxSelections: 1,
+        };
+      }
+      if (selections.length === 1) {
+        return {
+          title: "Sabrina",
+          description: "Elige otro de tus Pokémon con Sabrina en su nombre para unirle esas cartas de Energía",
+          ...ownPokemonChoices(state, (p) => isSabrinasPokemon(p) && p.pokemon.id !== selections[0][0]),
+          maxSelections: 1,
+        };
+      }
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const [[fromId], [toId]] = selections;
+      const from = findInPlay(state, "player", fromId)!.pokemon;
+      const to = findInPlay(state, "player", toId)!.pokemon;
+      const moved = from.attachedEnergy;
+      const played = discardPlayed(state, cardId, "Jugaste Sabrina");
+      const taken = updateOwnPokemon(played, fromId, (p) => ({ ...p, attachedEnergy: [] }));
+      const given = updateOwnPokemon(taken, toId, (p) => ({ ...p, attachedEnergy: [...p.attachedEnergy, ...moved] }));
+      return {
+        ...given,
+        events: [...given.events, createGameEvent(`Sabrina: ${cardsCount(moved.length)} de Energía de ${from.pokemon.name} pasan a ${to.pokemon.name}`, "action")],
+      };
+    },
+  },
+
+  // "If an attack by a Pokémon with Koga in its name does damage to a Defending Pokémon this turn, that Pokémon is now Poisoned."
+  // A turn-long modifier like Misty's (executeAttack reads it: kogaPoisons); several don't stack
+  "Koga": immediate((state, cardId) => {
+    const card = state.playerHand.find((c) => c.id === cardId)!;
+    const played = discardPlayed(state, cardId, "Jugaste Koga");
+    return {
+      ...played,
+      activeModifiers: [
+        ...played.activeModifiers,
+        { id: `koga-${card.id}`, source: "koga", card, amount: 0, expiresAfterTurn: state.turnNumber, playerId: "player" },
+      ],
+      events: [
+        ...played.events,
+        createGameEvent("Koga: este turno, si el ataque de un Pokémon con Koga en su nombre le hace daño al Pokémon Defensor, ese Pokémon pasa a estar Envenenado", "info"),
+      ],
+    };
+  }),
+
+  // "Flip a coin. If heads, search your deck for any card... If tails, you can't play Trainer cards until the end of your next turn."
+  "Rocket's Secret Experiment": {
+    canUse: () => null,
+    coinFlips: () => 1,
+    getSteps: (state, _cardId, selections, coinResults) => {
+      if (coinResults?.[0] !== "heads" || selections.length > 0 || state.playerDeck.length === 0) return null;
+      return {
+        title: "Rocket's Secret Experiment",
+        description: "Elige cualquier carta de tu mazo para ponerla en tu mano",
+        options: state.playerDeck.map(cardOption),
+        maxSelections: 1,
+        cards: state.playerDeck,
+      };
+    },
+    resolve: (state, cardId, selections, { coinResults }) => {
+      const heads = coinResults?.[0] === "heads";
+      const played = discardPlayed(state, cardId, `Jugaste Rocket's Secret Experiment - Moneda: [coin:${heads ? "heads" : "tails"}]`);
+      if (!heads) {
+        return {
+          ...played,
+          trainerLockUntilTurn: markSide(state.trainerLockUntilTurn, "player", state.turnNumber + 2),
+          events: [...played.events, createGameEvent("Rocket's Secret Experiment: quien lo jugó no puede jugar cartas de Entrenador hasta el final de su próximo turno", "action")],
+        };
+      }
+      const chosen = state.playerDeck.find((c) => c.id === selections[0]?.[0]);
+      return {
+        ...played,
+        playerHand: chosen ? [...played.playerHand, chosen] : played.playerHand,
+        playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== chosen?.id)),
+        events: [
+          ...played.events,
+          createGameEvent(chosen ? "Rocket's Secret Experiment: se puso 1 carta del mazo en la mano" : "Rocket's Secret Experiment: el mazo estaba vacío", "info"),
+          createGameEvent("Se mezcló el mazo", "info"),
+        ],
+      };
+    },
+  },
+
+  // "Until the end of your opponent's next turn, prevent all damage done by attacks to your Benched Pokémon."
+  "Transparent Walls": immediate((state, cardId) => {
+    const played = discardPlayed(state, cardId, "Jugaste Transparent Walls");
+    return {
+      ...played,
+      benchProtectedUntilTurn: markSide(state.benchProtectedUntilTurn, "player", state.turnNumber + 1),
+      events: [
+        ...played.events,
+        createGameEvent("Transparent Walls: hasta el final del próximo turno del otro jugador, los ataques no hacen daño a los Pokémon en la Banca de quien lo jugó", "info"),
+      ],
+    };
+  }),
+
+  // "Choose 1 of your Pokémon in play with Giovanni in its name. For the rest of your turn, you may
+  // evolve that Pokémon even if you just played it or evolved it this turn, or if it's your first turn."
+  "Giovanni": singleStep(
+    (state) => ({
+      title: "Giovanni",
+      description: "Elige 1 de tus Pokémon con Giovanni en su nombre: puede evolucionar este turno aunque acabe de entrar en juego o de evolucionar",
+      ...ownPokemonChoices(state, isGiovannisPokemon),
+      maxSelections: 1,
+    }),
+    (state) => (ownPokemonChoices(state, isGiovannisPokemon).options.length > 0 ? null : "Necesitas un Pokémon con Giovanni en su nombre en juego"),
+    (state, cardId, [pokemonId]) => {
+      const played = discardPlayed(state, cardId, "Jugaste Giovanni");
+      const target = findInPlay(played, "player", pokemonId)!.pokemon;
+      const marked = updateOwnPokemon(played, pokemonId, (p) => ({ ...p, evolveAnyTimeOnTurn: state.turnNumber }));
+      return {
+        ...marked,
+        events: [...marked.events, createGameEvent(`Giovanni: ${target.pokemon.name} puede evolucionar este turno aunque acabe de entrar en juego o de evolucionar`, "info")],
+      };
+    }
+  ),
+
+  // "This turn, instead of attaching your free Energy card, you may attach 2 Fire Energy cards to 1 of
+  // your Pokémon with Blaine in its name." Resolved when played (owner default): the turn's attachment
+  "Blaine": {
+    canUse: (state, cardId) => {
+      if (state.energyAttachedThisTurn) return "Ya uniste una carta de Energía este turno";
+      const targets = ownPokemonChoices(state, (p) => isBlainesPokemon(p) && p.energyAttachBlockedOnTurn !== state.turnNumber);
+      if (targets.options.length === 0) return "Necesitas un Pokémon con Blaine en su nombre en juego";
+      return handFireEnergy(state, cardId).length >= 2 ? null : "Necesitas 2 cartas de Energía Fuego en tu mano";
+    },
+    getSteps: (state, cardId, selections) => {
+      if (selections.length === 0) {
+        return {
+          title: "Blaine",
+          description: "Elige 1 de tus Pokémon con Blaine en su nombre para unirle 2 cartas de Energía Fuego",
+          ...ownPokemonChoices(state, (p) => isBlainesPokemon(p) && p.energyAttachBlockedOnTurn !== state.turnNumber),
+          maxSelections: 1,
+        };
+      }
+      if (selections.length === 1) {
+        return {
+          title: "Blaine",
+          description: "Elige 2 cartas de Energía Fuego de tu mano",
+          options: handFireEnergy(state, cardId).map(energyOption),
+          maxSelections: 2,
+          source: "hand",
+        };
+      }
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const [[pokemonId], energyIds] = selections;
+      const cards = state.playerHand.filter((c) => energyIds.includes(c.id));
+      const target = findInPlay(state, "player", pokemonId)!.pokemon;
+      const played = discardPlayed({ ...state, playerHand: state.playerHand.filter((c) => !energyIds.includes(c.id)) }, cardId, "Jugaste Blaine");
+      let next: GameState = {
+        ...updateOwnPokemon(played, pokemonId, (p) => ({ ...p, attachedEnergy: [...p.attachedEnergy, ...cards] })),
+        energyAttachedThisTurn: true,
+      };
+      next = { ...next, events: [...next.events, createGameEvent(`Blaine: se unieron 2 cartas de Energía Fuego a ${target.pokemon.name}`, "action")] };
+      // Healing Fire (Blaine's Ninetales): each Fire Energy card attached from the hand heals
+      for (const card of cards) next = healOnEnergyAttach(next, "player", pokemonId, card);
+      return next;
+    },
+  },
+} satisfies Record<string, CardEffectDef>);
 
 /**
  * Trainers printed "play this card as if it were a Basic Pokémon" (`playsAsBasic`: Mysterious

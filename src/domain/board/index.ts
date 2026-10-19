@@ -24,6 +24,7 @@ import { allOwnPokemon, findInPlay } from "./locate";
 import { isBenchFull } from "./bench";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import { SPECIAL_ENERGY_ATTACH_EFFECTS, type OnAttachFromHand } from "./special-energy";
+import { isTrainerLocked } from "@/domain/trainers/side-marks";
 
 export { findInPlay, findOwnPokemon, allOwnPokemon, MAX_BENCH_SIZE } from "./locate";
 export { maxBenchSize, isBenchFull, swapBenchTrim } from "./bench";
@@ -79,6 +80,7 @@ export function getTurnActionBlocker(state: GameState): string | null {
  */
 export function getTrainerBlocker(state: GameState): string | null {
   if (state.noTrainersOnTurn === state.turnNumber) return "No puedes jugar cartas de Entrenador este turno (Dolor de Cabeza)";
+  if (isTrainerLocked(state)) return "No puedes jugar cartas de Entrenador hasta el final de tu próximo turno (Rocket's Secret Experiment)";
   // Hay Fever (Dark Vileplume), either side, while it works
   const hayFever = getTrainerBlockingPokemon(state);
   if (hayFever && isPokemonCard(hayFever.pokemon)) {
@@ -358,12 +360,15 @@ export function canEvolve(state: GameState, evolutionCardId: string, targetPokem
   if (!canEvolveInto(card, target.pokemon.pokemon)) {
     return `${card.name} no evoluciona de ${target.pokemon.pokemon.name}`;
   }
-  if (state.turnNumber <= 2) return "No puedes evolucionar en tu primer turno";
-  if (target.pokemon.playedOnTurn === state.turnNumber) {
+  // Giovanni (Gym Challenge): this turn it ignores the first-turn ban and "played / evolved this turn"
+  const anyTime = target.pokemon.evolveAnyTimeOnTurn === state.turnNumber;
+  if (!anyTime && state.turnNumber <= 2) return "No puedes evolucionar en tu primer turno";
+  if (!anyTime && target.pokemon.playedOnTurn === state.turnNumber) {
     return `${target.pokemon.pokemon.name} entró en juego o evolucionó este turno`;
   }
   const globalBlocker = getEvolutionBlocker(state);
   if (globalBlocker) return globalBlocker;
+  if (anyTime) return null;
   // Same rules as the legacy helper (kept in sync for UIs still using it)
   const legacyTargets = findValidEvolutionTargets(card, state.playerActivePokemon, state.playerBench, state.turnNumber);
   const legacyIndex = target.location === "active" ? -1 : target.benchIndex;

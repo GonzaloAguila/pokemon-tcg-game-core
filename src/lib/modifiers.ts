@@ -24,7 +24,12 @@ export function modifierAppliesTo(modifier: GameModifier, pokemon: PokemonInPlay
  * modifier only remembers the played card, which is already in the discard pile.
  */
 export function modifierHoldsCard(modifier: GameModifier): boolean {
-  return modifier.source !== "misty";
+  return modifier.source === "plusPower" || modifier.source === "defender";
+}
+
+/** Koga (Gym Challenge) played this turn by the attacking side ("player") and `attacker` has Koga in its name. */
+export function kogaPoisons(state: GameState, attacker: PokemonInPlay): boolean {
+  return hasOwner(attacker.pokemon, "Koga") && state.activeModifiers.some((m) => m.source === "koga" && m.playerId === "player");
 }
 
 /**

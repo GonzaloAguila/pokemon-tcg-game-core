@@ -113,6 +113,8 @@ export class GameRules {
         const under = [...(p.previousEvolutions ?? [])].reverse().find((c) => topsBefore.has(c.id));
         const old = under && topsBefore.get(under.id);
         if (!old) continue;
+        // Giovanni (Gym Challenge): it may evolve on the first turn / again this turn
+        if (old.evolveAnyTimeOnTurn === before.turnNumber) continue;
         if (before.turnNumber <= 2) problems.push(`${old.pokemon.name} evolved into ${p.pokemon.name} on turn ${before.turnNumber}`);
         if (old.playedOnTurn === before.turnNumber) {
           problems.push(`${old.pokemon.name} evolved into ${p.pokemon.name} the turn it was put into play / evolved`);
