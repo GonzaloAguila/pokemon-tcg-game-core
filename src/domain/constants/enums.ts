@@ -255,6 +255,13 @@ export const AttackEffectType = {
   LockDefenderAttack: "lockDefenderAttack",
   /** ESP (Misty's Psyduck, 3 heads): copy 1 of the Defending Pokémon's attacks except its Energy cost (Metronome's flow) */
   CopyDefenderAttackChoice: "copyDefenderAttackChoice",
+  /**
+   * Giant Growth (Koga's Ditto): this Pokémon's maximum HP becomes `amount` and its attack
+   * `attackName` does `boostedDamage` base damage, until it is Benched (PokemonInPlay.hpOverride)
+   */
+  SetMaxHp: "setMaxHp",
+  /** Dark Wave (Sabrina's Gengar): every Pokémon Power stops working until the end of the opponent's next turn */
+  SuppressAllPowers: "suppressAllPowers",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

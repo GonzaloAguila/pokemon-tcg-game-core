@@ -61,6 +61,7 @@ import {
   arePrizesRevealed,
   hasStatusImmunity,
   getEffectiveHp,
+  getShapeshiftCard,
 } from "@/domain/powers";
 import { allOwnPokemon, findInPlay } from "@/domain/board";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
@@ -173,11 +174,98 @@ function isOnlyPokemon(state: GameState): boolean {
   return allOwnPokemon(state).length <= 1;
 }
 
+// ---------------------------------------------------------------------------- Shapeshift
+
+/** Shapeshift's first answer while an Evolution card is attached: discard it, or attach another. */
+export const SHAPESHIFT_DISCARD = "discard";
+export const SHAPESHIFT_ATTACH = "attach";
+
+/** Shapeshift attaches the chosen card now (no card attached yet, or the player chose to attach another). */
+function shapeshiftAttaches(state: GameState, pokemonId: string, selections: string[][]): boolean {
+  const attached = getShapeshiftCard(ownPokemonById(state, pokemonId));
+  if (!attached) return true;
+  return selections[0]?.[0] === SHAPESHIFT_ATTACH && state.playerHand.some(isEvolutionCard);
+}
+
 // ============================================================================
 // Registry
 // ============================================================================
 
 export const POWER_EFFECTS: Record<string, CardEffectDef> = {
+  /**
+   * Shapeshift (Brock's Ninetales): attach an Evolution card from the hand (any type; it doesn't
+   * evolve it) and it is treated as that Pokémon (getEffectivePokemonCard); or discard the card
+   * attached. The card is kept in attachedTrainers (it leaves play with the Pokémon). Attaching
+   * is the once-per-turn use; attaching another card discards the previous one. Asleep / Confused /
+   * Paralyzed discards it (checkKnockouts). Assumption: discarding it doesn't count as the use.
+   */
+  "Cambio de Forma": {
+    canUse: (state, pokemonId) => {
+      if (getShapeshiftCard(ownPokemonById(state, pokemonId))) return null;
+      return state.playerHand.some(isEvolutionCard) ? null : "No tienes cartas de Evolución en la mano";
+    },
+    getSteps: (state, pokemonId, selections) => {
+      const self = ownPokemonById(state, pokemonId);
+      if (!self) return null;
+      const title = powerOf(state, pokemonId)?.name ?? "Cambio de Forma";
+      const attached = getShapeshiftCard(self);
+      const evolutions = state.playerHand.filter(isEvolutionCard);
+      if (attached && selections.length === 0) {
+        // Only the discard is possible: no question
+        if (evolutions.length === 0) return null;
+        return {
+          title,
+          description: `${self.pokemon.name} tiene unida a ${attached.name}`,
+          options: [
+            { id: SHAPESHIFT_DISCARD, label: `Descartar ${attached.name}` },
+            { id: SHAPESHIFT_ATTACH, label: "Unir otra carta de Evolución de tu mano" },
+          ],
+          maxSelections: 1,
+          minSelections: 1,
+        };
+      }
+      const pickIndex = attached ? 1 : 0;
+      if (selections.length !== pickIndex || !shapeshiftAttaches(state, pokemonId, selections)) return null;
+      return {
+        title,
+        description: `Elige una carta de Evolución de tu mano para unirla a ${self.pokemon.name}`,
+        options: evolutions.map((c) => ({ id: c.id, label: c.name })),
+        maxSelections: 1,
+        minSelections: 1,
+        source: "hand",
+      };
+    },
+    resolve: (state, pokemonId, selections) => {
+      const power = powerOf(state, pokemonId)!;
+      const self = ownPokemonById(state, pokemonId)!;
+      const attached = getShapeshiftCard(self);
+      const others = (self.attachedTrainers ?? []).filter((c) => !isPokemonCard(c));
+      if (!shapeshiftAttaches(state, pokemonId, selections)) {
+        const discarded = replaceOwn(state, pokemonId, { ...self, attachedTrainers: others });
+        return {
+          ...discarded,
+          playerDiscard: [...state.playerDiscard, attached!],
+          events: [...state.events, createGameEvent(`${power.name}: se descartó ${attached!.name} unido a ${self.pokemon.name}`, "action")],
+        };
+      }
+      const chosen = state.playerHand.find((c) => c.id === selections[selections.length - 1]?.[0] && isEvolutionCard(c));
+      if (!chosen) return state;
+      const next = replaceOwn(state, pokemonId, { ...self, attachedTrainers: [...others, chosen] });
+      return markPowerAsUsed(
+        {
+          ...next,
+          playerHand: state.playerHand.filter((c) => c.id !== chosen.id),
+          playerDiscard: attached ? [...state.playerDiscard, attached] : state.playerDiscard,
+          events: [
+            ...state.events,
+            createGameEvent(`${power.name}: ${self.pokemon.name} se trata como ${chosen.name}${attached ? ` (se descartó ${attached.name})` : ""}`, "action"),
+          ],
+        },
+        pokemonId
+      );
+    },
+  },
+
   "Rain Dance": {
     canUse: (state, pokemonId) => {
       const energies = rainDanceEnergies(state, pokemonId);
@@ -889,5 +977,6 @@ export const ACTIVATED_POWER_TYPES: readonly PokemonPowerType[] = [
   PokemonPowerType.TakeEnergyToActive,
   PokemonPowerType.SwitchOpponentOnFlip,
   PokemonPowerType.SelfHeal,
+  PokemonPowerType.ShapeshiftEvolution,
 ];
 

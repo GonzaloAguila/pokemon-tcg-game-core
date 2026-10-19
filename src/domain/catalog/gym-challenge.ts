@@ -200,6 +200,11 @@ export const gymChallengeCards: Card[] = [
         cost: [Fire],
         damage: "20+",
         text: "Descarta todas las cartas de Energía Fuego unidas a Blaine's Charizard. Si todas las cartas de Energía unidas a Blaine's Charizard proporcionan 2 Energías Fuego, descártalas todas. Este ataque hace 20 puntos de daño más 20 puntos de daño adicionales por cada Energía Fuego descartada de esta manera.",
+        // No Energy card of our pool provides 2 Fire Energy: the second sentence never applies (card doubts)
+        effects: [
+          { type: AttackEffectType.BonusDamage, target: AttackTarget.Defender, amount: 20, bonusDamageSource: "ownEnergyOfType", energyType: Fire },
+          { type: AttackEffectType.Discard, target: AttackTarget.Self, discardAll: true, energyType: Fire },
+        ],
       },
       {
         name: "Chorro de Llamas",
@@ -424,6 +429,7 @@ export const gymChallengeCards: Card[] = [
         name: "Crecimiento Gigante",
         cost: [Colorless],
         text: "Lanza una moneda. Si sale cara, los PS máximos de Koga's Ditto pasan a ser 80 y el daño base de su ataque Destructor pasa a ser 30 en lugar de 10. (Mandar a Koga's Ditto a la Banca termina este efecto.)",
+        effects: [{ type: AttackEffectType.SetMaxHp, target: AttackTarget.Self, amount: 80, attackName: "Destructor", boostedDamage: 30, coinFlip: { count: 1, onHeads: "damage" } }],
       },
       { name: "Destructor", cost: [Colorless], damage: 10 },
     ],
@@ -876,6 +882,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Psychic, Psychic],
         damage: 20,
         text: "Todos los Poderes Pokémon dejan de funcionar hasta el final del próximo turno de tu rival.",
+        effects: [{ type: AttackEffectType.SuppressAllPowers, target: AttackTarget.Self }],
       },
       {
         name: "Atadura Sombría",
@@ -1846,6 +1853,7 @@ export const gymChallengeCards: Card[] = [
         name: "Llamar al Fuego Fatuo",
         cost: [Fire],
         text: "Lanza 3 monedas. Por cada cara, si tienes una carta de Energía Fuego en tu pila de descartes, ponla en tu mano.",
+        effects: [{ type: AttackEffectType.RecoverFromDiscard, target: AttackTarget.Self, recoverCardKind: "energy", energyType: Fire, amount: 1, minAmount: 1, coinFlip: { count: 3, onHeads: "damage" } }],
       },
     ],
     retreatCost: 1,
@@ -2573,6 +2581,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Psychic, Psychic],
         damage: 30,
         text: "Devuelve a Sabrina's Gastly y todas las cartas de Energía unidas a él a tu mano. (Descarta todas las demás cartas unidas a Sabrina's Gastly.)",
+        effects: [{ type: AttackEffectType.ReturnToHand, target: AttackTarget.Self, returnEnergyOnly: true }],
       },
     ],
     retreatCost: 0,
@@ -2592,6 +2601,8 @@ export const gymChallengeCards: Card[] = [
       name: "Forma Gaseosa",
       text: "Sabrina's Gastly tiene +10 PS por cada carta de Energía Psíquica unida a él. Este poder funciona aunque Sabrina's Gastly esté Dormido, Confundido o Paralizado.",
       type: PokemonPowerType.HpPerEnergy,
+      amount: 10,
+      energyType: Psychic,
       worksFromBench: true,
     },
     attacks: [

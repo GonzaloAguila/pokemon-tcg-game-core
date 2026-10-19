@@ -43,6 +43,7 @@ import {
   hasBlockingStatus,
   hasStatusImmunity,
   isAwaitingTransformTarget,
+  discardBrokenShapeshiftCards,
   isDamageBlocked,
   isPowerActive,
 } from "@/domain/powers";
@@ -161,6 +162,11 @@ export type PokemonInPlay = {
   intimidatedBy?: { pokemonId: string; onTurn: number; attackName: string };
   /** Focus Energy (DoubleAttackNextTurn): during turn `onTurn` the attack `name` does double damage (and self damage). Cleared on bench/evolve. */
   doubledAttack?: { name: string; onTurn: number };
+  /**
+   * Giant Growth (SetMaxHp): its maximum HP is `hp` (getEffectiveHp) and its attack `attackName`
+   * does `damage` base damage. Ends when it is Benched (it can be Knocked Out then).
+   */
+  hpOverride?: { hp: number; attackName?: string; damage?: number };
   /** Deflector (HalveDamageNextTurn): damage done to it during turn `onTurn` is halved. Cleared on bench/evolve. */
   halveDamage?: { onTurn: number; attackName: string };
   /** Crystal Beam (BlockEnergyAttach): its owner can't attach Energy cards to it during this turn. Cleared on bench/evolve. */
@@ -771,6 +777,7 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     lastAttack: undefined,
     intimidatedBy: undefined,
     doubledAttack: undefined,
+    hpOverride: undefined,
   };
 }
 
@@ -1815,7 +1822,8 @@ export function knockOutOpponentActive(state: GameState): GameState {
  * then the "no Pokémon left" check. Pure: returns the same object when nothing happened.
  */
 export function checkKnockouts(state: GameState): GameState {
-  let next = processBenchKnockouts(state);
+  // Shapeshift: a statused Ninetales loses its Evolution card first (its HP is its own again)
+  let next = processBenchKnockouts(discardBrokenShapeshiftCards(state));
   // Actives use their current HP (a transformed Ditto's copy changes with the other Active)
   const isOut = (p: PokemonInPlay | null): boolean =>
     !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= getEffectiveHp(next, p) &&
@@ -1927,8 +1935,9 @@ export function endGameIfNoPokemonLeft(state: GameState): GameState {
  * Pure: returns the same object when nothing is knocked out.
  */
 export function processBenchKnockouts(state: GameState): GameState {
+  // Live HP (Gaseous Form, Shapeshift; a Benched Ditto is not a copy)
   const isKnockedOut = (p: PokemonInPlay | null | undefined): p is PokemonInPlay =>
-    !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= p.pokemon.hp;
+    !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= getEffectiveHp(state, p);
 
   const playerKOs = state.playerBench.filter(isKnockedOut);
   const opponentKOs = state.opponentBench.filter(isKnockedOut);
@@ -3123,6 +3132,8 @@ export type AvailableAttack = {
   index: number;
   /** A lower stage's attack, usable through Recall. */
   recalled: boolean;
+  /** Another Psychic Pokémon's attack, usable through Psylink (Sabrina's Alakazam): `fromCard` is that Pokémon. */
+  psylink?: boolean;
 };
 
 /** Recall is in effect for `pokemon`: played this turn, and it is the Active of the side whose turn it is. */
@@ -3136,12 +3147,38 @@ function listAttacks(state: GameState, pokemon: PokemonInPlay, withRecall: boole
   const card = getEffectivePokemonCard(state, pokemon);
   if (!card) return [];
   const own = card.attacks.map((attack, index) => ({ attack, fromCard: card.name, index, recalled: false }));
-  if (!withRecall) return own;
+  const psylinked = psylinkAttacks(state, pokemon);
+  if (!withRecall && psylinked.length === 0) return own;
   // The cards under it, Basic first (a Mysterious Fossil under Kabuto has no attacks)
-  const under = (pokemon.previousEvolutions ?? []).flatMap((c) =>
-    isPokemonCard(c) ? (c.attacks ?? []).map((attack) => ({ attack, fromCard: c.name })) : []
-  );
-  return [...own, ...under.map((u, k) => ({ ...u, index: own.length + k, recalled: true }))];
+  const under = withRecall
+    ? (pokemon.previousEvolutions ?? []).flatMap((c) =>
+        isPokemonCard(c) ? (c.attacks ?? []).map((attack) => ({ attack, fromCard: c.name })) : []
+      )
+    : [];
+  const recalled = under.map((u, k) => ({ ...u, index: own.length + k, recalled: true }));
+  const base = own.length + recalled.length;
+  return [...own, ...recalled, ...psylinked.map((p, k) => ({ ...p, index: base + k, recalled: false, psylink: true }))];
+}
+
+/**
+ * Psylink (Sabrina's Alakazam): while its power works, a copy of every attack of its owner's
+ * other Psychic Pokémon in play (Active and Bench, by their current type: Shift, a copy), in
+ * board order. Their own attacks only (getEffectivePokemonCard): never Recall's or another
+ * Psylink's, so two Alakazams don't copy each other's copies.
+ */
+function psylinkAttacks(state: GameState, pokemon: PokemonInPlay): { attack: Attack; fromCard: string }[] {
+  if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.CopyTeamAttacks) return [];
+  if (!isPowerActive(state, pokemon)) return [];
+  const id = pokemon.pokemon.id;
+  const isPlayers = state.playerActivePokemon?.pokemon.id === id || state.playerBench.some((p) => p.pokemon.id === id);
+  const team = isPlayers ? [state.playerActivePokemon, ...state.playerBench] : [state.opponentActivePokemon, ...state.opponentBench];
+  return team.flatMap((p) => {
+    if (!p || p.pokemon.id === id) return [];
+    const card = getEffectivePokemonCard(state, p);
+    const types = p.shiftedType ? [p.shiftedType] : (card?.types ?? []);
+    if (!card || !types.includes(EnergyTypeEnum.Psychic)) return [];
+    return card.attacks.map((attack) => ({ attack, fromCard: card.name }));
+  });
 }
 
 /**
@@ -3160,9 +3197,9 @@ export function getAvailableAttacks(state: GameState, pokemon: PokemonInPlay): A
 function attackAt(state: GameState, pokemon: PokemonInPlay, index: number): Attack | undefined {
   const own = getEffectivePokemonCard(state, pokemon)?.attacks;
   if (!own) return undefined;
-  // Own attacks (the hot path: no list built); past them only Recall's
+  // Own attacks (the hot path: no list built); past them Recall's, then Psylink's
   if (index < own.length) return own[index];
-  return recallAppliesTo(state, pokemon) ? listAttacks(state, pokemon, true)[index]?.attack : undefined;
+  return listAttacks(state, pokemon, recallAppliesTo(state, pokemon))[index]?.attack;
 }
 
 /**
@@ -3418,6 +3455,10 @@ export function calculateBaseDamage(
       } else if (effect.bonusDamageSource === "defenderDamaged") {
         // Rend (+20) / Pulled Punch (−30): the Defending Pokémon already has damage counters
         multiplier = (defender.currentDamage ?? 0) > 0 ? 1 : 0;
+      } else if (effect.bonusDamageSource === "ownEnergyOfType" && effect.energyType) {
+        // Roaring Flames: each attached Energy card providing `energyType` (before the attack discards them)
+        const type = effect.energyType;
+        multiplier = attacker.attachedEnergy.filter((e) => energyProvidesType(e, type, attacker)).length;
       } else if (effect.bonusDamageSource === "defenderType") {
         // Ice Throw: "if the Defending Pokémon is Fighting, this attack's base damage is doubled"
         multiplier = isPokemonCard(defender.pokemon) && !!effect.defenderType && defender.pokemon.types.includes(effect.defenderType) ? 1 : 0;
@@ -4111,6 +4152,10 @@ export function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipR
     } else if (effect.type === AttackEffectType.Discard && effect.energyType && !effect.discardAll) {
       // Continuous Fireball: one Fire Energy card per heads
       resolved.push({ ...plain, amount: (effect.amount ?? 1) * hits });
+    } else if (effect.type === AttackEffectType.RecoverFromDiscard) {
+      // Call Will-o'-the-wisp: one card (at least, when `minAmount` is set) per heads
+      const per = effect.amount ?? 1;
+      resolved.push({ ...plain, amount: per * hits, ...(effect.minAmount !== undefined && { minAmount: effect.minAmount * hits }) });
     } else {
       resolved.push(plain);
     }
@@ -4899,6 +4944,15 @@ function executeAttackUnchecked(
       if (effect.type === AttackEffectType.DoubleAttackNextTurn && effect.attackName && newPlayerActive && !attackerKnockedOut) {
         newPlayerActive = { ...newPlayerActive, doubledAttack: { name: effect.attackName, onTurn: gameState.turnNumber + 2 } };
         events.push(createGameEvent(`${newPlayerActive.pokemon.name} hará el doble de daño con ${effect.attackName} en el próximo turno de su dueño`, "action"));
+      }
+
+      // Giant Growth (SetMaxHp): maximum HP and a boosted attack until it is Benched
+      if (effect.type === AttackEffectType.SetMaxHp && effect.amount && newPlayerActive && !attackerKnockedOut) {
+        newPlayerActive = {
+          ...newPlayerActive,
+          hpOverride: { hp: effect.amount, ...(effect.attackName && effect.boostedDamage !== undefined && { attackName: effect.attackName, damage: effect.boostedDamage }) },
+        };
+        events.push(createGameEvent(`${newPlayerActive.pokemon.name} ahora tiene ${effect.amount} PS máximos`, "action"));
       }
 
       // Daño a sí mismo (selfDamage)
@@ -5698,9 +5752,17 @@ function executeAttackUnchecked(
   let pendingSelfSwitch = false;
   let pendingDeckSearch: GameState["pendingDeckSearch"] = undefined;
   let noTrainersOnTurn = gameState.noTrainersOnTurn;
+  let powersSuppressed = gameState.powersSuppressed;
 
   if (attack.effects) {
     for (const effect of attack.effects) {
+      // Dark Wave: every Pokémon Power stops until the end of the opponent's next turn (not an
+      // effect on the Defending Pokémon: protection doesn't stop it)
+      if (effect.type === AttackEffectType.SuppressAllPowers && !effect.coinFlip) {
+        powersSuppressed = [...(powersSuppressed ?? []), { source: attack.name, expiresAfterTurn: gameState.turnNumber + 1 }];
+        events.push(createGameEvent(`${attack.name}: todos los Poderes Pokémon dejan de funcionar hasta el final del siguiente turno`, "action"));
+      }
+
       // Headache: the opponent can't play Trainer cards during their next turn (not an effect on
       // the Defending Pokémon: protection doesn't stop it)
       if (effect.type === AttackEffectType.BlockTrainers && !effect.coinFlip) {
@@ -5794,8 +5856,16 @@ function executeAttackUnchecked(
       // Star Boomerang: the attacker and every card attached to it go back to its owner's hand
       if (effect.type === AttackEffectType.ReturnToHand && effect.target === AttackTarget.Self && newPlayerActive && !attackerKnockedOut) {
         const leaving = newPlayerActive;
-        newPlayerHand = [...newPlayerHand, ...cardsLeavingPlay(leaving)];
-        events.push(createGameEvent(`¡${leaving.pokemon.name} y todas sus cartas unidas volvieron a la mano de su dueño!`, "action"));
+        if (effect.returnEnergyOnly) {
+          // Fade Out: the Pokémon (with its lower stages) and its Energy cards; the rest is discarded
+          const kept = [leaving.pokemon, ...(leaving.previousEvolutions ?? []), ...leaving.attachedEnergy].map(cardOutOfPlay);
+          newPlayerHand = [...newPlayerHand, ...kept];
+          newPlayerDiscard.push(...(leaving.attachedTrainers ?? []).map(cardOutOfPlay));
+          events.push(createGameEvent(`¡${leaving.pokemon.name} y sus cartas de Energía volvieron a la mano de su dueño!`, "action"));
+        } else {
+          newPlayerHand = [...newPlayerHand, ...cardsLeavingPlay(leaving)];
+          events.push(createGameEvent(`¡${leaving.pokemon.name} y todas sus cartas unidas volvieron a la mano de su dueño!`, "action"));
+        }
         newPlayerActive = null;
         attackerLeftPlay = true;
         attackerNeedsToPromote = newPlayerBench.length > 0;
@@ -6240,6 +6310,7 @@ function executeAttackUnchecked(
     pendingDeckSearch: pendingDeckSearch,
     pendingBenchDamageSelection: pendingBenchDamageSelection,
     noTrainersOnTurn,
+    powersSuppressed,
     attackedThisTurn: true,
     ...(newStadium !== (gameState.stadium ?? null) && { stadium: newStadium }),
     events,

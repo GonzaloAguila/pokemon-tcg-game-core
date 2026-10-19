@@ -108,6 +108,10 @@ export type AttackEffect = {
   discardTo?: "hand";
   /** Discard (Self): every attached Energy card (Thunderbolt), or only those providing `energyType` (Discharge) */
   discardAll?: boolean;
+  /** ReturnToHand (Self): only the Pokémon and its Energy cards go to the hand, every other attached card is discarded (Fade Out) */
+  returnEnergyOnly?: boolean;
+  /** SetMaxHp: base damage of `attackName` while the effect lasts (Giant Growth: Pound 30) */
+  boostedDamage?: number;
   protectionType?: ProtectionType;
   extraDamagePerEnergy?: number;
   maxExtraEnergy?: number;
@@ -122,7 +126,7 @@ export type AttackEffect = {
    * Pokémon has damage counters (Rend +20, Pulled Punch −30); "defenderType": 1 if it is of
    * `defenderType` (Ice Throw)
    */
-  bonusDamageSource?: "benchCount" | "namedPokemon" | "namedOnBench" | "namedInPlay" | "defenderEnergyCards" | "defenderDamaged" | "defenderType";
+  bonusDamageSource?: "benchCount" | "namedPokemon" | "namedOnBench" | "namedInPlay" | "defenderEnergyCards" | "defenderDamaged" | "defenderType" | "ownEnergyOfType";
   /** BonusDamage "defenderType": the type the Defending Pokémon must be */
   defenderType?: EnergyType;
   /** BonusDamage: the multiplier is at most 1 ("if you have at least 1 Giovanni's Nidoking on your Bench", Love Lariat) */
@@ -279,6 +283,11 @@ export type PokemonCard = CardBase & {
    * again as soon as it leaves play (discard, hand, deck).
    */
   trainerCard?: TrainerCard;
+  /**
+   * Only on a derived "effective card" (never stored in the state): the Pokémon's own printed
+   * card when it is treated as the Evolution card attached by Shapeshift (Brock's Ninetales).
+   */
+  shapeshiftedFrom?: PokemonCard;
   /**
    * Only on a derived "effective card" (never stored in the state): Ditto's printed card when
    * this card is Ditto transformed into the Defending Pokémon (getEffectivePokemonCard). Its

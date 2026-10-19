@@ -760,14 +760,19 @@ function stepFor(
     }
     case AttackEffectType.RecoverFromDiscard: {
       const kind = effect.recoverCardKind === "trainer" ? CardKind.Trainer : CardKind.Energy;
-      const cards = state.playerDiscard.filter((c) => c.kind === kind && context.discardIdsBefore.includes(c.id));
+      // `energyType`: basic Energy cards of that type only (Call Will-o'-the-wisp: Fire)
+      const ofType = (c: GameCard) => !effect.energyType || (isEnergyCard(c) && c.isBasic && c.energyType === effect.energyType);
+      const cards = state.playerDiscard.filter((c) => c.kind === kind && ofType(c) && context.discardIdsBefore.includes(c.id));
       if (cards.length === 0) return null;
       const max = Math.min(effect.amount ?? 1, cards.length);
+      const typed = effect.energyType ? ` ${getEnergyTypeInSpanish(effect.energyType)}` : "";
       return {
         title,
         description: kind === CardKind.Trainer
           ? `Elige ${max === 1 ? "1 carta" : `hasta ${max} cartas`} de Entrenador de tu pila de descartes para tu mano`
-          : `Elige hasta ${max} cartas de Energía de tu pila de descartes para tu mano`,
+          : effect.minAmount !== undefined && effect.minAmount >= max
+            ? `Elige ${max === 1 ? "1 carta" : `${max} cartas`} de Energía${typed} de tu pila de descartes para tu mano`
+            : `Elige hasta ${max} cartas de Energía${typed} de tu pila de descartes para tu mano`,
         options: cards.map((c) => ({ id: c.id, label: kind === CardKind.Energy ? energyLabel(c) : c.name })),
         maxSelections: max,
         minSelections: Math.min(effect.minAmount ?? 0, max),

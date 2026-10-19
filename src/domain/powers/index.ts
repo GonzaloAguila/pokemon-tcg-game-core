@@ -13,7 +13,7 @@
 
 import type { GameState, PokemonInPlay, GameCard } from "@/domain/match/types";
 import type { PokemonPower, EnergyType, PokemonCard } from "@/domain/cards/types";
-import { PokemonPowerType, PokemonStage, StatusCondition } from "@/domain/constants";
+import { EnergyType as EnergyTypeEnum, PokemonPowerType, PokemonStage, StatusCondition } from "@/domain/constants";
 import { createGameEvent, energyProvidesType } from "@/lib/gameState";
 import { isPokemonCard, isEnergyCard, isTrainerInPlay, cardOutOfPlay } from "@/domain/cards";
 
@@ -200,22 +200,125 @@ export function getTransformTarget(state: GameState | null | undefined, pokemon:
  */
 export function getEffectivePokemonCard(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonCard | undefined {
   if (!isPokemonCard(pokemon.pokemon)) return undefined;
+  return withLiveHp(state, pokemon, copiedCard(state, pokemon));
+}
+
+/** The card a Pokémon is a copy of right now (Shapeshift, Transform), or its own card. */
+function copiedCard(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonCard {
+  const own = pokemon.pokemon as PokemonCard;
+  const shape = getShapeshiftTarget(state, pokemon);
+  if (shape) {
+    // "Treat it as if it were that Pokémon": its name (owner), types, HP, Weakness / Resistance,
+    // Retreat Cost and attacks; it keeps its identity, Stage and its own power (never the copy's)
+    return {
+      ...shape,
+      id: own.id,
+      number: own.number,
+      set: own.set,
+      rarity: own.rarity,
+      imageSetVersion: own.imageSetVersion,
+      stage: own.stage,
+      evolvesFrom: own.evolvesFrom,
+      power: own.power,
+      trainerCard: undefined,
+      transformedFrom: undefined,
+      shapeshiftedFrom: own,
+    };
+  }
   const target = getTransformTarget(state, pokemon);
-  if (!target) return pokemon.pokemon;
-  const ditto = pokemon.pokemon;
+  if (!target) return own;
   return {
     ...target,
-    id: ditto.id,
-    name: ditto.name,
-    number: ditto.number,
-    set: ditto.set,
-    rarity: ditto.rarity,
-    imageSetVersion: ditto.imageSetVersion,
-    power: ditto.power,
+    id: own.id,
+    name: own.name,
+    number: own.number,
+    set: own.set,
+    rarity: own.rarity,
+    imageSetVersion: own.imageSetVersion,
+    power: own.power,
     evolvesFrom: undefined,
     trainerCard: undefined,
-    transformedFrom: ditto,
+    transformedFrom: own,
   };
+}
+
+/**
+ * Live HP on top of the card: Giant Growth's maximum HP and boosted attack (hpOverride), then
+ * Gaseous Form (+`amount` per `energyType` Energy card attached, a Rainbow attached counts; it
+ * works while Asleep / Confused / Paralyzed, not while suppressed). Same object when unchanged.
+ */
+function withLiveHp(state: GameState | null | undefined, pokemon: PokemonInPlay, card: PokemonCard): PokemonCard {
+  const override = pokemon.hpOverride;
+  const gaseous = gaseousFormBonus(state, pokemon);
+  if (!override && gaseous === 0) return card;
+  const boosted = override?.attackName && override.damage !== undefined
+    ? card.attacks.map((a) => (a.name === override.attackName ? { ...a, damage: override.damage! } : a))
+    : card.attacks;
+  return { ...card, hp: (override?.hp ?? card.hp) + gaseous, attacks: boosted };
+}
+
+function gaseousFormBonus(state: GameState | null | undefined, pokemon: PokemonInPlay): number {
+  const power = isPokemonCard(pokemon.pokemon) ? pokemon.pokemon.power : undefined;
+  if (power?.type !== PokemonPowerType.HpPerEnergy) return 0;
+  if (!isPowerActive(state, pokemon, { ignoreBlockingStatus: true })) return 0;
+  const type = power.energyType ?? EnergyTypeEnum.Psychic;
+  const cards = pokemon.attachedEnergy.filter((c) => energyProvidesType(c, type, pokemon, state ?? undefined)).length;
+  return (power.amount ?? 10) * cards;
+}
+
+// ============================================================================
+// SHAPESHIFT (Brock's Ninetales)
+// ============================================================================
+
+/** The Evolution card attached by Shapeshift (kept in attachedTrainers: it leaves play like them), if any. */
+export function getShapeshiftCard(pokemon: PokemonInPlay | null | undefined): PokemonCard | undefined {
+  return pokemon?.attachedTrainers?.find((c): c is GameCard & PokemonCard => isPokemonCard(c));
+}
+
+/**
+ * Shapeshift: the attached Evolution card the Pokémon is treated as right now, or undefined —
+ * only while its Shapeshift power works (Toxic Gas / Dark Wave stop the copy, the card stays).
+ */
+export function getShapeshiftTarget(state: GameState | null | undefined, pokemon: PokemonInPlay): PokemonCard | undefined {
+  if (!isPokemonCard(pokemon.pokemon) || pokemon.pokemon.power?.type !== PokemonPowerType.ShapeshiftEvolution) return undefined;
+  const card = getShapeshiftCard(pokemon);
+  return card && isPowerActive(state, pokemon) ? card : undefined;
+}
+
+/**
+ * State-based Shapeshift rule: an attached Evolution card is discarded when its Pokémon is
+ * Asleep / Confused / Paralyzed, or no longer has Shapeshift (Devolution Spray). Run by
+ * checkKnockouts before the HP checks. Same object when nothing changes.
+ */
+export function discardBrokenShapeshiftCards(state: GameState): GameState {
+  const broken = (p: PokemonInPlay | null | undefined): boolean =>
+    !!p && !!getShapeshiftCard(p) &&
+    (hasBlockingStatus(p) || !isPokemonCard(p.pokemon) || p.pokemon.power?.type !== PokemonPowerType.ShapeshiftEvolution);
+  const sides = ["player", "opponent"] as const;
+  if (!sides.some((s) => broken(s === "player" ? state.playerActivePokemon : state.opponentActivePokemon) ||
+    (s === "player" ? state.playerBench : state.opponentBench).some(broken))) return state;
+  const events = [...state.events];
+  const next: GameState = { ...state };
+  for (const side of sides) {
+    const discarded: GameCard[] = [];
+    const fix = (p: PokemonInPlay): PokemonInPlay => {
+      if (!broken(p)) return p;
+      const cards = (p.attachedTrainers ?? []).filter((c) => isPokemonCard(c));
+      discarded.push(...cards);
+      for (const c of cards) events.push(createGameEvent(`${c.name} unido a ${p.pokemon.name} se descartó`, "info"));
+      return { ...p, attachedTrainers: (p.attachedTrainers ?? []).filter((c) => !isPokemonCard(c)) };
+    };
+    if (side === "player") {
+      next.playerActivePokemon = state.playerActivePokemon ? fix(state.playerActivePokemon) : null;
+      next.playerBench = state.playerBench.map(fix);
+      next.playerDiscard = [...state.playerDiscard, ...discarded];
+    } else {
+      next.opponentActivePokemon = state.opponentActivePokemon ? fix(state.opponentActivePokemon) : null;
+      next.opponentBench = state.opponentBench.map(fix);
+      next.opponentDiscard = [...state.opponentDiscard, ...discarded];
+    }
+  }
+  return { ...next, events };
 }
 
 /**
@@ -228,7 +331,10 @@ export function isAwaitingTransformTarget(state: GameState, pokemon: PokemonInPl
   return facingActive(state, pokemon) === null;
 }
 
-/** HP of a Pokémon in play right now (a transformed Ditto has the copied HP). */
+/**
+ * HP of a Pokémon in play right now: the copied card's (Transform, Shapeshift), Giant Growth's
+ * maximum HP, plus Gaseous Form. Lower than its damage = Knocked Out (checkKnockouts).
+ */
 export function getEffectiveHp(state: GameState | null | undefined, pokemon: PokemonInPlay): number {
   return getEffectivePokemonCard(state, pokemon)?.hp ?? 0;
 }
