@@ -18,9 +18,12 @@ import { isBasicEnergy, isPokemonCard, cardOutOfPlay } from "@/domain/cards";
 import { GamePhase, CardKind, PokemonStage } from "@/domain/constants";
 import { evolvePokemonInPlay, clearEffectsAsIfEvolved, isBenchFull } from "@/domain/board";
 import { modifiersAttachedTo } from "@/lib/modifiers";
+import { attachedTrainerNamed, BROCKS_PROTECTION } from "./attached";
+
+const hasBrocksProtection = (p: PokemonInPlay) => !!attachedTrainerNamed(p, BROCKS_PROTECTION);
 
 // Gym Heroes attached Trainers (Charity, Sabrina's ESP): PokemonInPlay.attachedTrainers helpers
-export { attachTrainer, attachedTrainerNamed, CHARITY, SABRINAS_ESP, type AttachedTrainerExpiry } from "./attached";
+export { attachTrainer, attachedTrainerNamed, CHARITY, SABRINAS_ESP, BROCKS_PROTECTION, KOGAS_NINJA_TRICK, type AttachedTrainerExpiry } from "./attached";
 
 // ============================================================================
 // VALIDATION
@@ -501,8 +504,9 @@ export function playFullHeal(state: GameState, cardId: string): GameState {
 
 /** The opponent's Pokémon (Active or Benched) holding that Energy card. */
 function opponentHolderOf(state: GameState, energyId: string): PokemonInPlay | undefined {
+  // Brock's Protection: its Energy cards can't be taken by the opponent's Trainers
   return [state.opponentActivePokemon, ...state.opponentBench].find(
-    (p): p is PokemonInPlay => p != null && p.attachedEnergy.some((e) => e.id === energyId)
+    (p): p is PokemonInPlay => p != null && p.attachedEnergy.some((e) => e.id === energyId) && !hasBrocksProtection(p)
   );
 }
 
@@ -584,7 +588,7 @@ export function canPlaySuperEnergyRemoval(
     return state.opponentBench.find((p) => p?.pokemon.id === opponentPokemonId) ?? undefined;
   };
   const opponentPokemon = findOpponentPokemon();
-  if (!opponentPokemon) return false;
+  if (!opponentPokemon || hasBrocksProtection(opponentPokemon)) return false;
 
   // Must choose up to 2 energies from opponent Pokemon
   if (opponentEnergyIds.length === 0 || opponentEnergyIds.length > 2) return false;

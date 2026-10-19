@@ -46,6 +46,8 @@
  * | Energy Flow (GH) | [[0+ Energy card ids attached to own Pokémon]] |
  * | Charity (GH) | [] (attached to the Active) |
  * | Sabrina's ESP (GH) | [[ownSabrinasPokemonId]] (attached to it) |
+ * | Brock's Protection (GC) | [[ownBrocksPokemonId]] (attached to it until it leaves play) |
+ * | Koga's Ninja Trick (GC) | [] (attached to the Active with Koga in its name) |
  * | Recall (GH) | [] (state.recallActiveOnTurn: this turn's Active may use the attacks under it, getAvailableAttacks) |
  * | Tickling Machine (GH) | 1 coin; [] (heads: the opponent's hand is set aside until the end of their next turn, state.setAsideHands; a tails ends the turn, `skipEndTurn` as Minion of Team Rocket) |
  * | Erika (GH) | [["0"–"3"] (self: how many you draw), ["0"–"3"] (chooser: opponent: how many they draw)] (counts above that deck's size disabled) |
@@ -65,7 +67,8 @@ import { modifiersAttachedTo } from "@/lib/modifiers";
 import { ALL_CARDS, heightInInches, pokedexHeight, pokedexSpecies, quizLengthOptions } from "@/domain/catalog";
 import { cardOutOfPlay, cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
-import { attachTrainer, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
+import { attachTrainer, CHARITY, SABRINAS_ESP, BROCKS_PROTECTION, KOGAS_NINJA_TRICK, type AttachedTrainerExpiry } from "@/domain/trainers/attached";
+import { energyRemovalBlocked } from "@/lib/gameState";
 import { setAsideHand, TICKLING_MACHINE } from "@/domain/trainers/set-aside";
 import { MISTYS_DUEL, startDuel } from "@/domain/duel/rps";
 import { CardKind, EnergyType, GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
@@ -168,6 +171,8 @@ function opponentPokemonChoices(state: GameState, filter: (p: PokemonInPlay) => 
 
 const isDamaged = (p: PokemonInPlay) => (p.currentDamage ?? 0) > 0;
 const hasEnergy = (p: PokemonInPlay) => p.attachedEnergy.length > 0;
+/** An opponent's Pokémon with an Energy card the player's Trainer may take (Brock's Protection stops it). */
+const hasRemovableEnergy = (state: GameState) => (p: PokemonInPlay) => hasEnergy(p) && !energyRemovalBlocked(state, p, "opponent");
 const otherHandCards = (state: GameState, cardId: string) => state.playerHand.filter((c) => c.id !== cardId);
 const isBasicPokemonCard = (c: GameCard) => c.kind === CardKind.Pokemon && c.stage === PokemonStage.Basic;
 
@@ -303,7 +308,7 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
       const holders = [
         ...(state.opponentActivePokemon ? [{ pokemon: state.opponentActivePokemon, location: "Activo rival" }] : []),
         ...state.opponentBench.map((pokemon) => ({ pokemon, location: "Banca rival" })),
-      ];
+      ].filter(({ pokemon }) => !energyRemovalBlocked(state, pokemon, "opponent"));
       const choices = holders.flatMap(({ pokemon, location }) =>
         pokemon.attachedEnergy.map((energy) => ({ energy, holder: `${pokemon.pokemon.name} (${location})` }))
       );
@@ -316,7 +321,7 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
       };
     },
     (state) =>
-      opponentPokemonChoices(state, hasEnergy).options.length > 0 ? null : "Los Pokémon del rival no tienen energías",
+      opponentPokemonChoices(state, hasRemovableEnergy(state)).options.length > 0 ? null : "Los Pokémon del rival no tienen energías que se puedan descartar",
     (state, cardId, [energyId]) => playEnergyRemoval(state, cardId, energyId)
   ),
 
@@ -584,7 +589,7 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
   "Super Energy Removal": {
     canUse: (state) => {
       if (ownPokemonChoices(state, hasEnergy).options.length === 0) return "No tienes Pokémon con energías para descartar";
-      return opponentPokemonChoices(state, hasEnergy).options.length > 0 ? null : "El rival no tiene Pokémon con energías";
+      return opponentPokemonChoices(state, hasRemovableEnergy(state)).options.length > 0 ? null : "El rival no tiene Pokémon con energías que se puedan descartar";
     },
     getSteps: (state, _cardId, selections) => {
       if (selections.length === 0) {
@@ -610,7 +615,7 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
         return {
           title: "Super Energy Removal",
           description: "Selecciona el Pokémon rival del cual quitar energías",
-          ...opponentPokemonChoices(state, hasEnergy),
+          ...opponentPokemonChoices(state, hasRemovableEnergy(state)),
           maxSelections: 1,
         };
       }
@@ -706,12 +711,10 @@ export const UNSUPPORTED_TRAINERS: readonly string[] = [
   // Gym Challenge (catalog only, 2026-10-19): each name leaves this list when its plan task
   // implements it (docs/superpowers/plans/2026-10-19-gym-challenge.md). Its 7 Stadiums need no
   // entry here: they fall back to playStadium (in play, no rule yet).
-  "Brock's Protection",
   "Lt. Surge's Secret Plan",
   "Misty's Wish",
   "Blaine's Quiz #2",
   "Blaine's Quiz #3",
-  "Koga's Ninja Trick",
   "Sabrina's Psychic Control",
 ];
 
@@ -1956,9 +1959,9 @@ Object.assign(TRAINER_EFFECTS, {
 // ============================================================================
 
 /** The played Trainer leaves the hand attached to the player's Pokémon `pokemonId` (not discarded). */
-function attachPlayed(state: GameState, cardId: string, pokemonId: string): GameState {
+function attachPlayed(state: GameState, cardId: string, pokemonId: string, expires: AttachedTrainerExpiry = "endOfTurn"): GameState {
   const card = state.playerHand.find((c) => c.id === cardId)!;
-  const attach = (p: PokemonInPlay): PokemonInPlay => (p.pokemon.id === pokemonId ? attachTrainer(p, card, "endOfTurn") : p);
+  const attach = (p: PokemonInPlay): PokemonInPlay => (p.pokemon.id === pokemonId ? attachTrainer(p, card, expires) : p);
   const target = findInPlay(state, "player", pokemonId)!.pokemon;
   return {
     ...state,
@@ -1974,6 +1977,7 @@ function attachPlayed(state: GameState, cardId: string, pokemonId: string): Game
 }
 
 const isSabrinasPokemon = (p: PokemonInPlay) => hasOwner(p.pokemon, "Sabrina");
+const isBrocksPokemon = (p: PokemonInPlay) => hasOwner(p.pokemon, "Brock");
 
 Object.assign(TRAINER_EFFECTS, {
   // Attached to the Active: may reduce its attack's damage; back to the hand at the end of the turn
@@ -2474,6 +2478,26 @@ Object.assign(TRAINER_EFFECTS, {
       return next;
     },
   },
+
+  // Attached to a Pokémon with Brock in its name: the opponent's attacks and Trainers can't take
+  // its Energy cards (energyRemovalBlocked); stays until that Pokémon leaves play
+  [BROCKS_PROTECTION]: singleStep(
+    (state) => ({
+      title: BROCKS_PROTECTION,
+      description: "Elige 1 de tus Pokémon con Brock en su nombre para unirle esta carta",
+      ...ownPokemonChoices(state, isBrocksPokemon),
+      maxSelections: 1,
+    }),
+    (state) => (ownPokemonChoices(state, isBrocksPokemon).options.length > 0 ? null : "Necesitas un Pokémon con Brock en su nombre en juego"),
+    (state, cardId, [pokemonId]) => attachPlayed(state, cardId, pokemonId, "untilLeavesPlay")
+  ),
+
+  // Attached to the Active with Koga in its name: when the opponent attacks, its owner may switch
+  // it first (executeAttack asks, getAttackPreReaction); discarded once that Pokémon is Benched
+  [KOGAS_NINJA_TRICK]: immediate(
+    (state, cardId) => attachPlayed(state, cardId, state.playerActivePokemon!.pokemon.id, "whileActive"),
+    (state) => (state.playerActivePokemon && hasOwner(state.playerActivePokemon.pokemon, "Koga") ? null : "Tu Pokémon Activo debe tener Koga en su nombre")
+  ),
 } satisfies Record<string, CardEffectDef>);
 
 /**

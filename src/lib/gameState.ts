@@ -59,7 +59,7 @@ import { getLuckyDuelAttackBlocker } from "@/domain/lucky-duel/rules";
 import { stadiumIgnoresResistance, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkCoins } from "@/domain/effects/validate";
-import { attachedTrainerNamed, expireAttachedTrainers, CHARITY, SABRINAS_ESP } from "@/domain/trainers/attached";
+import { attachedTrainerNamed, benchedLeavers, expireAttachedTrainers, CHARITY, SABRINAS_ESP, BROCKS_PROTECTION, KOGAS_NINJA_TRICK } from "@/domain/trainers/attached";
 import { returnSetAsideHand, type SetAsideHand } from "@/domain/trainers/set-aside";
 export type { SetAsideHand } from "@/domain/trainers/set-aside";
 import type { LastDuel, PendingDuel } from "@/domain/duel/rps";
@@ -244,6 +244,12 @@ export type AttackReactions = {
   charityReduction?: number;
   /** Group Attack: ids of the deck cards the attacker put on its Bench before the damage (empty = none) */
   beforeDamageSearch?: string[];
+  /**
+   * Koga's Ninja Trick (attached to the Defending Pokémon), asked before anything of the attack,
+   * its coins included: the Benched Pokémon its owner switched it with (it then defends for the
+   * whole attack), or null when it stayed.
+   */
+  preAttack?: string | null;
 };
 
 /**
@@ -1188,12 +1194,115 @@ const STATUS_NAMES_ES: Partial<Record<string, string>> = {
 };
 
 /**
- * Whether an effect of `by` can't take an attached Energy card off `pokemon` (Brock's Protection,
- * Task 7 of the Gym Challenge plan). Every path that discards or moves an opponent's attached
- * Energy asks it (Super Removal now). Nobody blocks it yet.
+ * Whether an effect of `by` can't take an attached Energy card off `pokemon`: Brock's Protection
+ * stops the opponent's attacks and Trainers (discard, to the hand or deck, move), not Pokémon
+ * Powers nor its owner's own effects. Asked by every attack / Trainer path that takes an
+ * opponent's attached Energy: Energy Removal, Super Energy Removal, Super Removal, the Defending
+ * Pokémon's Energy discards (Hyper Beam, Whirlpool...) and moves (MoveDefenderEnergyToBench).
  */
-export function energyRemovalBlocked(_state: GameState, _pokemon: PokemonInPlay, _by: "opponent"): boolean {
-  return false;
+export function energyRemovalBlocked(_state: GameState, pokemon: PokemonInPlay, by: "opponent"): boolean {
+  return by === "opponent" && !!attachedTrainerNamed(pokemon, BROCKS_PROTECTION);
+}
+
+/**
+ * Koga's Ninja Trick: the defending side's question before the attack (attacker's view), or null
+ * when its Active has no Ninja Trick or its Bench is empty. See getAttackPreReaction.
+ */
+function ninjaTrickStep(state: GameState, attackName: string): SelectionStep | null {
+  const active = state.opponentActivePokemon;
+  const bench = state.opponentBench;
+  if (!active || bench.length === 0 || !attachedTrainerNamed(active, KOGAS_NINJA_TRICK)) return null;
+  const name = active.pokemon.name;
+  return {
+    title: KOGAS_NINJA_TRICK,
+    description: `Tu rival puede usar ${KOGAS_NINJA_TRICK}: cambiar a ${name} por 1 de sus Pokémon en la Banca antes de ${attackName}`,
+    answererDescription: `Tu rival va a usar ${attackName}. Puedes cambiar a ${name} por 1 de tus Pokémon en la Banca: ese Pokémon recibe el ataque y ${KOGAS_NINJA_TRICK} se descarta`,
+    options: bench.map((p) => ({ id: p.pokemon.id, label: p.pokemon.name })),
+    maxSelections: 1,
+    minSelections: 0,
+    thumbnails: bench.map((p) => p.pokemon),
+    disableAutoSelect: true,
+    chooser: "opponent",
+    // Answer clock: no switch
+    defaultSelection: [],
+  };
+}
+
+/**
+ * The question asked before the attack `attack` (an index of getAvailableAttacks, or the Attack
+ * copied by Metronome) does anything, its coins included: Koga's Ninja Trick attached to the
+ * Defending Pokémon (chooser "opponent", `defaultSelection` [] = no switch). While it is non-null,
+ * executeAttack / executeMetronome with `{ coinResults }` ignore the coins and return the state
+ * untouched with the question as `pendingAttackChoice.reaction` (`answers: "preAttack"`): callers
+ * flip nothing until it is answered, then flip getAttackChoiceCoinPlan(state, selection) — the coin
+ * plan against the Pokémon that will defend — and pass them to resolveAttackChoice, which runs the
+ * attack. Asked after the attacker's Confusion flip (resolveConfusionFlip comes first).
+ */
+export function getAttackPreReaction(state: GameState, attack: number | Attack): SelectionStep | null {
+  const attacker = state.playerActivePokemon;
+  const resolved = attacker ? (typeof attack === "number" ? attackAt(state, attacker, attack) : attack) : undefined;
+  return resolved ? ninjaTrickStep(state, resolved.name) : null;
+}
+
+/**
+ * Koga's Ninja Trick used (attacker's view): the Defending Pokémon switches with the Benched
+ * Pokémon `benchedId` (Special Conditions and attack effects end as with Switch) and Ninja Trick
+ * goes to its owner's discard pile. Same state when there is nothing to switch (already done).
+ */
+export function applyNinjaTrickSwitch(state: GameState, benchedId: string): GameState {
+  const active = state.opponentActivePokemon;
+  const index = state.opponentBench.findIndex((p) => p.pokemon.id === benchedId);
+  if (!active || index === -1 || !attachedTrainerNamed(active, KOGAS_NINJA_TRICK)) return state;
+  const incoming = state.opponentBench[index];
+  const leaving = benchedLeavers(active);
+  const toBench: PokemonInPlay = {
+    ...clearStatusConditionsOnRetreat(active),
+    modifiedWeakness: undefined,
+    modifiedResistance: undefined,
+    attachedTrainers: (active.attachedTrainers ?? []).filter((c) => !leaving.includes(c)),
+  };
+  return {
+    ...state,
+    opponentActivePokemon: incoming,
+    opponentBench: [...state.opponentBench.filter((_, i) => i !== index), toBench],
+    opponentDiscard: [...state.opponentDiscard, ...leaving.map(cardOutOfPlay)],
+    events: [
+      ...state.events,
+      createGameEvent(`${KOGAS_NINJA_TRICK}: ${active.pokemon.name} se cambió con ${incoming.pokemon.name}`, "action"),
+      createGameEvent(`${KOGAS_NINJA_TRICK} se descartó`, "info"),
+    ],
+  };
+}
+
+/**
+ * Koga's Ninja Trick on a Benched Pokémon (it went to the Bench: retreat, Switch, a forced
+ * switch...) is discarded. Run by checkKnockouts. Same object when nothing changes.
+ */
+function discardBenchedNinjaTricks(state: GameState): GameState {
+  const has = (bench: PokemonInPlay[]) => bench.some((p) => benchedLeavers(p).length > 0);
+  if (!has(state.playerBench) && !has(state.opponentBench)) return state;
+  const events = [...state.events];
+  const sweep = (bench: PokemonInPlay[], discard: GameCard[]) => {
+    const out: GameCard[] = [];
+    const kept = bench.map((p) => {
+      const leaving = benchedLeavers(p);
+      if (leaving.length === 0) return p;
+      out.push(...leaving);
+      for (const c of leaving) events.push(createGameEvent(`${c.name} unido a ${p.pokemon.name} se descartó`, "info"));
+      return { ...p, attachedTrainers: (p.attachedTrainers ?? []).filter((c) => !leaving.includes(c)) };
+    });
+    return { bench: kept, discard: out.length > 0 ? [...discard, ...out] : discard };
+  };
+  const player = sweep(state.playerBench, state.playerDiscard);
+  const opponent = sweep(state.opponentBench, state.opponentDiscard);
+  return {
+    ...state,
+    playerBench: player.bench,
+    playerDiscard: player.discard,
+    opponentBench: opponent.bench,
+    opponentDiscard: opponent.discard,
+    events,
+  };
 }
 
 /**
@@ -1853,7 +1962,8 @@ export function knockOutOpponentActive(state: GameState): GameState {
 export function checkKnockouts(state: GameState): GameState {
   // Shapeshift: a statused Ninetales loses its Evolution card first (its HP is its own again)
   // Scram: a Primeape with exactly 10 HP left goes into the deck before any Knock Out
-  let next = processBenchKnockouts(shuffleScrammingPokemon(discardBrokenShapeshiftCards(state)));
+  // Koga's Ninja Trick: discarded once its Pokémon is on the Bench
+  let next = processBenchKnockouts(shuffleScrammingPokemon(discardBrokenShapeshiftCards(discardBenchedNinjaTricks(state))));
   // Actives use their current HP (a transformed Ditto's copy changes with the other Active)
   const isOut = (p: PokemonInPlay | null): boolean =>
     !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= getEffectiveHp(next, p) &&
@@ -4314,9 +4424,12 @@ function executeAttackUnchecked(
   const options = typeof skipEndTurnOrOptions === "object" && skipEndTurnOrOptions !== null
     ? skipEndTurnOrOptions
     : undefined;
+  const reactions: AttackReactions = options?.reactions ?? {};
+  // Koga's Ninja Trick answered with a switch: the switched-in Pokémon defends for the whole
+  // attack (a no-op once done: a later question resumes from the switched state)
+  if (options && reactions.preAttack) gameState = applyNinjaTrickSwitch(gameState, reactions.preAttack);
   // A power asked mid-attack (Flee, Bench Guard) returns this state untouched with the question
   const inputState = gameState;
-  const reactions: AttackReactions = options?.reactions ?? {};
   const skipEndTurn = options ? !!options.skipEndTurn : !!skipEndTurnOrOptions;
   const skipDefenderPromotion = options ? !!options.skipDefenderPromotion : skipDefenderPromotionArg;
   const selectedEnergyIds = options ? options.selectedEnergyIds : selectedEnergyIdsArg;
@@ -4346,6 +4459,25 @@ function executeAttackUnchecked(
   // getAvailableAttacks indices: Recall's attacks follow the Active's own
   const printedAttack = attackAt(gameState, attacker, attackIndex);
   if (!printedAttack) return gameState;
+
+  // Koga's Ninja Trick (Gym Challenge): the defender's question comes before anything of the
+  // attack, its coins included (they depend on the Pokémon that defends: Transparency...)
+  const preAttackStep = options && reactions.preAttack === undefined ? ninjaTrickStep(gameState, printedAttack.name) : null;
+  if (preAttackStep) {
+    return pauseForReaction(
+      inputState,
+      {
+        answers: "preAttack",
+        powerName: KOGAS_NINJA_TRICK,
+        pokemonId: defender.pokemon.id,
+        side: "opponent",
+        // The caller's coins (if any) are replaced by the answer's (getAttackChoiceCoinPlan)
+        resume: { kind: "attack", attackIndex, ...(copiedAttack && { copiedAttack }), options: { ...options!, reactions } },
+      },
+      preAttackStep,
+      reactionContext(attacker, defender, printedAttack.name, gameState)
+    );
+  }
 
   // Coin flips: in the options form the engine resolves coin effects from the caller's coins,
   // laid out as getAttackCoinPlan says (Sand-attack/Smokescreen first, Transparency last).

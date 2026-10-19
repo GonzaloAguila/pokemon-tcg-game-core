@@ -92,6 +92,8 @@ import {
   energyProvidesType,
   energyToMove,
   energyRemovalBlocked,
+  applyNinjaTrickSwitch,
+  getAttackCoinPlan,
   canEvolveInto,
   executeCopiedAttack,
   getAttackRequirementFailure,
@@ -326,7 +328,7 @@ function stepFor(
     }
     case AttackEffectType.MoveDefenderEnergyToBench: {
       const defender = defenderOf(state, context);
-      if (!defender || state.opponentBench.length === 0) return null;
+      if (!defender || state.opponentBench.length === 0 || energyRemovalBlocked(state, defender, "opponent")) return null;
       if (!picked) {
         const basics = defender.attachedEnergy.filter((e) => isEnergyCard(e) && e.isBasic);
         if (basics.length === 0) return null;
@@ -499,7 +501,8 @@ function stepFor(
     case AttackEffectType.Discard: {
       const defender = defenderOf(state, context);
       const energies = defender?.attachedEnergy ?? [];
-      if (energies.length === 0) return null;
+      // Brock's Protection: its Energy cards can't be discarded by the opponent's attacks
+      if (energies.length === 0 || energyRemovalBlocked(state, defender!, "opponent")) return null;
       const count = Math.min(effect.amount ?? 1, energies.length);
       return {
         title,
@@ -1233,7 +1236,8 @@ function applyChoice(
     }
     case AttackEffectType.CopyDefenderAttackChoice: {
       const copied = copyableAttacks(state, context).find((a) => a.name === selection[0])!;
-      return { state: executeCopiedAttack(withoutSmokescreen(state), copied, { coinResults: coins ?? [], skipEndTurn: true }, false, name) };
+      // Part of an attack already under way: Koga's Ninja Trick isn't asked again
+      return { state: executeCopiedAttack(withoutSmokescreen(state), copied, { coinResults: coins ?? [], skipEndTurn: true, reactions: { preAttack: null } }, false, name) };
     }
     case AttackEffectType.RecoverFromDiscard: {
       const taken = state.playerDiscard.filter((c) => selection.includes(c.id));
@@ -1457,6 +1461,14 @@ export function resolveAttackChoice(state: GameState, selection: string[], optio
   const reflipPlan = pending.reflip && selection.includes(pending.reflip.option) ? pending.reflip.plan : null;
   if (reflipPlan) checkCoins(reflipPlan.attack, options.coinResults ?? []);
   const cleared: GameState = { ...state, pendingAttackChoice: undefined };
+  if (pending.reaction?.answers === "preAttack") {
+    // Koga's Ninja Trick: the attack's coins (against the Pokémon that will defend) come with the answer
+    const plan = getAttackChoiceCoinPlan(state, selection);
+    if (plan && !(options.coinResults?.length)) {
+      throw new Error(`resolveAttackChoice: this answer needs the attack's coins (getAttackChoiceCoinPlan)`);
+    }
+    return resumeAfterReaction(cleared, pending.reaction, selection, { ...options, coinResults: plan ? options.coinResults : [] });
+  }
   if (pending.reaction) return resumeAfterReaction(cleared, pending.reaction, selection, options);
   const applied = applyChoice(cleared, pending, selection, options.reactions, options.coinResults);
   // Bench Guard asked for the damage this choice does (nothing happened yet), or the attack ESP
@@ -1478,6 +1490,17 @@ export function getAttackChoiceCoinPlan(state: GameState, selection: string[]): 
   const pending = state.pendingAttackChoice;
   const reflip = pending?.reflip;
   if (reflip) return selection.includes(reflip.option) ? reflip.plan : null;
+  // Koga's Ninja Trick: the whole attack's coins, against the Pokémon that defends after the answer
+  const resume = pending?.reaction?.answers === "preAttack" ? pending.reaction.resume : undefined;
+  if (resume?.kind === "attack") {
+    const base: GameState = { ...state, pendingAttackChoice: undefined };
+    const after = selection[0] ? applyNinjaTrickSwitch(base, selection[0]) : base;
+    const plan = resume.copiedAttack
+      ? getAttackCoinPlan(after, resume.copiedAttack)
+      : getAttackCoinPlan(after, resume.attackIndex, { vermilionCoin: resume.options.vermilionCoin });
+    const count = plan.smokescreen + (plan.power ?? 0) + (plan.attack === "untilTails" ? 1 : plan.attack) + (plan.stadium ?? 0) + plan.defender;
+    return count === 0 ? null : plan;
+  }
   // ESP's 3 heads: the copied attack's coins (no Smokescreen coin: ESP's was already flipped)
   if (pending && !pending.reaction && pending.effect?.type === AttackEffectType.CopyDefenderAttackChoice) {
     const copied = copyableAttacks(state, pending.context).find((a) => a.name === selection[0]);
@@ -1509,6 +1532,8 @@ function withAnswer(
       return { ...previous, benchGuard: { ...previous.benchGuard, [reaction.side]: selection } };
     case "beforeDamageSearch":
       return { ...previous, beforeDamageSearch: selection };
+    case "preAttack":
+      return { ...previous, preAttack: selection[0] ?? null };
   }
 }
 
@@ -1528,7 +1553,13 @@ function resumeAfterReaction(
   const coins = reaction.answers === "espReflip" && selection.includes(ESP_REFLIP_OPTION) ? options.coinResults : undefined;
   switch (resume.kind) {
     case "attack": {
-      const opts = { ...resume.options, reactions: withAnswer(reaction, selection, resume.options.reactions, coins), skipEndTurn: !!options.skipEndTurn };
+      const opts = {
+        ...resume.options,
+        // Koga's Ninja Trick: the attack's coins were flipped only now (getAttackChoiceCoinPlan)
+        ...(reaction.answers === "preAttack" && { coinResults: options.coinResults ?? [] }),
+        reactions: withAnswer(reaction, selection, resume.options.reactions, coins),
+        skipEndTurn: !!options.skipEndTurn,
+      };
       // Checked when it was first used (the state is the same): run again as it was
       return resume.copiedAttack
         ? executeCopiedAttack(state, resume.copiedAttack, opts, false, resume.copySource)

@@ -63,6 +63,8 @@
  * | Max Revive (GC) | 2 or fewer Benched Pokémon and 3+ Energy cards in hand (hand change) |
  * | Misty's Tears (GC) | it needs Water, holds none, the deck may have some and a card of little value (≤ 25) to discard (hand change) |
  * | Fervor (GC) | it needs Fire and the deck holds 10+ (hand change) |
+ * | Brock's Protection (GC) | a Brock's Pokémon with Energy and no Brock's Protection: the one with the most Energy cards |
+ * | Koga's Ninja Trick (GC) | its Active has Koga in its name, a Benched Pokémon and no Ninja Trick yet (attackAnswers decides the switch) |
  * | Rocket's Secret Experiment (GC) | deck > 5 and no other Trainer in hand (a tails locks them) (hand change) |
  * | Warp Point (GC) | only when the other player can answer (OTHER_PLAYER_ANSWERS): its Active can't attack and a Benched Pokémon can |
  * | Erika's Kindness (GC) | it heals 20+ of its own damage and more than the other side's |
@@ -94,6 +96,7 @@ import {
 import { getEffectivePokemonCard, hasStatusImmunity, isPowerActive } from "@/domain/powers";
 import { minSelectionsOf } from "@/domain/effects/validate";
 import { answerStepForAI } from "./pending";
+import { attachedTrainerNamed, BROCKS_PROTECTION, KOGAS_NINJA_TRICK } from "@/domain/trainers/attached";
 import { unknownOwnCards } from "./knowledge";
 import type { AIAction } from "./types";
 
@@ -551,7 +554,19 @@ function planGymChallengeTrainers(view: GameState, options: { willAttack: boolea
       !hasStatusCondition(defender, StatusCondition.Poisoned) && !hasStatusImmunity(defender, view)
   );
   add("Transparent Walls", () => threatensBench(view));
+  add(BROCKS_PROTECTION, () => brocksProtectionTarget(view) !== undefined);
+  add(
+    KOGAS_NINJA_TRICK,
+    () => !!active && hasOwner(active.pokemon, "Koga") && view.playerBench.length > 0 && !attachedTrainerNamed(active, KOGAS_NINJA_TRICK)
+  );
   add("Sabrina", () => sabrinaMove(view) !== undefined);
+}
+
+/** Brock's Protection: its Brock's Pokémon with the most Energy cards and no protection yet (the Active on a tie). */
+function brocksProtectionTarget(view: GameState): PokemonInPlay | undefined {
+  return ownPokemon(view)
+    .filter((p) => hasOwner(p.pokemon, "Brock") && p.attachedEnergy.length > 0 && !attachedTrainerNamed(p, BROCKS_PROTECTION))
+    .sort((a, b) => b.attachedEnergy.length - a.attachedEnergy.length)[0];
 }
 
 /** The AI's answers to the Gym Challenge Trainers' steps (AI view); null = not one of them. */
@@ -560,6 +575,8 @@ function answerGymChallengeStep(view: GameState, cardId: string, name: string, s
   switch (name) {
     case "Giovanni":
       return prefer(view, step, [(_c, id) => id === giovanniTarget(view)?.pokemon.id]);
+    case BROCKS_PROTECTION:
+      return prefer(view, step, [(_c, id) => id === brocksProtectionTarget(view)?.pokemon.id]);
     case "Giovanni's Last Resort":
       return prefer(view, step, [(_c, id) => id === lastResortTarget(view)?.pokemon.id]);
     case "Master Ball":

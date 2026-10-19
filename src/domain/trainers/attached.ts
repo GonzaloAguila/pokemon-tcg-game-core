@@ -10,6 +10,8 @@
  * |---|---|---|---|
  * | Charity | the Active | its attack may do less damage to the Defending Pokémon (executeAttack asks the attacker) | back to the hand (unless Knocked Out: it left play with the Pokémon) |
  * | Sabrina's ESP | a Pokémon with Sabrina in its name | its attack's own coins may be re-flipped once (executeAttack asks the attacker) | discarded |
+ * | Brock's Protection (GC) | a Pokémon with Brock in its name | the opponent's attacks and Trainers can't take its attached Energy cards off it (energyRemovalBlocked) | stays (until it leaves play) |
+ * | Koga's Ninja Trick (GC) | the Active with Koga in its name | when the opponent attacks, its owner may switch it with a Benched Pokémon first (executeAttack asks, "preAttack"); then discarded | stays; discarded as soon as its Pokémon is on the Bench (checkKnockouts' sweep) |
  *
  * Pure and type-only on the engine side, so lib/gameState.ts can import it.
  */
@@ -18,9 +20,18 @@ import type { GameCard, PokemonInPlay } from "@/lib/gameState";
 
 export const CHARITY = "Charity";
 export const SABRINAS_ESP = "Sabrina's ESP";
+export const BROCKS_PROTECTION = "Brock's Protection";
+export const KOGAS_NINJA_TRICK = "Koga's Ninja Trick";
 
-/** How long an attached Trainer stays: every one so far, until the end of its owner's turn. */
-export type AttachedTrainerExpiry = "endOfTurn";
+/**
+ * How long an attached Trainer stays: until the end of its owner's turn (Charity, ESP), until its
+ * Pokémon leaves play (Brock's Protection), or while its Pokémon is the Active (Koga's Ninja Trick).
+ */
+export type AttachedTrainerExpiry = "endOfTurn" | "untilLeavesPlay" | "whileActive";
+
+/** Attached Trainers that stay until their Pokémon leaves play, and those discarded once it is Benched. */
+const UNTIL_LEAVES_PLAY: ReadonlySet<string> = new Set([BROCKS_PROTECTION]);
+const WHILE_ACTIVE: ReadonlySet<string> = new Set([KOGAS_NINJA_TRICK]);
 
 /** Where each attached Trainer goes at the end of its owner's turn. */
 const AT_END_OF_TURN: Readonly<Record<string, "hand" | "discard">> = {
@@ -33,8 +44,9 @@ const AT_END_OF_TURN: Readonly<Record<string, "hand" | "discard">> = {
  * the card must be one this module knows what to do with when it expires (AT_END_OF_TURN).
  */
 export function attachTrainer(pokemon: PokemonInPlay, card: GameCard, expires: AttachedTrainerExpiry): PokemonInPlay {
-  if (expires === "endOfTurn" && !AT_END_OF_TURN[card.name]) {
-    throw new Error(`attachTrainer: ${card.name} has no end-of-turn rule (domain/trainers/attached.ts)`);
+  const known = expires === "endOfTurn" ? !!AT_END_OF_TURN[card.name] : (expires === "whileActive" ? WHILE_ACTIVE : UNTIL_LEAVES_PLAY).has(card.name);
+  if (!known) {
+    throw new Error(`attachTrainer: ${card.name} has no "${expires}" rule (domain/trainers/attached.ts)`);
   }
   return { ...pokemon, attachedTrainers: [...(pokemon.attachedTrainers ?? []), card] };
 }
@@ -42,6 +54,11 @@ export function attachTrainer(pokemon: PokemonInPlay, card: GameCard, expires: A
 /** The first Trainer named `name` attached to `pokemon`, if any. */
 export function attachedTrainerNamed(pokemon: PokemonInPlay | null | undefined, name: string): GameCard | undefined {
   return pokemon?.attachedTrainers?.find((c) => c.name === name);
+}
+
+/** The attached Trainers a Benched Pokémon can't keep (Koga's Ninja Trick: discarded once its Pokémon is on the Bench). */
+export function benchedLeavers(pokemon: PokemonInPlay): GameCard[] {
+  return (pokemon.attachedTrainers ?? []).filter((c) => WHILE_ACTIVE.has(c.name));
 }
 
 /** A Trainer that left a Pokémon at the end of the turn, for the log. */

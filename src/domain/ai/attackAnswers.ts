@@ -9,6 +9,7 @@
  * |---|---|
  * | Sabrina's ESP (reaction) | re-flip when fewer than half of the attack's own coins came up heads (`wantsEspReflip`; the caller flips the new coins) |
  * | Charity (reaction) | "0": never reduces its damage |
+ * | Koga's Ninja Trick (pre-attack reaction, AI defends) | switch when staying (attacker's coins heads, its own coin tails) leaves its Active Knocked Out, with ≤ 30 HP or a new Special Condition, to a Benched Pokémon that ends the attack with more HP left (the one it would promote first) |
  * | Flee (reaction, AI defends) | switch when, without it, the Defending Pokémon would be left with ≤ 30 HP or a new Special Condition; to the Benched Pokémon it would promote (choosePromotion, its turn next) |
  * | Bench Guard (reaction) | while the guard keeps > 30 HP: the hit Benched Pokémon, least HP left first |
  * | ForceSwitch chosen by the defender (Terror Strike, AI defends) | the Benched Pokémon it would promote (its turn next) |
@@ -24,7 +25,8 @@
  */
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
-import { getEnergyValue, hasStatusCondition, resolveAttackChoice } from "@/lib/gameState";
+import { getAttackChoiceCoinPlan, getEnergyValue, hasStatusCondition, resolveAttackChoice, type AttackCoinPlan } from "@/lib/gameState";
+import type { CoinFlipResult } from "@/domain/constants";
 import { isBasicEnergy } from "@/domain/cards";
 import { AttackEffectType, StatusCondition } from "@/domain/constants";
 import { swapSides } from "@/domain/board";
@@ -61,6 +63,8 @@ export function answerAttackChoiceForAI(attackerView: GameState): string[] {
         return answerBenchGuard(answererView, reaction.pokemonId, step);
       case "beforeDamageSearch":
         return enabledIds(step).slice(0, step.maxSelections);
+      case "preAttack":
+        return answerNinjaTrick(attackerView, answererView, reaction.pokemonId, step);
     }
   }
   if (step.chooser === "opponent") {
@@ -117,6 +121,49 @@ function withoutAnswer(attackerView: GameState): GameState | null {
   } catch {
     return null;
   }
+}
+
+/** The coins worst for the defender: the attacker's all heads (a run of 3 for "until tails"), the defender's tails. */
+function worstCoinsForDefender(plan: AttackCoinPlan): CoinFlipResult[] {
+  const n = (k: number, c: CoinFlipResult) => Array.from({ length: k }, () => c);
+  const own = plan.attack === "untilTails" ? (["heads", "heads", "tails"] as CoinFlipResult[]) : n(plan.attack, "heads");
+  return [...n(plan.smokescreen, "heads"), ...n(plan.power ?? 0, "heads"), ...own, ...n(plan.stadium ?? 0, "heads"), ...n(plan.defender, "tails")];
+}
+
+/**
+ * Koga's Ninja Trick: what `pokemonId` is left with once the attack runs after the answer
+ * `selection` (worst coins; later questions with their defaults), or null when the engine refuses.
+ */
+function afterPreAttack(attackerView: GameState, selection: string[], pokemonId: string): { state: GameState; pokemon?: PokemonInPlay } | null {
+  try {
+    const plan = getAttackChoiceCoinPlan(attackerView, selection);
+    let state = resolveAttackChoice(attackerView, selection, { ...NO_END, ...(plan && { coinResults: worstCoinsForDefender(plan) }) });
+    for (let guard = 0; guard < 4 && state.pendingAttackChoice?.reaction; guard++) {
+      state = resolveAttackChoice(state, state.pendingAttackChoice.step.defaultSelection ?? [], NO_END);
+    }
+    const pokemon = [state.opponentActivePokemon, ...state.opponentBench].find((p): p is PokemonInPlay => p?.pokemon.id === pokemonId);
+    return { state, pokemon };
+  } catch {
+    return null;
+  }
+}
+
+/** Koga's Ninja Trick: switch only when staying costs much and the Pokémon sent in ends the attack better off. */
+function answerNinjaTrick(attackerView: GameState, defenderView: GameState, kogaId: string, step: SelectionStep): string[] {
+  const before = defenderView.playerActivePokemon;
+  const stayed = afterPreAttack(attackerView, [], kogaId);
+  if (!before || !stayed) return [];
+  const koga = stayed.pokemon;
+  const left = koga ? hpLeft(stayed.state, koga) : 0;
+  const newCondition = !!koga && SPECIAL_CONDITIONS.some((c) => hasStatusCondition(koga, c) && !hasStatusCondition(before, c));
+  if (left > 30 && !newCondition) return [];
+  const preferred = promotionAnswer(defenderView, step)?.[0];
+  const ids = enabledIds(step).sort((a, b) => (b === preferred ? 1 : 0) - (a === preferred ? 1 : 0));
+  for (const id of ids) {
+    const switched = afterPreAttack(attackerView, [id], id);
+    if (switched?.pokemon && hpLeft(switched.state, switched.pokemon) > Math.max(left, 30)) return [id];
+  }
+  return [];
 }
 
 /** Flee: leave when staying costs much (≤ 30 HP left, or a new Special Condition). */

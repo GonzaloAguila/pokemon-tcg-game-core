@@ -212,6 +212,8 @@ export {
   executeCopiedAttack,
   getCopiedAttackCoinPlan,
   energyRemovalBlocked,
+  getAttackPreReaction,
+  applyNinjaTrickSwitch,
   getAttackCoinFlipCount,
   getAttackCoinPlan,
   flipAttackCoins,

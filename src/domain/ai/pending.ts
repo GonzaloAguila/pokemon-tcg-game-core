@@ -93,9 +93,29 @@ export function resolveAttackForEvaluation(view: GameState): GameState {
   for (let guard = 0; guard < 6 && state.gameResult === null; guard++) {
     const pending = state.pendingAttackChoice;
     if (!pending?.reaction || pending.step.chooser !== "opponent") break;
-    state = resolveOwnAttackPendings(resolveAttackChoice(state, answerAttackChoiceForAI(state), NO_END));
+    const answer = answerAttackChoiceForAI(state);
+    state = resolveOwnAttackPendings(resolveReactionForEvaluation(state, answer));
   }
   return state;
+}
+
+/**
+ * Answer a reaction while judging an attack. Koga's Ninja Trick's answer needs the attack's coins
+ * (getAttackChoiceCoinPlan): the scenario's own coins when they still fit the plan, else heads.
+ */
+function resolveReactionForEvaluation(state: GameState, answer: string[]): GameState {
+  const plan = getAttackChoiceCoinPlan(state, answer);
+  if (!plan) return resolveAttackChoice(state, answer, NO_END);
+  const resume = state.pendingAttackChoice?.reaction?.resume;
+  const scenario = resume?.kind === "attack" ? resume.options.coinResults : undefined;
+  if (scenario && scenario.length > 0) {
+    try {
+      return resolveAttackChoice(state, answer, { ...NO_END, coinResults: scenario });
+    } catch {
+      // The plan changed with the switch (a coin more or less): heads below
+    }
+  }
+  return resolveAttackChoice(state, answer, { ...NO_END, coinResults: flipAttackCoins(plan, () => "heads") });
 }
 
 function remainingHp(pokemon: PokemonInPlay): number {
