@@ -9,20 +9,145 @@
  * owner's, see cards/owner.ts). Trainer and Stadium names stay in English as printed, with their
  * Spanish text (Stadiums: `TrainerType.Stadium`).
  *
- * DATA ONLY (2026-10-19): no attack, power or Trainer effect is implemented yet — the set is
- * registered with `inDevelopment: true` (kept out of random pools) until the tasks of
- * docs/superpowers/plans/2026-10-19-gym-challenge.md add the effects. Power types are
+ * IN PROGRESS (2026-10-19): the attacks that fit the existing effect vocabulary have their
+ * `effects` (test/gym-challenge-attacks.test.ts); the rest of the attacks, the powers and the
+ * Trainers come with the next tasks of docs/superpowers/plans/2026-10-19-gym-challenge.md. The set
+ * is registered with `inDevelopment: true` (kept out of random pools) until then. Power types are
  * placeholders (data only, see PokemonPowerType "Gym Challenge").
  */
 
-import { type Card, createPokemonCard, createTrainerCard, makeCardId } from "@/domain/cards";
-import { EnergyType, CardSet, CardRarity, PokemonStage, PokemonPowerType, TrainerType } from "@/domain/constants";
+import { type AttackEffect, type Card, createPokemonCard, createTrainerCard, makeCardId } from "@/domain/cards";
+import {
+  EnergyType,
+  CardSet,
+  CardRarity,
+  PokemonStage,
+  PokemonPowerType,
+  TrainerType,
+  AttackEffectType,
+  AttackTarget,
+  BenchDamageTarget,
+  ProtectionType,
+  StatusCondition,
+} from "@/domain/constants";
 
 const SET: CardSet = CardSet.GymChallenge;
 
 const { Grass, Fire, Water, Lightning, Psychic, Fighting, Colorless } = EnergyType;
 const { RareHolo, Rare, Uncommon, Common } = CardRarity;
 const { Basic, Stage1, Stage2 } = PokemonStage;
+
+// ============================================================================
+// Effect helpers (plain data, same shape as the other catalogs)
+// ============================================================================
+
+/** "Flip a coin. If heads, the Defending Pokémon is now <status>[; if tails, <onTails>]." */
+const coinStatus = (value: StatusCondition, onTails?: StatusCondition): AttackEffect => ({
+  type: AttackEffectType.ApplyStatus,
+  target: AttackTarget.Defender,
+  coinFlip: { count: 1, onHeads: value, ...(onTails && { onTails }) },
+});
+
+/** "The Defending Pokémon is now <status>." */
+const status = (value: StatusCondition): AttackEffect => ({
+  type: AttackEffectType.ApplyStatus,
+  target: AttackTarget.Defender,
+  status: value,
+});
+
+/** "<This Pokémon> is now <status>." */
+const selfStatus = (value: StatusCondition): AttackEffect => ({
+  type: AttackEffectType.ApplyStatus,
+  target: AttackTarget.Self,
+  status: value,
+});
+
+/** "Flip a coin. If heads, the Defending Pokémon is now Poisoned. It now takes 20 Poison damage instead of 10 (even if it was already Poisoned)." */
+const coinToxic: AttackEffect = { ...coinStatus(StatusCondition.Poisoned), poisonDamage: 20 };
+
+/** "Flip N coins. This attack does X damage times the number of heads." */
+const coinDamage = (amount: number, count: number): AttackEffect => ({
+  type: AttackEffectType.CoinFlipDamage,
+  target: AttackTarget.Defender,
+  amount,
+  coinFlip: { count, onHeads: "damage" },
+});
+
+/** "Flip a coin. If heads, this attack does N damage plus M more damage" (M on heads). */
+const coinBonus = (amount: number): AttackEffect => ({
+  type: AttackEffectType.CoinFlipDamage,
+  target: AttackTarget.Defender,
+  amount,
+  coinFlip: { count: 1, onHeads: "damage" },
+});
+
+/** "<This Pokémon> does N damage to itself" (on tails only with `onTails`). */
+const selfDamage = (amount: number, onTails = false): AttackEffect => ({
+  type: AttackEffectType.SelfDamage,
+  target: AttackTarget.Self,
+  amount,
+  ...(onTails && { coinFlip: { count: 1, onTails: "damage" as const } }),
+});
+
+/** "Flip a coin. If tails, this attack does nothing." */
+const tailsFails: AttackEffect = { type: AttackEffectType.AttackFails, target: null, coinFlip: { count: 1, onTails: "damage" } };
+
+/**
+ * "Flip a coin. If tails, this attack does nothing. Either way, you can't use this attack again
+ * as long as <this Pokémon> stays in play." (Hyper Needle, Lunge). The tails is `defenderOnly`
+ * (nothing to the Defending Pokémon; these attacks do nothing else) so that the attack still
+ * goes on to record its UseOnce — a plain AttackFails stops before it.
+ */
+const onceTailsNothing: AttackEffect[] = [
+  { type: AttackEffectType.AttackFails, target: null, defenderOnly: true, coinFlip: { count: 1, onTails: "damage" } },
+  { type: AttackEffectType.UseOnce, target: null },
+];
+
+/** "Don't apply Weakness and Resistance." */
+const noWeaknessResistance: AttackEffect = { type: AttackEffectType.IgnoreWeaknessResistance, target: null };
+
+/** "The Defending Pokémon can't retreat during your opponent's next turn." */
+const preventRetreat: AttackEffect = { type: AttackEffectType.PreventRetreat, target: AttackTarget.Defender };
+
+/** "If the Defending Pokémon tries to attack during your opponent's next turn, your opponent flips a coin..." */
+const sandAttack: AttackEffect = { type: AttackEffectType.SandAttack, target: AttackTarget.Defender };
+
+/** "All damage done by attacks to <this Pokémon> during your opponent's next turn is reduced by N (after W/R)." */
+const reduceDamage = (amount: number): AttackEffect => ({ type: AttackEffectType.ReduceDamage, target: AttackTarget.Self, amount });
+
+/** "Flip a coin. If heads, prevent all effects of attacks, including damage, done to <this Pokémon> during your opponent's next turn." */
+const coinProtection: AttackEffect = {
+  type: AttackEffectType.Protection,
+  target: AttackTarget.Self,
+  coinFlip: { count: 1, onHeads: "protection" },
+  protectionType: ProtectionType.DamageAndEffects,
+};
+
+/** "N damage to each of your opponent's Benched Pokémon." */
+const opponentBenchDamage = (amount: number): AttackEffect => ({
+  type: AttackEffectType.BenchDamage,
+  target: AttackTarget.Defender,
+  amount,
+  benchTarget: BenchDamageTarget.Opponent,
+});
+
+/** "If your opponent has any Benched Pokémon, choose up to N of them. This attack does X damage to each of them." */
+const chooseBenched = (amount: number, max: number): AttackEffect => ({
+  type: AttackEffectType.BenchDamage,
+  target: AttackTarget.Defender,
+  amount,
+  benchTarget: BenchDamageTarget.Opponent,
+  maxBenchTargets: max,
+});
+
+/** "Flip a coin. If heads, and if your opponent has any Benched Pokémon, choose 1 of them and this attack does N damage to it." */
+const coinChooseBenched = (amount: number): AttackEffect => ({
+  type: AttackEffectType.ChooseTargetDamage,
+  target: AttackTarget.Defender,
+  amount,
+  targetScope: "opponentBench",
+  coinFlip: { count: 1, onHeads: "damage" },
+});
 
 export const gymChallengeCards: Card[] = [
   // ==========================================================================
@@ -44,12 +169,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Fire, Colorless, Colorless],
         damage: 40,
         text: "Blaine's Arcanine se hace 10 puntos de daño a sí mismo.",
+        effects: [selfDamage(10)],
       },
       {
         name: "Tormenta de Fuego",
         cost: [Fire, Fire, Fire, Fire],
         damage: 120,
         text: "Descarta 3 cartas de Energía Fuego unidas a Blaine's Arcanine para poder usar este ataque.",
+        effects: [{ type: AttackEffectType.Discard, target: AttackTarget.Self, discardCostRequirement: [Fire, Fire, Fire] }],
       },
     ],
     retreatCost: 3,
@@ -77,6 +204,7 @@ export const gymChallengeCards: Card[] = [
         name: "Chorro de Llamas",
         cost: [Fire, Fire],
         text: "Lanza una moneda. Si sale cara, elige 1 de los Pokémon de tu rival. Este ataque hace 40 puntos de daño a ese Pokémon. No apliques Debilidad ni Resistencia a este ataque. (Cualquier otro efecto que ocurra después de aplicar Debilidad y Resistencia sigue ocurriendo.)",
+        effects: [{ type: AttackEffectType.ChooseTargetDamage, target: AttackTarget.Defender, amount: 40, targetScope: "opponentAny", coinFlip: { count: 1, onHeads: "damage" } }],
       },
     ],
     retreatCost: 3,
@@ -127,6 +255,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass, Grass, Grass, Grass],
         damage: 20,
         text: "Si tu rival tiene algún Pokémon en la Banca, elige 2 de ellos (o 1 si solo tiene 1). Este ataque hace 20 puntos de daño a cada uno de ellos. (No apliques Debilidad ni Resistencia a los Pokémon en la Banca.)",
+        effects: [{ type: AttackEffectType.BenchDamage, target: AttackTarget.Defender, amount: 20, benchTarget: BenchDamageTarget.Opponent, maxBenchTargets: 2, exactBenchTargets: true }],
       },
     ],
     retreatCost: 2,
@@ -154,6 +283,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Water, Water, Colorless, Colorless],
         damage: 40,
         text: "Salvo que este ataque deje Fuera de Combate al Pokémon Defensor, elige 1 de los Pokémon en la Banca de tu rival y cámbialo por el Pokémon Defensor.",
+        effects: [{ type: AttackEffectType.ForceSwitch, target: AttackTarget.Defender }],
       },
     ],
     retreatCost: 3,
@@ -182,6 +312,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Fighting, Fighting, Fighting, Colorless],
         damage: "30x",
         text: "Lanza 4 monedas. Este ataque hace 30 puntos de daño multiplicados por la cantidad de caras.",
+        effects: [coinDamage(30, 4)],
       },
     ],
     retreatCost: 3,
@@ -209,6 +340,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass, Grass, Grass, Colorless],
         damage: "40+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 40 puntos de daño más 30 puntos de daño adicionales; si sale cruz, este ataque hace 40 puntos de daño.",
+        effects: [coinBonus(30)],
       },
     ],
     retreatCost: 3,
@@ -237,6 +369,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless, Colorless, Colorless],
         damage: "20+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 20 puntos de daño más 20 puntos de daño adicionales; si sale cruz, este ataque hace 20 puntos de daño.",
+        effects: [coinBonus(20)],
       },
     ],
     retreatCost: 0,
@@ -259,12 +392,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass, Grass],
         damage: 20,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Paralizado y Envenenado.",
+        effects: [{ ...coinStatus(StatusCondition.Paralyzed), additionalStatuses: [StatusCondition.Poisoned] }],
       },
       {
         name: "Híper Aguja",
         cost: [Colorless, Colorless, Colorless],
         damage: 70,
         text: "Lanza una moneda. Si sale cruz, este ataque no hace nada. En cualquier caso, no puedes volver a usar este ataque mientras Koga's Beedrill siga en juego (ni siquiera mandar a Koga's Beedrill a la Banca te permitirá volver a usarlo).",
+        effects: onceTailsNothing,
       },
     ],
     retreatCost: 0,
@@ -314,6 +449,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Lightning, Lightning, Colorless, Colorless],
         damage: 40,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Paralizado. Si sale cruz, Lt. Surge's Raichu se hace 20 puntos de daño a sí mismo.",
+        effects: [coinStatus(StatusCondition.Paralyzed), selfDamage(20, true)],
       },
     ],
     retreatCost: 2,
@@ -336,6 +472,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Water, Colorless],
         damage: 40,
         text: "Lanza una moneda. Si sale cruz, descarta todas las cartas de Energía unidas a Misty's Golduck.",
+        effects: [{ type: AttackEffectType.Discard, target: AttackTarget.Self, discardAll: true, coinFlip: { count: 1, onTails: "damage" } }],
       },
       {
         name: "Supereliminación",
@@ -390,6 +527,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Psychic, Psychic],
         damage: 20,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Dormido.",
+        effects: [coinStatus(StatusCondition.Asleep)],
       },
       { name: "Psicoquemadura", cost: [Psychic, Psychic, Psychic, Colorless], damage: 60 },
     ],
@@ -412,6 +550,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Lightning],
         damage: 20,
         text: "Si hay alguna carta de Energía Eléctrica en tu pila de descartes, une 1 de ellas a Rocket's Zapdos.",
+        effects: [{ type: AttackEffectType.AttachEnergyFromDiscard, target: AttackTarget.Self, energyType: Lightning, amount: 1, minAmount: 1 }],
       },
       {
         name: "Electroquemadura",
@@ -446,6 +585,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Psychic, Colorless, Colorless, Colorless],
         damage: 60,
         text: "No puedes usar este ataque durante tu próximo turno.",
+        effects: [{ type: AttackEffectType.CantAttackNextTurn, target: AttackTarget.Self, thisAttackOnly: true }],
       },
     ],
     retreatCost: 3,
@@ -537,6 +677,7 @@ export const gymChallengeCards: Card[] = [
         name: "Agazaparse",
         cost: [Fighting],
         text: "Todo el daño hecho a Brock's Dugtrio durante el próximo turno de tu rival se reduce en 20 (después de aplicar Debilidad y Resistencia).",
+        effects: [reduceDamage(20)],
       },
       {
         name: "Taladro Terrestre",
@@ -587,12 +728,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass, Colorless],
         damage: "10+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 10 puntos de daño más 10 puntos de daño adicionales; si sale cruz, este ataque hace 10 puntos de daño.",
+        effects: [coinBonus(10)],
       },
       {
         name: "Lanzamiento Aéreo",
         cost: [Grass, Colorless, Colorless],
         damage: 40,
         text: "Si tienes algún Pokémon en la Banca, lanza una moneda. Si sale cruz, elige 1 de tus Pokémon en la Banca. Este ataque hace 20 puntos de daño a ese Pokémon. (No apliques Debilidad ni Resistencia a los Pokémon en la Banca.)",
+        effects: [{ type: AttackEffectType.BenchDamage, target: AttackTarget.Defender, amount: 20, benchTarget: BenchDamageTarget.Own, maxBenchTargets: 1, coinFlip: { count: 1, onTails: "damage" } }],
       },
     ],
     retreatCost: 2,
@@ -610,7 +753,7 @@ export const gymChallengeCards: Card[] = [
     types: [Grass],
     evolvesFrom: "Koga's Ekans",
     attacks: [
-      { name: "Acumular Veneno", cost: [Grass], text: "Koga's Arbok pasa a estar Envenenado." },
+      { name: "Acumular Veneno", cost: [Grass], text: "Koga's Arbok pasa a estar Envenenado.", effects: [selfStatus(StatusCondition.Poisoned)] },
       {
         name: "Poder Venenoso",
         cost: [Grass, Grass],
@@ -661,12 +804,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless, Colorless, Colorless],
         damage: "30x",
         text: "Lanza 2 monedas. Este ataque hace 30 puntos de daño multiplicados por la cantidad de caras.",
+        effects: [coinDamage(30, 2)],
       },
       {
         name: "Maniobras Aéreas",
         cost: [Colorless, Colorless, Colorless, Colorless],
         damage: "10+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 10 puntos de daño más 30 puntos de daño adicionales y, durante el próximo turno de tu rival, evita todos los efectos de los ataques, incluido el daño, hechos a Koga's Pidgeotto. Si sale cruz, este ataque hace 10 puntos de daño.",
+        effects: [coinBonus(30), coinProtection],
       },
     ],
     retreatCost: 0,
@@ -689,12 +834,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Lightning, Colorless],
         damage: 20,
         text: "Lanza una moneda. Si sale cara, tu rival no puede jugar cartas de Entrenador durante su próximo turno.",
+        effects: [{ type: AttackEffectType.BlockTrainers, target: null, coinFlip: { count: 1, onHeads: "damage" } }],
       },
       {
         name: "Destello Trueno",
         cost: [Lightning, Lightning, Lightning],
         damage: "30+",
         text: "Hace 30 puntos de daño más 10 puntos de daño multiplicados por la cantidad de contadores de daño sobre Lt. Surge's Jolteon; después, lanza una moneda. Si sale cruz, Lt. Surge's Jolteon se hace 30 puntos de daño a sí mismo.",
+        effects: [{ type: AttackEffectType.DamagePerCounter, target: AttackTarget.Self, amount: 10 }, selfDamage(30, true)],
       },
     ],
     retreatCost: 1,
@@ -723,6 +870,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Psychic, Psychic, Psychic],
         damage: 40,
         text: "El Pokémon Defensor no puede retirarse durante el próximo turno de tu rival.",
+        effects: [preventRetreat],
       },
     ],
     retreatCost: 2,
@@ -750,6 +898,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Water, Colorless, Colorless],
         damage: "20+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 20 puntos de daño más 20 puntos de daño adicionales; si sale cruz, este ataque hace 20 puntos de daño.",
+        effects: [coinBonus(20)],
       },
     ],
     retreatCost: 2,
@@ -797,6 +946,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless, Colorless],
         damage: 50,
         text: "Lanza una moneda. Si sale cruz, este ataque no hace nada.",
+        effects: [tailsFails],
       },
     ],
     retreatCost: 1,
@@ -820,6 +970,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Fire, Colorless, Colorless],
         damage: "30+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 30 puntos de daño más 10 puntos de daño adicionales (al Pokémon Defensor) y 10 puntos de daño a cada uno de los Pokémon en la Banca de tu rival. (No apliques Debilidad ni Resistencia a los Pokémon en la Banca.) Si sale cruz, este ataque hace 30 puntos de daño (al Pokémon Defensor).",
+        effects: [coinBonus(10), { ...opponentBenchDamage(10), coinFlip: { count: 1, onHeads: "damage" } }],
       },
     ],
     retreatCost: 0,
@@ -893,12 +1044,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Fighting, Colorless],
         damage: 20,
         text: "El daño de este ataque no se ve afectado por la Debilidad, la Resistencia, los Poderes Pokémon ni ningún otro efecto sobre el Pokémon Defensor.",
+        effects: [{ type: AttackEffectType.IgnoreDefenderEffects, target: null }],
       },
       {
         name: "Bola Aguja",
         cost: [Fighting, Fighting],
         damage: 30,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Envenenado.",
+        effects: [coinStatus(StatusCondition.Poisoned)],
       },
     ],
     retreatCost: 1,
@@ -915,12 +1068,13 @@ export const gymChallengeCards: Card[] = [
     hp: 50,
     types: [Fire],
     attacks: [
-      { name: "Ojos Hipnóticos", cost: [Colorless], text: "El Pokémon Defensor pasa a estar Dormido." },
+      { name: "Ojos Hipnóticos", cost: [Colorless], text: "El Pokémon Defensor pasa a estar Dormido.", effects: [status(StatusCondition.Asleep)] },
       {
         name: "Anillo de Fuego",
         cost: [Fire, Fire],
         damage: 20,
         text: "Si tu rival tiene algún Pokémon en la Banca, elige 1 de ellos y este ataque le hace 10 puntos de daño. (No apliques Debilidad ni Resistencia a los Pokémon en la Banca.)",
+        effects: [chooseBenched(10, 1)],
       },
     ],
     retreatCost: 1,
@@ -947,6 +1101,7 @@ export const gymChallengeCards: Card[] = [
         name: "Enredadera Elástica",
         cost: [Grass],
         text: "Elige 1 de los Pokémon en la Banca de tu rival y este ataque le hace 10 puntos de daño. (No apliques Debilidad ni Resistencia a los Pokémon en la Banca.)",
+        effects: [chooseBenched(10, 1)],
       },
     ],
     retreatCost: 1,
@@ -963,7 +1118,7 @@ export const gymChallengeCards: Card[] = [
     hp: 50,
     types: [Grass],
     attacks: [
-      { name: "Semilla Somnífera", cost: [Grass], damage: 10, text: "El Pokémon Defensor pasa a estar Dormido." },
+      { name: "Semilla Somnífera", cost: [Grass], damage: 10, text: "El Pokémon Defensor pasa a estar Dormido.", effects: [status(StatusCondition.Asleep)] },
       {
         name: "Hacer Recados",
         cost: [Grass, Grass],
@@ -1017,6 +1172,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass, Grass, Grass],
         damage: "40x",
         text: "Lanza 2 monedas. Este ataque hace 40 puntos de daño multiplicados por la cantidad de caras.",
+        effects: [coinDamage(40, 2)],
       },
     ],
     retreatCost: 2,
@@ -1045,6 +1201,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Fighting, Fighting, Colorless],
         damage: "20+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 20 puntos de daño más 20 puntos de daño adicionales y el Pokémon Defensor pasa a estar Paralizado. Si sale cruz, este ataque hace 20 puntos de daño.",
+        effects: [coinBonus(20), coinStatus(StatusCondition.Paralyzed)],
       },
     ],
     retreatCost: 2,
@@ -1071,6 +1228,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless, Colorless],
         damage: "20x",
         text: "Lanza 2 monedas. Este ataque hace 20 puntos de daño multiplicados por la cantidad de caras.",
+        effects: [coinDamage(20, 2)],
       },
     ],
     retreatCost: 1,
@@ -1093,12 +1251,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass, Colorless],
         damage: 30,
         text: "Giovanni's Nidorina se hace 20 puntos de daño a sí mismo. Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Envenenado.",
+        effects: [selfDamage(20), coinStatus(StatusCondition.Poisoned)],
       },
       {
         name: "Golpe Cuerpo",
         cost: [Grass, Colorless, Colorless],
         damage: 20,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Paralizado.",
+        effects: [coinStatus(StatusCondition.Paralyzed)],
       },
     ],
     retreatCost: 2,
@@ -1144,6 +1304,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass, Grass, Grass],
         damage: 30,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Confundido.",
+        effects: [coinStatus(StatusCondition.Confused)],
       },
     ],
     retreatCost: 0,
@@ -1171,6 +1332,7 @@ export const gymChallengeCards: Card[] = [
         name: "Secreción Tóxica",
         cost: [Grass],
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Envenenado. Ahora recibe 20 puntos de daño por Veneno en lugar de 10 después del turno de cada jugador (aunque ya estuviera Envenenado).",
+        effects: [coinToxic],
       },
     ],
     retreatCost: 2,
@@ -1192,12 +1354,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass],
         damage: 10,
         text: "Si el Pokémon Defensor intenta atacar durante el próximo turno de tu rival, tu rival lanza una moneda. Si sale cruz, ese ataque no hace nada.",
+        effects: [sandAttack],
       },
       {
         name: "Gas Ofuscante",
         cost: [Grass, Colorless],
         damage: 30,
         text: "Lanza una moneda. Si sale cara, baraja a Koga's Koffing y todas las cartas unidas a él en tu mazo (después de hacer el daño).",
+        effects: [{ type: AttackEffectType.ShuffleSelfIntoDeck, target: AttackTarget.Self, withAttachedCards: true, coinFlip: { count: 1, onHeads: "damage" } }],
       },
     ],
     retreatCost: 1,
@@ -1241,12 +1405,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass, Grass],
         damage: "10+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 10 puntos de daño más 30 puntos de daño adicionales y Koga's Weezing se hace 30 puntos de daño a sí mismo; si sale cruz, este ataque hace 10 puntos de daño.",
+        effects: [coinBonus(30), { type: AttackEffectType.SelfDamage, target: AttackTarget.Self, amount: 30, coinFlip: { count: 1, onHeads: "damage" } }],
       },
       {
         name: "Nube Tóxica",
         cost: [Grass, Grass, Colorless],
         damage: 20,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Envenenado. Ahora recibe 20 puntos de daño por Veneno en lugar de 10 después del turno de cada jugador (aunque ya estuviera Envenenado).",
+        effects: [coinToxic],
       },
     ],
     retreatCost: 2,
@@ -1296,6 +1462,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Lightning, Lightning, Colorless],
         damage: "30+",
         text: "Lanza 3 monedas. Este ataque hace 30 puntos de daño más 10 puntos de daño adicionales por cada cara.",
+        effects: [{ type: AttackEffectType.CoinFlipDamage, target: AttackTarget.Defender, amount: 10, coinFlip: { count: 3, onHeads: "damage" } }],
       },
     ],
     retreatCost: 2,
@@ -1323,6 +1490,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless, Colorless],
         damage: 40,
         text: "Lt. Surge's Raticate se hace 20 puntos de daño a sí mismo.",
+        effects: [selfDamage(20)],
       },
     ],
     retreatCost: 1,
@@ -1351,6 +1519,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Water, Colorless, Colorless, Colorless],
         damage: 60,
         text: "Misty's Dewgong se hace 20 puntos de daño a sí mismo.",
+        effects: [selfDamage(20)],
       },
     ],
     retreatCost: 2,
@@ -1368,11 +1537,12 @@ export const gymChallengeCards: Card[] = [
     types: [Psychic],
     evolvesFrom: "Sabrina's Gastly",
     attacks: [
-      { name: "Pesadilla", cost: [Psychic, Psychic], damage: 20, text: "El Pokémon Defensor pasa a estar Dormido." },
+      { name: "Pesadilla", cost: [Psychic, Psychic], damage: 20, text: "El Pokémon Defensor pasa a estar Dormido.", effects: [status(StatusCondition.Asleep)] },
       {
         name: "Ataque Sombra",
         cost: [Psychic, Psychic, Psychic],
         text: "Lanza una moneda. Si sale cara, y si tu rival tiene algún Pokémon en la Banca, elige 1 de ellos y este ataque le hace 30 puntos de daño. (No apliques Debilidad ni Resistencia a los Pokémon en la Banca.)",
+        effects: [coinChooseBenched(30)],
       },
     ],
     retreatCost: 0,
@@ -1426,6 +1596,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Psychic, Colorless],
         damage: 20,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor no puede retirarse durante el próximo turno de tu rival.",
+        effects: [{ type: AttackEffectType.PreventRetreat, target: AttackTarget.Defender, coinFlip: { count: 1, onHeads: "preventRetreat" } }],
       },
     ],
     retreatCost: 1,
@@ -1492,6 +1663,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Fire],
         damage: 20,
         text: "Usa este ataque solo si Blaine's Charmander tiene alguna carta de Energía Fuego unida. Lanza una moneda. Si sale cruz, descarta 1 de esas cartas.",
+        effects: [{ type: AttackEffectType.RequireAttachedEnergy, target: AttackTarget.Self, energyType: Fire }, { type: AttackEffectType.Discard, target: AttackTarget.Self, energyType: Fire, amount: 1, coinFlip: { count: 1, onTails: "damage" } }],
       },
     ],
     retreatCost: 1,
@@ -1513,12 +1685,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless],
         damage: 20,
         text: "Lanza una moneda. Si sale cruz, este ataque no hace nada.",
+        effects: [tailsFails],
       },
       {
         name: "Represalia",
         cost: [Colorless, Colorless],
         damage: "10x",
         text: "Hace 10 puntos de daño multiplicados por la cantidad de contadores de daño sobre Blaine's Doduo.",
+        effects: [{ type: AttackEffectType.DamagePerCounter, target: AttackTarget.Self, amount: 10 }],
       },
     ],
     retreatCost: 0,
@@ -1539,12 +1713,14 @@ export const gymChallengeCards: Card[] = [
         name: "Avivar",
         cost: [Fire],
         text: "Busca en tu mazo una carta de Energía Fuego y únela a Blaine's Growlithe. Después, baraja tu mazo.",
+        effects: [{ type: AttackEffectType.AttachEnergyFromDeck, target: AttackTarget.Self, energyType: Fire }],
       },
       {
         name: "Golpe Cuerpo",
         cost: [Fire, Colorless, Colorless],
         damage: 20,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Paralizado.",
+        effects: [coinStatus(StatusCondition.Paralyzed)],
       },
     ],
     retreatCost: 1,
@@ -1571,6 +1747,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Fighting],
         damage: "10x",
         text: "Lanza 3 monedas. Este ataque hace 10 puntos de daño multiplicados por la cantidad de caras.",
+        effects: [coinDamage(10, 3)],
       },
     ],
     retreatCost: 0,
@@ -1592,6 +1769,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless, Colorless],
         damage: 20,
         text: "Si tienes algún Pokémon en la Banca, lanza una moneda. Si sale cara, cambia a Blaine's Ponyta por 1 de tus Pokémon en la Banca.",
+        effects: [{ type: AttackEffectType.SelfSwitch, target: AttackTarget.Self, coinFlip: { count: 1, onHeads: "damage" } }],
       },
     ],
     retreatCost: 1,
@@ -1608,12 +1786,13 @@ export const gymChallengeCards: Card[] = [
     hp: 60,
     types: [Fighting],
     attacks: [
-      { name: "Carga Cuerno", cost: [Fighting], damage: 30, text: "Lanza una moneda. Si sale cruz, este ataque no hace nada." },
+      { name: "Carga Cuerno", cost: [Fighting], damage: 30, text: "Lanza una moneda. Si sale cruz, este ataque no hace nada.", effects: [tailsFails] },
       {
         name: "Arrollar",
         cost: [Colorless, Colorless, Colorless],
         damage: 20,
         text: "Lanza una moneda. Si sale cara, y si tu rival tiene algún Pokémon en la Banca, elige 1 de ellos y este ataque le hace 20 puntos de daño. (No apliques Debilidad ni Resistencia a los Pokémon en la Banca.)",
+        effects: [coinChooseBenched(20)],
       },
     ],
     retreatCost: 2,
@@ -1656,12 +1835,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Fighting],
         damage: 20,
         text: "Lanza una moneda. Si sale cruz, este ataque no hace nada.",
+        effects: [tailsFails],
       },
       {
         name: "Temblor",
         cost: [Fighting, Colorless],
         damage: 40,
         text: "Hace 10 puntos de daño a cada uno de tus propios Pokémon en la Banca. (No apliques Debilidad ni Resistencia a los Pokémon en la Banca.)",
+        effects: [{ type: AttackEffectType.BenchDamage, target: AttackTarget.Defender, amount: 10, benchTarget: BenchDamageTarget.Own }],
       },
     ],
     retreatCost: 1,
@@ -1683,6 +1864,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Fighting],
         damage: "10x",
         text: "Lanza 3 monedas. Este ataque hace 10 puntos de daño multiplicados por la cantidad de caras.",
+        effects: [coinDamage(10, 3)],
       },
     ],
     retreatCost: 1,
@@ -1730,6 +1912,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass],
         damage: 10,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Confundido; si sale cruz, el Pokémon Defensor pasa a estar Dormido.",
+        effects: [coinStatus(StatusCondition.Confused, StatusCondition.Asleep)],
       },
     ],
     retreatCost: 1,
@@ -1751,6 +1934,7 @@ export const gymChallengeCards: Card[] = [
         name: "Espora Venenosa",
         cost: [Grass, Grass],
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Envenenado y este ataque hace 10 puntos de daño a cada uno de los Pokémon en la Banca de tu rival. (No apliques Debilidad ni Resistencia a los Pokémon en la Banca.)",
+        effects: [coinStatus(StatusCondition.Poisoned), { ...opponentBenchDamage(10), coinFlip: { count: 1, onHeads: "damage" } }],
       },
     ],
     retreatCost: 1,
@@ -1773,6 +1957,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Fighting, Fighting],
         damage: "20x",
         text: "Lanza una moneda. Si sale cara, este ataque hace 20 puntos de daño multiplicados por la cantidad de contadores de daño sobre Giovanni's Machop.",
+        effects: [{ type: AttackEffectType.DamagePerCounter, target: AttackTarget.Self, amount: 20, coinFlip: { count: 1, onHeads: "damage" } }],
       },
     ],
     retreatCost: 1,
@@ -1794,12 +1979,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Water],
         damage: 40,
         text: "Lanza una moneda. Si sale cruz, este ataque no hace nada. En cualquier caso, no puedes volver a usar este ataque mientras Giovanni's Magikarp siga en juego (ni siquiera mandar a Giovanni's Magikarp a la Banca te permitirá volver a usarlo).",
+        effects: onceTailsNothing,
       },
       {
         name: "Agitarse",
         cost: [Water, Colorless],
         damage: "10x",
         text: "Lanza 3 monedas. Este ataque hace 10 puntos de daño multiplicados por la cantidad de caras.",
+        effects: [coinDamage(10, 3)],
       },
     ],
     retreatCost: 1,
@@ -1820,6 +2007,7 @@ export const gymChallengeCards: Card[] = [
         name: "Pulgas de Gato",
         cost: [Colorless],
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Confundido.",
+        effects: [coinStatus(StatusCondition.Confused)],
       },
       { name: "Patada Felina", cost: [Colorless, Colorless, Colorless], damage: 30 },
     ],
@@ -1842,12 +2030,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass],
         damage: 20,
         text: "Lanza una moneda. Si sale cruz, este ataque no hace nada.",
+        effects: [tailsFails],
       },
       {
         name: "Doble Filo",
         cost: [Colorless, Colorless],
         damage: 30,
         text: "Giovanni's Nidoran ♀ se hace 20 puntos de daño a sí mismo.",
+        effects: [selfDamage(20)],
       },
     ],
     retreatCost: 1,
@@ -1869,6 +2059,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless],
         damage: "10x",
         text: "Lanza 2 monedas. Este ataque hace 10 puntos de daño multiplicados por la cantidad de caras.",
+        effects: [coinDamage(10, 2)],
       },
       {
         name: "Venganza",
@@ -1938,6 +2129,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass],
         damage: 10,
         text: "Lanza una moneda. Si sale cara, este ataque hace 10 puntos de daño a cada Pokémon en la Banca (incluidos los tuyos). (No apliques Debilidad ni Resistencia a los Pokémon en la Banca.)",
+        effects: [{ type: AttackEffectType.BenchDamage, target: AttackTarget.Defender, amount: 10, benchTarget: BenchDamageTarget.Both, coinFlip: { count: 1, onHeads: "damage" } }],
       },
     ],
     retreatCost: 1,
@@ -1960,6 +2152,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless, Colorless, Colorless],
         damage: 20,
         text: "Si el Pokémon Defensor intenta atacar durante el próximo turno de tu rival, tu rival lanza una moneda. Si sale cruz, ese ataque no hace nada.",
+        effects: [sandAttack],
       },
     ],
     retreatCost: 1,
@@ -1976,8 +2169,8 @@ export const gymChallengeCards: Card[] = [
     hp: 50,
     types: [Grass],
     attacks: [
-      { name: "Somnífero", cost: [Grass], damage: 10, text: "El Pokémon Defensor pasa a estar Dormido." },
-      { name: "Enredadera Prensil", cost: [Grass, Colorless], text: "Lanza una moneda. Si sale cara, roba 2 cartas." },
+      { name: "Somnífero", cost: [Grass], damage: 10, text: "El Pokémon Defensor pasa a estar Dormido.", effects: [status(StatusCondition.Asleep)] },
+      { name: "Enredadera Prensil", cost: [Grass, Colorless], text: "Lanza una moneda. Si sale cara, roba 2 cartas.", effects: [{ type: AttackEffectType.Draw, target: AttackTarget.Self, amount: 2, coinFlip: { count: 1, onHeads: "damage" } }] },
     ],
     retreatCost: 2,
     weaknesses: [Fire],
@@ -1999,6 +2192,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Grass, Colorless],
         damage: 10,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Envenenado; si sale cruz, el Pokémon Defensor pasa a estar Paralizado.",
+        effects: [coinStatus(StatusCondition.Poisoned, StatusCondition.Paralyzed)],
       },
     ],
     retreatCost: 1,
@@ -2041,6 +2235,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless, Colorless],
         damage: "10+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 10 puntos de daño más 20 puntos de daño adicionales; si sale cruz, este ataque hace 10 puntos de daño.",
+        effects: [coinBonus(20)],
       },
     ],
     retreatCost: 0,
@@ -2061,12 +2256,14 @@ export const gymChallengeCards: Card[] = [
         name: "Foco Energía",
         cost: [Colorless],
         text: "Durante tu próximo turno, el daño base del ataque Ataque Rápido de Lt. Surge's Rattata se duplica.",
+        effects: [{ type: AttackEffectType.BonusDamage, target: AttackTarget.Self, amount: 10 }],
       },
       {
         name: "Ataque Rápido",
         cost: [Colorless, Colorless],
         damage: "10+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 10 puntos de daño más 20 puntos de daño adicionales; si sale cruz, este ataque hace 10 puntos de daño.",
+        effects: [coinBonus(20)],
       },
     ],
     retreatCost: 0,
@@ -2088,6 +2285,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Lightning, Colorless],
         damage: 30,
         text: "Lanza una moneda. Si sale cruz, Lt. Surge's Voltorb se hace 10 puntos de daño a sí mismo.",
+        effects: [selfDamage(10, true)],
       },
     ],
     retreatCost: 1,
@@ -2129,6 +2327,7 @@ export const gymChallengeCards: Card[] = [
         name: "Hacerse el Muerto",
         cost: [Colorless],
         text: "Lanza una moneda. Si sale cara, durante el próximo turno de tu rival, evita todos los efectos de los ataques, incluido el daño, hechos a Misty's Magikarp.",
+        effects: [coinProtection],
       },
       { name: "Salto", cost: [Colorless], damage: 10 },
     ],
@@ -2151,6 +2350,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Water],
         damage: 20,
         text: "Lanza una moneda. Si sale cruz, no puedes usar este ataque durante tu próximo turno.",
+        effects: [{ type: AttackEffectType.CantAttackNextTurn, target: AttackTarget.Self, thisAttackOnly: true, coinFlip: { count: 1, onTails: "damage" } }],
       },
       {
         name: "Amnesia",
@@ -2197,12 +2397,14 @@ export const gymChallengeCards: Card[] = [
         cost: [Water],
         damage: 10,
         text: "El Pokémon Defensor no puede retirarse durante el próximo turno de tu rival.",
+        effects: [preventRetreat],
       },
       {
         name: "Espejismo",
         cost: [Water, Colorless],
         damage: 10,
         text: "Si el Pokémon Defensor intenta atacar durante el próximo turno de tu rival, tu rival lanza una moneda. Si sale cruz, ese ataque no hace nada.",
+        effects: [sandAttack],
       },
     ],
     retreatCost: 1,
@@ -2268,6 +2470,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Psychic],
         damage: "10+",
         text: "Lanza una moneda. Si sale cara, este ataque hace 10 puntos de daño más 20 puntos de daño adicionales; si sale cruz, este ataque hace 10 puntos de daño.",
+        effects: [coinBonus(20)],
       },
     ],
     retreatCost: 1,
@@ -2288,12 +2491,14 @@ export const gymChallengeCards: Card[] = [
         name: "Apoyo de Energía",
         cost: [Psychic],
         text: "Busca en tu mazo una carta de Energía Psíquica. Muéstrasela a tu rival y ponla en tu mano. Después, baraja tu mazo.",
+        effects: [{ type: AttackEffectType.SearchDeckChoice, target: AttackTarget.Self, deckFilter: { basicEnergy: true, names: ["Psychic Energy"] }, destination: "hand", amount: 1 }],
       },
       {
         name: "Choque Mental",
         cost: [Psychic, Colorless],
         damage: 20,
         text: "No apliques Debilidad ni Resistencia a este ataque. (Cualquier otro efecto que ocurra después de aplicar Debilidad y Resistencia sigue ocurriendo.)",
+        effects: [noWeaknessResistance],
       },
     ],
     retreatCost: 1,
@@ -2315,6 +2520,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Psychic],
         damage: 10,
         text: "Lanza una moneda. Si sale cara, el Pokémon Defensor pasa a estar Paralizado.",
+        effects: [coinStatus(StatusCondition.Paralyzed)],
       },
       {
         name: "Esfumarse",
@@ -2365,6 +2571,7 @@ export const gymChallengeCards: Card[] = [
         cost: [Colorless, Colorless],
         damage: 20,
         text: "Todo el daño hecho por ataques a Sabrina's Porygon durante el próximo turno de tu rival se reduce en 10 (después de aplicar Debilidad y Resistencia).",
+        effects: [reduceDamage(10)],
       },
     ],
     retreatCost: 1,
