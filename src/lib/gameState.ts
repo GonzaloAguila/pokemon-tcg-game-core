@@ -152,6 +152,15 @@ export type PokemonInPlay = {
    * turn) it can't attack, or can't use `attackName` only. Cleared on bench/evolve.
    */
   attackLock?: { onTurn: number; attackName?: string };
+  /** The last attack it used and the turn (Earthdrill: "used Lie Low last turn"). Cleared on bench/evolve. */
+  lastAttack?: { name: string; turn: number };
+  /**
+   * Intimidate (IntimidateLock): during turn `onTurn` (its owner's next turn) it can't attack while
+   * the Pokémon `pokemonId` is the Defending Pokémon. Cleared on bench/evolve.
+   */
+  intimidatedBy?: { pokemonId: string; onTurn: number; attackName: string };
+  /** Focus Energy (DoubleAttackNextTurn): during turn `onTurn` the attack `name` does double damage (and self damage). Cleared on bench/evolve. */
+  doubledAttack?: { name: string; onTurn: number };
   /** Deflector (HalveDamageNextTurn): damage done to it during turn `onTurn` is halved. Cleared on bench/evolve. */
   halveDamage?: { onTurn: number; attackName: string };
   /** Crystal Beam (BlockEnergyAttach): its owner can't attach Energy cards to it during this turn. Cleared on bench/evolve. */
@@ -757,6 +766,9 @@ export function clearStatusConditionsOnRetreat(pokemon: PokemonInPlay): PokemonI
     attackLock: undefined,
     halveDamage: undefined,
     energyAttachBlockedOnTurn: undefined,
+    lastAttack: undefined,
+    intimidatedBy: undefined,
+    doubledAttack: undefined,
   };
 }
 
@@ -3057,8 +3069,16 @@ export function getAttackRequirementFailure(
       }
     }
     // Spacing Out: "can't be used if Slowpoke has no damage counters on it" (checked when the attacker is known)
-    if (effect.type === AttackEffectType.RequireDamageCounters && attacker && (attacker.currentDamage ?? 0) <= 0) {
-      return `No puedes usar ${attack.name}: ${attacker.pokemon.name} no tiene contadores de daño`;
+    // Retaliation: `amount` damage counters or more
+    if (effect.type === AttackEffectType.RequireDamageCounters && attacker && (attacker.currentDamage ?? 0) < (effect.amount ?? 1) * 10) {
+      return effect.amount && effect.amount > 1
+        ? `No puedes usar ${attack.name}: ${attacker.pokemon.name} necesita ${effect.amount} contadores de daño o más`
+        : `No puedes usar ${attack.name}: ${attacker.pokemon.name} no tiene contadores de daño`;
+    }
+    // Synchronize: as many Energy cards attached as the Defending Pokémon
+    if (effect.type === AttackEffectType.RequireEqualEnergyCards && attacker && defender &&
+        attacker.attachedEnergy.length !== defender.attachedEnergy.length) {
+      return `No puedes usar ${attack.name}: ${attacker.pokemon.name} y el Pokémon Defensor no tienen la misma cantidad de cartas de Energía unidas`;
     }
     // Fireball / Playing with Fire: an Energy card of that type attached (Rainbow Energy counts)
     if (effect.type === AttackEffectType.RequireAttachedEnergy && effect.energyType && attacker &&
@@ -3159,6 +3179,7 @@ export function canUseAttack(
   if (defender !== undefined && !meetsAttackRequirements(attack, defender, pokemonInPlay, state ? benchOfActive(state, defender) : undefined, state ? benchOfActive(state, pokemonInPlay) : undefined)) {
     return false;
   }
+  if (defender !== undefined && state && attackTurnBlocker(state, pokemonInPlay, attack)) return false;
 
   // Verificar si es un ataque de uso único ya utilizado
   const hasUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
@@ -3355,6 +3376,8 @@ export function calculateBaseDamage(
 
   for (const effect of attack.effects ?? []) {
     if (effect.coinFlip) continue;
+    // Poison Power: only while the attacker has the Special Condition
+    if (effect.onlyIfSelfStatus && !hasStatusCondition(attacker, effect.onlyIfSelfStatus)) continue;
 
     // BonusDamage: add damage based on source (bench count, named pokemon, etc.)
     // Skip Self-targeting BonusDamage without a bonusDamageSource — those are "next turn" buffs (e.g., Swords Dance)
@@ -3381,7 +3404,15 @@ export function calculateBaseDamage(
       } else if (effect.bonusDamageSource === "defenderEnergyCards") {
         // Psychic: each Energy card attached to the Defending Pokémon
         multiplier = defender.attachedEnergy.filter((e) => e.kind === CardKind.Energy || !!e.buzzapEnergyType).length;
+      } else if (effect.bonusDamageSource === "defenderDamaged") {
+        // Rend (+20) / Pulled Punch (−30): the Defending Pokémon already has damage counters
+        multiplier = (defender.currentDamage ?? 0) > 0 ? 1 : 0;
+      } else if (effect.bonusDamageSource === "defenderType") {
+        // Ice Throw: "if the Defending Pokémon is Fighting, this attack's base damage is doubled"
+        multiplier = isPokemonCard(defender.pokemon) && !!effect.defenderType && defender.pokemon.types.includes(effect.defenderType) ? 1 : 0;
       }
+      // Love Lariat: "if you have at least 1 Giovanni's Nidoking on your Bench"
+      if (effect.bonusOnce) multiplier = Math.min(multiplier, 1);
       baseDamage += effect.amount * multiplier;
     }
 
@@ -3510,7 +3541,10 @@ export function coinFlipCountFor(attacker: PokemonInPlay, attack: Attack, state?
         ? (state?.opponentBench.length ?? 0)
         : effect.coinCountSource === "ownNamedInPlay"
           ? ownNamedInPlay(state, attacker, effect.names ?? [])
-          : effect.coinFlip.count;
+          : effect.coinCountSource === "defenderCounters"
+            // Pendulum Curse: one coin per damage counter on the Defending Pokémon
+            ? Math.floor(((state ? opposingActive(state, attacker) : null)?.currentDamage ?? 0) / 10)
+            : effect.coinFlip.count;
     count = Math.max(count, n);
   }
   return count;
@@ -3570,6 +3604,10 @@ const DEFENDER_EFFECT_TYPES: ReadonlySet<string> = new Set([
   AttackEffectType.ChooseStatus,
   AttackEffectType.BlockEnergyAttach,
   AttackEffectType.RemoveStatus,
+  AttackEffectType.SwapDamageCounters,
+  AttackEffectType.MoveDamageCountersToDefender,
+  AttackEffectType.SetRemainingHp,
+  AttackEffectType.IntimidateLock,
 ]);
 
 /** Can the attack do anything to the Defending Pokémon (damage, or an effect on it)? */
@@ -3871,7 +3909,8 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   if (attacker.attackLock?.onTurn === state.turnNumber && attacker.attackLock.attackName === attack.name) {
     return `${name} no puede usar ${attack.name} este turno`;
   }
-  const requirement = getAttackRequirementFailure(attack, defender, attacker, state.opponentBench, state.playerBench);
+  const requirement = getAttackRequirementFailure(attack, defender, attacker, state.opponentBench, state.playerBench) ??
+    attackTurnBlocker(state, attacker, attack);
   if (requirement) return requirement;
   const luckyDuel = getLuckyDuelAttackBlocker(state, attack);
   if (luckyDuel) return luckyDuel;
@@ -3885,6 +3924,56 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
     return "Tu banca está llena, no puedes usar este ataque";
   }
   return null;
+}
+
+/** The other side's Active Pokémon when `pokemon` is an Active (null otherwise). */
+function opposingActive(state: GameState, pokemon: PokemonInPlay): PokemonInPlay | null {
+  if (state.playerActivePokemon?.pokemon.id === pokemon.pokemon.id) return state.opponentActivePokemon;
+  if (state.opponentActivePokemon?.pokemon.id === pokemon.pokemon.id) return state.playerActivePokemon;
+  return null;
+}
+
+/**
+ * Why `attacker` can't use `attack` this turn because of an earlier turn (Spanish reason), or
+ * null: Earthdrill (RequireLastAttack: its owner's previous turn is turnNumber − 2) and
+ * Intimidate on it while the Pokémon that used it is the Defending Pokémon.
+ */
+function attackTurnBlocker(state: GameState, attacker: PokemonInPlay, attack: Attack): string | null {
+  for (const effect of attack.effects ?? []) {
+    if (effect.type !== AttackEffectType.RequireLastAttack || !effect.attackName) continue;
+    const last = attacker.lastAttack;
+    if (!last || last.name !== effect.attackName || last.turn !== state.turnNumber - 2) {
+      return `No puedes usar ${attack.name}: ${attacker.pokemon.name} no usó ${effect.attackName} en su turno anterior`;
+    }
+  }
+  const lock = attacker.intimidatedBy;
+  if (lock && lock.onTurn === state.turnNumber) {
+    const defender = opposingActive(state, attacker);
+    if (defender && defender.pokemon.id === lock.pokemonId) {
+      return `${attacker.pokemon.name} no puede atacar a ${defender.pokemon.name} este turno (${lock.attackName})`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The attack's effects as they apply to this attacker now: effects gated on its Special
+ * Condition dropped when it doesn't have it (Poison Power), self damage per Energy card of a type
+ * made a plain amount (Electroburn) and doubled by Focus Energy.
+ */
+function conditionAttackEffects(attack: Attack, attacker: PokemonInPlay, state: GameState, doubled: boolean): Attack {
+  if (!attack.effects) return attack;
+  const effects = attack.effects
+    .filter((e) => !e.onlyIfSelfStatus || hasStatusCondition(attacker, e.onlyIfSelfStatus))
+    .map((e) => {
+      if (e.type !== AttackEffectType.SelfDamage || e.coinFlip) return e;
+      const perType = e.perEnergyType;
+      const amount = perType
+        ? (e.amount ?? 0) * attacker.attachedEnergy.filter((c) => energyProvidesType(c, perType, attacker, state)).length
+        : e.amount;
+      return { ...e, amount: doubled && amount ? amount * 2 : amount };
+    });
+  return { ...attack, effects };
 }
 
 /** Index of the Metronome-style (CopyAttack) attack of the player's Active Pokémon, or -1. */
@@ -3994,10 +4083,14 @@ export function resolveCoinFlipEffects(effects: AttackEffect[], coins: CoinFlipR
       missed.push(effect);
       continue;
     }
-    if (effect.type === AttackEffectType.SelfDamage || effect.type === AttackEffectType.Heal) {
-      // Healing Pollen: "for each heads, remove 1 damage counter"
+    if (
+      effect.type === AttackEffectType.SelfDamage || effect.type === AttackEffectType.Heal ||
+      effect.type === AttackEffectType.BenchDamage || effect.type === AttackEffectType.ChooseTargetDamage
+    ) {
+      // Healing Pollen: "for each heads, remove 1 damage counter"; Bonfire: 10 × heads to each
+      // Benched Pokémon; Magic Darts: 10 × heads to the chosen Pokémon
       resolved.push({ ...plain, amount: (effect.amount ?? 0) * hits });
-    } else if (effect.type === AttackEffectType.Discard && effect.energyType) {
+    } else if (effect.type === AttackEffectType.Discard && effect.energyType && !effect.discardAll) {
       // Continuous Fireball: one Fire Energy card per heads
       resolved.push({ ...plain, amount: (effect.amount ?? 1) * hits });
     } else {
@@ -4158,9 +4251,13 @@ function executeAttackUnchecked(
   const coinResolution = coinResults && coinResults.length > 0
     ? resolveCoinFlipEffects(printedAttack.effects ?? [], coinResults)
     : null;
-  const expandedAttack: Attack = expandNamedDamage(
-    coinResolution ? { ...printedAttack, effects: coinResolution.effects } : printedAttack,
-    attacker.pokemon.name
+  // Focus Energy (Lt. Surge's Raticate): this turn the attack's damage and self damage are doubled
+  const doubledAttack = attacker.doubledAttack?.onTurn === gameState.turnNumber && attacker.doubledAttack.name === printedAttack.name;
+  const expandedAttack: Attack = conditionAttackEffects(
+    expandNamedDamage(coinResolution ? { ...printedAttack, effects: coinResolution.effects } : printedAttack, attacker.pokemon.name),
+    attacker,
+    gameState,
+    doubledAttack
   );
   // The Stadium's coin the attacker opted into (Vermilion City Gym): heads adds damage below,
   // tails = damage to the attacker besides whatever the attack does (the self-damage effect)
@@ -4231,6 +4328,7 @@ function executeAttackUnchecked(
   // Daño base: printed damage + non-coin-flip damage effects (see calculateBaseDamage)
   const base = calculateBaseDamage(attackerView, defenderView, attack, gameState.playerBench, gameState.opponentBench);
   let baseDamage = base.damage;
+  if (doubledAttack) baseDamage *= 2;
   // Drag Off: its damage goes to the Benched Pokémon switched in by its choice (attackChoices)
   if (attack.effects?.some((e) => e.type === AttackEffectType.ChooseTargetDamage && e.switchWithDefender)) baseDamage = 0;
   // Egg Bomb tails: "this attack does nothing to the Defending Pokémon" (its effects on the attacker still happen)
@@ -4404,8 +4502,24 @@ function executeAttackUnchecked(
   const defenderCounters =
     countersOnDamaged && (defender.currentDamage || 0) > 0 && !defenderBlocksEffects ? countersOnDamaged.amount ?? 10 : 0;
 
+  // Juxtapose / Damage Shift / Life Drain: damage counters moved onto (or off) the Defending
+  // Pokémon — not damage (no W/R, damage-only protection doesn't stop them); only what prevents
+  // every effect of the attack does. The attacker's side is updated in the effects loop.
+  const counterEffect = (type: AttackEffectType) =>
+    defenderBlocksEffects ? undefined : attack.effects?.find((e) => e.type === type && !e.coinFlip);
+  const swapCounters = counterEffect(AttackEffectType.SwapDamageCounters);
+  const shiftCounters = counterEffect(AttackEffectType.MoveDamageCountersToDefender);
+  const drainTo = counterEffect(AttackEffectType.SetRemainingHp);
+  const shiftedFromIds = shiftCounters
+    ? [attacker, ...gameState.playerBench].filter((p) => (p.currentDamage ?? 0) > 0).map((p) => p.pokemon.id)
+    : [];
+  const counterDelta =
+    (swapCounters ? (attacker.currentDamage ?? 0) - (defender.currentDamage ?? 0) : 0) +
+    shiftedFromIds.length * 10 +
+    (drainTo ? Math.max(0, defenderCard.hp - (drainTo.amount ?? 10) - (defender.currentDamage ?? 0)) : 0);
+
   // Aplicar daño al defensor
-  const newDamage = (defender.currentDamage || 0) + effectiveDamage + namedDefenderDamage + defenderCounters;
+  const newDamage = (defender.currentDamage || 0) + effectiveDamage + namedDefenderDamage + defenderCounters + counterDelta;
   const defenderHP = defenderCard.hp;
 
   // Flee (Misty's Tentacruel): damaged as the Active and not Knocked Out → its owner may switch it
@@ -4632,6 +4746,8 @@ function executeAttackUnchecked(
   let attackerLeftPlay = false;
   let attackerNeedsToPromote = false;
   let pendingBenchDamageSelection: GameState["pendingBenchDamageSelection"] = undefined;
+  // Detonate / Mega Thrash discard the Stadium in play
+  let newStadium: StadiumInPlay | null = gameState.stadium ?? null;
 
   // Shared attacker-KO step (self damage, Strikes Back, Destiny Bond): see knockOutActingActive
   const applyAttackerKnockout = (knockedOut: PokemonInPlay, prizeMessage: string) => {
@@ -4675,6 +4791,60 @@ function executeAttackUnchecked(
         }
         const who = isPlayer ? "Robaste" : "El rival robó";
         events.push(createGameEvent(`${who} ${effect.amount} carta${effect.amount > 1 ? "s" : ""} por ${attack.name}`, "action"));
+      }
+
+      // Juxtapose: the attacker gets the Defending Pokémon's damage counters (even a Knock Out)
+      if (effect.type === AttackEffectType.SwapDamageCounters && swapCounters && newPlayerActive && !attackerKnockedOut) {
+        const taken = defender.currentDamage ?? 0;
+        events.push(createGameEvent(`${attack.name}: ${newPlayerActive.pokemon.name} y ${defender.pokemon.name} intercambiaron sus contadores de daño`, "action"));
+        if (taken >= attackerCard.hp) {
+          attackerKnockedOut = true;
+          events.push(createGameEvent(`¡${newPlayerActive.pokemon.name} fue noqueado!`, "action"));
+          ({ newPlayerDiscard, newOpponentPrizes, newOpponentHand, attackerNeedsToPromote } =
+            applyAttackerKnockout({ ...newPlayerActive, currentDamage: taken }, "El rival tomó un premio"));
+          newPlayerActive = null;
+        } else {
+          newPlayerActive = { ...newPlayerActive, currentDamage: taken };
+        }
+      }
+
+      // Damage Shift: 1 damage counter off each of the attacker's damaged Pokémon (onto the Defending Pokémon above)
+      if (effect.type === AttackEffectType.MoveDamageCountersToDefender && shiftedFromIds.length > 0) {
+        const lift = (p: PokemonInPlay): PokemonInPlay =>
+          shiftedFromIds.includes(p.pokemon.id) ? { ...p, currentDamage: Math.max(0, (p.currentDamage ?? 0) - 10) } : p;
+        if (newPlayerActive) newPlayerActive = lift(newPlayerActive);
+        newPlayerBench = newPlayerBench.map(lift);
+        const n = shiftedFromIds.length;
+        events.push(createGameEvent(`${attack.name}: ${n} contador${n > 1 ? "es" : ""} de daño pasa${n > 1 ? "n" : ""} a ${defender.pokemon.name}`, "action"));
+      }
+
+      // Life Drain: the Defending Pokémon is left with `amount` HP
+      if (effect.type === AttackEffectType.SetRemainingHp && drainTo && counterDelta > 0) {
+        events.push(createGameEvent(`${attack.name}: ${defender.pokemon.name} queda con ${drainTo.amount ?? 10} PS`, "action"));
+      }
+
+      // Detonate / Mega Thrash: the Stadium in play goes to its owner's discard pile
+      if (effect.type === AttackEffectType.DiscardStadium && newStadium) {
+        if (newStadium.playedBy === "player") newPlayerDiscard.push(newStadium.card);
+        else newOpponentDiscard.push(newStadium.card);
+        events.push(createGameEvent(`${attack.name}: ${newStadium.card.name} se descarta`, "action"));
+        newStadium = null;
+      }
+
+      // Intimidate: a Defending Pokémon with `maxHp` HP or less can't attack the attacker next turn
+      if (effect.type === AttackEffectType.IntimidateLock && newOpponentActive && !isKnockedOut && !defenderBlocksEffects &&
+          defenderCard.hp <= (effect.maxHp ?? 50)) {
+        newOpponentActive = {
+          ...newOpponentActive,
+          intimidatedBy: { pokemonId: attacker.pokemon.id, onTurn: gameState.turnNumber + 1, attackName: attack.name },
+        };
+        events.push(createGameEvent(`${defender.pokemon.name} no podrá atacar a ${attacker.pokemon.name} durante el próximo turno de su dueño`, "action"));
+      }
+
+      // Focus Energy (Lt. Surge's Raticate): `attackName` doubled during the owner's next turn
+      if (effect.type === AttackEffectType.DoubleAttackNextTurn && effect.attackName && newPlayerActive && !attackerKnockedOut) {
+        newPlayerActive = { ...newPlayerActive, doubledAttack: { name: effect.attackName, onTurn: gameState.turnNumber + 2 } };
+        events.push(createGameEvent(`${newPlayerActive.pokemon.name} hará el doble de daño con ${effect.attackName} en el próximo turno de su dueño`, "action"));
       }
 
       // Daño a sí mismo (selfDamage)
@@ -5011,6 +5181,11 @@ function executeAttackUnchecked(
         };
         if (newPlayerActive) newPlayerActive = heal(newPlayerActive);
         newPlayerBench = newPlayerBench.map(heal);
+        // Group Therapy: the opponent's Pokémon too (not a Defending Pokémon that prevents the attack's effects)
+        if (effect.healBothSides) {
+          if (newOpponentActive && !isKnockedOut && !defenderBlocksEffects) newOpponentActive = heal(newOpponentActive);
+          newOpponentBench = newOpponentBench.map(heal);
+        }
         if (healed.length > 0) events.push(createGameEvent(`${attack.name}: se curó el daño de ${healed.join(", ")}`, "action"));
       }
 
@@ -5556,6 +5731,17 @@ function executeAttackUnchecked(
         if (attackerNeedsToPromote) events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
       }
 
+      // Star Boomerang: the attacker and every card attached to it go back to its owner's hand
+      if (effect.type === AttackEffectType.ReturnToHand && effect.target === AttackTarget.Self && newPlayerActive && !attackerKnockedOut) {
+        const leaving = newPlayerActive;
+        newPlayerHand = [...newPlayerHand, ...cardsLeavingPlay(leaving)];
+        events.push(createGameEvent(`¡${leaving.pokemon.name} y todas sus cartas unidas volvieron a la mano de su dueño!`, "action"));
+        newPlayerActive = null;
+        attackerLeftPlay = true;
+        attackerNeedsToPromote = newPlayerBench.length > 0;
+        if (attackerNeedsToPromote) events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
+      }
+
       // Psychic Exchange: the hand is shuffled into the deck, then `amount` cards are drawn
       if (effect.type === AttackEffectType.ShuffleHandDraw) {
         let deck = shuffle([...newPlayerDeck, ...newPlayerHand]);
@@ -5737,14 +5923,19 @@ function executeAttackUnchecked(
               )
             );
           } else {
+            // Ink Spurt (`lasting`): no turn = until it evolves or is Benched; a Sand-attack on top
+            // of it keeps it lasting (still one coin)
+            const lasting = !!effect.lasting || (!!newOpponentActive.mustFlipToAttack && newOpponentActive.mustFlipToAttackTurn == null);
             newOpponentActive = {
               ...newOpponentActive,
               mustFlipToAttack: true,
-              mustFlipToAttackTurn: gameState.turnNumber,
+              mustFlipToAttackTurn: lasting ? undefined : gameState.turnNumber,
             };
             events.push(
               createGameEvent(
-                `¡${newOpponentActive.pokemon.name} deberá lanzar una moneda para atacar en su próximo turno!`,
+                lasting
+                  ? `¡${newOpponentActive.pokemon.name} deberá lanzar una moneda cada vez que intente atacar!`
+                  : `¡${newOpponentActive.pokemon.name} deberá lanzar una moneda para atacar en su próximo turno!`,
                 "action"
               )
             );
@@ -5928,6 +6119,11 @@ function executeAttackUnchecked(
     }
   }
 
+  // Earthdrill: the attack it used this turn
+  if (newPlayerActive && !attackerKnockedOut && !attackerLeftPlay) {
+    newPlayerActive = { ...newPlayerActive, lastAttack: { name: printedAttack.name, turn: gameState.turnNumber } };
+  }
+
   // Clear consumed next-turn effects
   if (consumedBonusDamage && newPlayerActive && !attackerKnockedOut) {
     const stillHasReduction = newPlayerActive.nextTurnDamageReduction;
@@ -5985,6 +6181,7 @@ function executeAttackUnchecked(
     pendingBenchDamageSelection: pendingBenchDamageSelection,
     noTrainersOnTurn,
     attackedThisTurn: true,
+    ...(newStadium !== (gameState.stadium ?? null) && { stadium: newStadium }),
     events,
   };
 

@@ -320,6 +320,9 @@ export function clearEffectsAsIfEvolved(target: PokemonInPlay): PokemonInPlay {
     attackLock: undefined,
     halveDamage: undefined,
     energyAttachBlockedOnTurn: undefined,
+    lastAttack: undefined,
+    intimidatedBy: undefined,
+    doubledAttack: undefined,
     modifiedWeakness: undefined,
     modifiedResistance: undefined,
   };

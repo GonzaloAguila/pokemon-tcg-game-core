@@ -215,6 +215,23 @@ export const AttackEffectType = {
   RemoveStatus: "removeStatus",
   /** Swift: the damage isn't affected by Weakness, Resistance, Pokémon Powers or any other effect on the Defending Pokémon */
   IgnoreDefenderEffects: "ignoreDefenderEffects",
+  // ---------------------------------------------------------------- Gym Challenge
+  /** Juxtapose: the attacker's and the Defending Pokémon's damage counters are swapped (either may be Knocked Out) */
+  SwapDamageCounters: "swapDamageCounters",
+  /** Damage Shift: 1 damage counter from each of your Pokémon that has any moves to the Defending Pokémon */
+  MoveDamageCountersToDefender: "moveDamageCountersToDefender",
+  /** Life Drain: damage counters on the Defending Pokémon until it has `amount` HP left */
+  SetRemainingHp: "setRemainingHp",
+  /** Detonate / Mega Thrash: the Stadium in play (if any) goes to its owner's discard pile */
+  DiscardStadium: "discardStadium",
+  /** Earthdrill: can't be used unless this Pokémon used `attackName` during its owner's previous turn */
+  RequireLastAttack: "requireLastAttack",
+  /** Synchronize: can't be used unless this Pokémon and the Defending Pokémon have as many Energy cards attached */
+  RequireEqualEnergyCards: "requireEqualEnergyCards",
+  /** Intimidate: a Defending Pokémon with `maxHp` HP or less can't attack this Pokémon during the opponent's next turn */
+  IntimidateLock: "intimidateLock",
+  /** Focus Energy (Lt. Surge's Raticate): during your next turn `attackName`'s damage (and its damage to itself) is doubled */
+  DoubleAttackNextTurn: "doubleAttackNextTurn",
 } as const;
 export type AttackEffectType = (typeof AttackEffectType)[keyof typeof AttackEffectType];
 

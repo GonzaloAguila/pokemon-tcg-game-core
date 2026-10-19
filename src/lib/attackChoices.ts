@@ -174,6 +174,7 @@ export function matchesDeckCardFilter(card: GameCard, filter: DeckCardFilter = {
   if (filter.basicPokemon && !(isPokemonCard(card) && card.stage === PokemonStage.Basic)) return false;
   if (filter.names && !filter.names.includes(card.name)) return false;
   if (filter.nameIncludes && !(isPokemonCard(card) && card.name.includes(filter.nameIncludes))) return false;
+  if (filter.trainer && card.kind !== CardKind.Trainer) return false;
   return true;
 }
 
@@ -229,7 +230,9 @@ function stepFor(
       if (targets.length === 0) return null;
       return {
         title,
-        description: effect.switchWithDefender
+        description: effect.switchWithDefender && !effect.amount && effect.status
+          ? `Elige el Pokémon de la Banca de tu rival que pasa a ser el Pokémon Defensor: pasa a estar ${STATUS_LABELS[effect.status] ?? effect.status}`
+          : effect.switchWithDefender
           ? `Elige el Pokémon de la Banca de tu rival que pasa a ser el Pokémon Defensor: recibe ${effect.amount ?? 0} de daño`
           : `Elige 1 de los Pokémon de tu rival: recibe ${effect.amount ?? 0} de daño`,
         options: targets.map(({ pokemon, where }) => pokemonChoice(pokemon, where)),
@@ -585,6 +588,11 @@ function applyChoice(
           { ...state, opponentActivePokemon: incoming, opponentBench: [...state.opponentBench.filter((_, i) => i !== index), toBench] },
           `${name}: ${incoming.pokemon.name} pasa a ser el Pokémon activo del rival`
         );
+        // Sludge Grip: no damage, the new Defending Pokémon gets a Special Condition
+        if (!effect.amount && effect.status) {
+          const affected = applyStatusCondition(next.opponentActivePokemon!, effect.status, next.turnNumber);
+          return { state: log({ ...next, opponentActivePokemon: affected }, `${name}: ${incoming.pokemon.name} pasa a estar ${STATUS_LABELS[effect.status] ?? effect.status}`) };
+        }
       }
       return { state: dealChosenTargetDamage(next, selection[0], effect, context, { reactions, resume: { pending, selection, input: state } }) };
     }

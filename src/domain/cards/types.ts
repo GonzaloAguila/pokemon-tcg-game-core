@@ -111,8 +111,28 @@ export type AttackEffect = {
   matchDefenderType?: boolean;
   /** Skip this effect entirely if the defender is Colorless */
   skipIfColorless?: boolean;
-  /** For BonusDamage: source of the multiplier count */
-  bonusDamageSource?: "benchCount" | "namedPokemon" | "namedOnBench" | "namedInPlay" | "defenderEnergyCards";
+  /**
+   * For BonusDamage: source of the multiplier count. "defenderDamaged": 1 if the Defending
+   * Pokémon has damage counters (Rend +20, Pulled Punch −30); "defenderType": 1 if it is of
+   * `defenderType` (Ice Throw)
+   */
+  bonusDamageSource?: "benchCount" | "namedPokemon" | "namedOnBench" | "namedInPlay" | "defenderEnergyCards" | "defenderDamaged" | "defenderType";
+  /** BonusDamage "defenderType": the type the Defending Pokémon must be */
+  defenderType?: EnergyType;
+  /** BonusDamage: the multiplier is at most 1 ("if you have at least 1 Giovanni's Nidoking on your Bench", Love Lariat) */
+  bonusOnce?: boolean;
+  /** Any effect: it only happens while the attacker has this Special Condition (Poison Power: Poisoned) */
+  onlyIfSelfStatus?: StatusCondition;
+  /** SelfDamage: `amount` per Energy card attached to the attacker providing this type (Electroburn) */
+  perEnergyType?: EnergyType;
+  /** Heal with healAllOwn: the opponent's Pokémon are healed too (Group Therapy) */
+  healBothSides?: boolean;
+  /** SandAttack: lasts until the Defending Pokémon evolves or is Benched, not one turn (Ink Spurt) */
+  lasting?: boolean;
+  /** RequireLastAttack / DoubleAttackNextTurn: the attack (Spanish name, as in the catalog) */
+  attackName?: string;
+  /** IntimidateLock: only a Defending Pokémon with this maximum HP or less */
+  maxHp?: number;
   /** For BonusDamage with namedPokemon: the Pokemon name to count (e.g., "Nidoking") */
   bonusDamageNameMatch?: string;
   /** For CoinFlipDamage: derive coin count from attached energy count instead of fixed */
@@ -121,7 +141,7 @@ export type AttackEffect = {
    * Coin count from the board instead of `coinFlip.count` ("opponentBench": one coin per opponent's
    * Benched Pokémon, Thunderstorm; "ownNamedInPlay": one per Pokémon named in `names` you have in play, Night Spirits)
    */
-  coinCountSource?: "opponentBench" | "ownNamedInPlay";
+  coinCountSource?: "opponentBench" | "ownNamedInPlay" | "defenderCounters";
   /** BenchDamage with a coin per Benched Pokémon: coin i decides the i-th Benched Pokémon of the target side (Thunderstorm) */
   perCoinBenchTarget?: boolean;
   /** BenchDamage with maxBenchTargets: exactly that many must be chosen (all of them when there are fewer, Gigashock) */
@@ -180,6 +200,8 @@ export type DeckCardFilter = {
   names?: string[];
   /** Pokémon whose name includes this text ("Misty": "a Basic Pokémon with Misty in its name") */
   nameIncludes?: string;
+  /** Trainer cards (Errand-Running) */
+  trainer?: boolean;
 };
 
 export type Attack = {

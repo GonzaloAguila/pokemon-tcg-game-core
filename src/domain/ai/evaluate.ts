@@ -240,6 +240,8 @@ function computeAttackDamage(
         }
       }
       damage = calculateBaseDamage(attackerView, defenderView, resolved, w.playerBench, w.opponentBench).damage;
+      // Focus Energy (Lt. Surge's Raticate): this turn the attack's base damage is doubled
+      if (attacker.doubledAttack?.onTurn === w.turnNumber && attacker.doubledAttack.name === attack.name) damage *= 2;
       if (damage > 0) damage += getConfusedDamageBonus(w, attacker) + (attacker.nextTurnBonusDamage ?? 0);
     }
     if (!ignoresWR && damage > 0 && attackerType) {
