@@ -124,7 +124,9 @@ export class GameRules {
     if (after.gamePhase === GamePhase.Playing) {
       for (const side of ["player", "opponent"] as const) {
         const active = side === "player" ? after.playerActivePokemon : after.opponentActivePokemon;
-        const promoting = side === "player" ? after.playerNeedsToPromote : after.opponentNeedsToPromote;
+        // The Defending Pokémon's replacement may wait for the attack's bench damage choice
+        const promoting = (side === "player" ? after.playerNeedsToPromote : after.opponentNeedsToPromote) ||
+          !!after.pendingBenchDamageSelection?.promoteDefenderAfter;
         const bench = side === "player" ? after.playerBench : after.opponentBench;
         if (!active && bench.length === 0) problems.push(`${side} has no Pokémon in play and the game goes on`);
         else if (!active && !promoting) problems.push(`${side} has no Active Pokémon and isn't promoting one`);

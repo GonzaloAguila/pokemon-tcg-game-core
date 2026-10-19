@@ -460,6 +460,12 @@ export type GameState = {
     matchDefenderType?: boolean;
     /** Optional: defender types for filtering (Chain Lightning) */
     defenderTypes?: EnergyType[];
+    /**
+     * The attack Knocked Out the Defending Pokémon: its replacement comes after the bench
+     * damage (every benched Pokémon can still be chosen). "auto": the AI's promotion choice;
+     * "choose": opponentNeedsToPromote (skipDefenderPromotion).
+     */
+    promoteDefenderAfter?: "auto" | "choose";
   };
 };
 
@@ -1431,6 +1437,29 @@ export function executeDeckSearch(
 }
 
 /**
+ * After the bench damage of an attack that Knocked Out the Defending Pokémon
+ * (`promoteDefenderAfter`): its owner promotes from what is left on the Bench.
+ */
+function promoteDefenderAfterBenchDamage(state: GameState, mode: "auto" | "choose" | undefined): GameState {
+  if (!mode || state.gameResult !== null || state.opponentActivePokemon || state.opponentBench.length === 0) return state;
+  if (mode === "choose") {
+    return {
+      ...state,
+      opponentNeedsToPromote: true,
+      events: [...state.events, createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")],
+    };
+  }
+  const index = chooseAutoPromotion(state);
+  const promoted = state.opponentBench[index];
+  return {
+    ...state,
+    opponentActivePokemon: promoted,
+    opponentBench: state.opponentBench.filter((_, i) => i !== index),
+    events: [...state.events, createGameEvent(`${promoted.pokemon.name} pasa a ser el Pokémon activo del rival`, "info")],
+  };
+}
+
+/**
  * Execute bench damage on selected Pokemon
  * @param gameState Current game state with pendingBenchDamageSelection
  * @param selectedPokemonIds Array of Pokemon IDs to receive damage (empty array = skip/cancel)
@@ -1465,7 +1494,7 @@ export function executeBenchDamage(
       events,
     };
 
-    return finishPendingStep(newState, options);
+    return finishPendingStep(promoteDefenderAfterBenchDamage(newState, pending.promoteDefenderAfter), options);
   }
 
   // Validate selection count
@@ -1572,14 +1601,14 @@ export function executeBenchDamage(
   // no Pokémon at all (Spark KOs the Active, then the last benched Pokémon). Strikes Back can
   // Knock Out the attacker (checkKnockouts: bench KOs first, then the Actives)
   const attacker = gameState.playerActivePokemon;
-  const newState = endGameIfNoPokemonLeft(checkKnockouts({
+  const newState = promoteDefenderAfterBenchDamage(endGameIfNoPokemonLeft(checkKnockouts({
     ...gameState,
     playerActivePokemon: attacker && strikesBack > 0 ? { ...attacker, currentDamage: (attacker.currentDamage || 0) + strikesBack } : attacker,
     playerBench: newPlayerBench,
     opponentBench: newOpponentBench,
     pendingBenchDamageSelection: undefined,
     events,
-  }));
+  })), pending.promoteDefenderAfter);
 
   // The last prize may have been taken by a bench KO
   if (newState.gameResult !== null) {
@@ -5955,7 +5984,14 @@ function executeAttackUnchecked(
   // =====================================================================
   if (isKnockedOut && stateAfterAttack.gameResult === null) {
     const remainingBench = stateAfterAttack.opponentBench;
-    if (remainingBench.length > 0) {
+    const pendingOpponentBenchDamage = stateAfterAttack.pendingBenchDamageSelection;
+    if (remainingBench.length > 0 && pendingOpponentBenchDamage?.targetSide === "opponent") {
+      // The attacker still chooses the benched targets: promote once that damage is done
+      stateAfterAttack = {
+        ...stateAfterAttack,
+        pendingBenchDamageSelection: { ...pendingOpponentBenchDamage, promoteDefenderAfter: skipDefenderPromotion ? "choose" : "auto" },
+      };
+    } else if (remainingBench.length > 0) {
       if (skipDefenderPromotion) {
         // No auto-promover, dejar que el jugador elija
         opponentNeedsToPromote = true;

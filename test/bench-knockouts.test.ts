@@ -125,3 +125,43 @@ describe("bench damage that knocks out the last Pokémon of a side ends the game
     expect(after.opponentNeedsToPromote).toBe(false);
   });
 });
+
+describe("an attack that Knocks Out the Defending Pokémon and then damages a chosen benched one", () => {
+  const setup = () => {
+    const pikachu = inPlay("Pikachu", { set: "jungle", energy: [Lightning, Lightning] });
+    const abra = inPlay("Abra");
+    const machop = inPlay("Machop");
+    const state = makeState({
+      player: { active: pikachu },
+      opponent: { active: inPlay("Abra", { damage: 20 }), bench: [abra, machop] },
+    });
+    return { state, pikachu, abra, machop };
+  };
+
+  it("promotes the replacement after the bench damage, so every benched Pokémon can be chosen", () => {
+    const { state, pikachu, abra, machop } = setup();
+    const pending = executeAttack(state, attackIndex(pikachu, "Spark"));
+    expect(pending.opponentActivePokemon).toBeNull();
+    expect(pending.opponentBench.map((p) => p.pokemon.id)).toEqual([abra.pokemon.id, machop.pokemon.id]);
+    expect(pending.pendingBenchDamageSelection?.promoteDefenderAfter).toBe("auto");
+
+    const after = executeBenchDamage(pending, [abra.pokemon.id]);
+    const board = [after.opponentActivePokemon!, ...after.opponentBench];
+    expect(after.opponentActivePokemon).not.toBeNull();
+    expect(after.opponentBench).toHaveLength(1);
+    expect(board.find((p) => p.pokemon.id === abra.pokemon.id)?.currentDamage).toBe(10);
+    expect(after.pendingBenchDamageSelection).toBeUndefined();
+  });
+
+  it("asks the defender to promote only after the bench damage with skipDefenderPromotion", () => {
+    const { state, pikachu, machop } = setup();
+    const pending = executeAttack(state, attackIndex(pikachu, "Spark"), { skipDefenderPromotion: true });
+    expect(pending.opponentNeedsToPromote).toBe(false);
+    expect(pending.pendingBenchDamageSelection?.promoteDefenderAfter).toBe("choose");
+
+    const after = executeBenchDamage(pending, [machop.pokemon.id]);
+    expect(after.opponentNeedsToPromote).toBe(true);
+    expect(after.opponentActivePokemon).toBeNull();
+    expect(after.opponentBench.find((p) => p.pokemon.id === machop.pokemon.id)?.currentDamage).toBe(10);
+  });
+});
