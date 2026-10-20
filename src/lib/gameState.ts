@@ -401,6 +401,8 @@ export type GameState = {
    * with playTrainerCard (playStadium). Kept in sync with domain/match/types.ts (re-export).
    */
   stadium?: StadiumInPlay | null;
+  /** The side whose turn it is already played a Stadium this turn (one per turn); cleared when the turn passes. */
+  stadiumPlayedThisTurn?: boolean;
   /**
    * A Stadium lowered the Bench limit below a Bench's size: each listed player, in order (the opponent of
    * whoever played it first), returns Benched Pokémon with all their cards to the hand until
@@ -2902,6 +2904,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     turnNumber: newTurnNumber,
     energyAttachedThisTurn: false,
     retreatedThisTurn: false,
+    stadiumPlayedThisTurn: false,
     playerCanTakePrize,
     opponentCanTakePrize,
     usedPowersThisTurn: [], // Clear used powers for new turn

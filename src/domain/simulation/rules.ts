@@ -19,6 +19,7 @@
  * - A side without an Active Pokémon is promoting one (or has lost).
  * - One Energy card attached from the hand per turn; extra Water Energy cards only with a
  *   working Rain Dance.
+ * - One Stadium played per turn.
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
@@ -51,6 +52,7 @@ export class GameRules {
   private turn = -1;
   private retreats = 0;
   private attaches = 0;
+  private stadiums = 0;
 
   /** Problems after `after` replaced `before` by `actor`'s action labelled `label` */
   check(before: GameState, after: GameState, actor: Side, label: string): string[] {
@@ -59,6 +61,7 @@ export class GameRules {
       this.turn = after.turnNumber;
       this.retreats = 0;
       this.attaches = 0;
+      this.stadiums = 0;
     }
 
     // Per-turn limits of the acting side (labels of the bots' board actions)
@@ -80,6 +83,10 @@ export class GameRules {
         if (!rainDance) this.attaches++;
       }
       if (this.attaches > 1) problems.push(`attached ${this.attaches} Energy cards from the hand in one turn`);
+    }
+    if (after.stadium && after.stadium.card.id !== before.stadium?.card.id) {
+      this.stadiums++;
+      if (this.stadiums > 1) problems.push(`played ${this.stadiums} Stadiums in one turn`);
     }
 
     // Between-turns checkup: only Poison changes damage counters
@@ -125,8 +132,11 @@ export class GameRules {
       for (const side of ["player", "opponent"] as const) {
         const active = side === "player" ? after.playerActivePokemon : after.opponentActivePokemon;
         // The Defending Pokémon's replacement may wait for the attack's bench damage choice
+        // (also while a reaction to that damage, Bench Guard, is asked: its resume carries it)
+        const resume = after.pendingAttackChoice?.reaction?.resume;
         const promoting = (side === "player" ? after.playerNeedsToPromote : after.opponentNeedsToPromote) ||
-          !!after.pendingBenchDamageSelection?.promoteDefenderAfter;
+          !!after.pendingBenchDamageSelection?.promoteDefenderAfter ||
+          (resume?.kind === "benchDamage" && !!resume.pending.promoteDefenderAfter);
         const bench = side === "player" ? after.playerBench : after.opponentBench;
         if (!active && bench.length === 0) problems.push(`${side} has no Pokémon in play and the game goes on`);
         else if (!active && !promoting) problems.push(`${side} has no Active Pokémon and isn't promoting one`);
