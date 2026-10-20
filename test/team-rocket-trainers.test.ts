@@ -63,7 +63,7 @@ describe("The Boss's Way", () => {
     const deck = [card("Dark Golbat"), card("Abra"), gameCard("Kadabra", "base"), card("Dark Raichu")];
     const state = withHand([trainer], { player: { deck } });
     const step = getTrainerSteps(state, trainer.id, [])!;
-    expect(step.options.map((o) => o.label)).toEqual(["Dark Golbat", "Dark Raichu"]);
+    expect(step.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Dark Golbat", "Dark Raichu"]);
     const next = playTrainerCard(state, trainer.id, [[deck[3].id]]);
     expect(names(next.playerHand)).toEqual(["Dark Raichu"]);
     expect(next.playerDeck).toHaveLength(3);
@@ -89,7 +89,7 @@ describe("Challenge!", () => {
     const state = withHand([trainer], { player: { deck: myDeck }, opponent: { deck: theirDeck, bench: [rocket("Ekans"), rocket("Ekans"), rocket("Ekans"), rocket("Ekans")] } });
     const mine = getTrainerSteps(state, trainer.id, [["accept"]])!;
     expect(mine.chooser).toBe("self");
-    expect(mine.options.map((o) => o.label)).toEqual(["Abra", "Zubat"]);
+    expect(mine.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Abra", "Zubat"]);
     expect(mine.minSelections).toBe(0);
     const theirs = getTrainerSteps(state, trainer.id, [["accept"], [myDeck[0].id]])!;
     expect(theirs.chooser).toBe("opponent");

@@ -162,6 +162,11 @@ export function attackIndex(pokemon: PokemonInPlay, attackName: string): number 
   return idx;
 }
 
+/** The cards of a step that can be chosen (deck searches list the whole deck, the rest disabled). */
+export function takeable(step: { cards?: GameCard[]; options: { id: string; disabled?: boolean }[] }): GameCard[] {
+  return (step.cards ?? []).filter((c) => step.options.some((o) => o.id === c.id && !o.disabled));
+}
+
 /** Names of the cards in a pile, for readable assertions. */
 export function names(cards: GameCard[]): string[] {
   return cards.map((c) => c.name);

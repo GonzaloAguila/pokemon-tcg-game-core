@@ -21,6 +21,7 @@
 
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkSelection } from "@/domain/effects/validate";
+import { wholeDeckChoice } from "@/domain/effects/deck-search";
 import { isPokemonCard } from "@/domain/cards";
 import { CardKind, PokemonPowerType, PokemonStage } from "@/domain/constants";
 import { getEffectivePokemonCard, isPowerActive } from "@/domain/powers";
@@ -92,10 +93,9 @@ export const ON_PLAY_POWERS: Record<string, OnPlayPowerDef> = {
       return {
         title: powerName(pokemon),
         description: `Elige hasta ${max} Pokémon Básico${max === 1 ? "" : "s"} de tu mazo para ponerlos en tu Banca`,
-        options: basics.map((c) => ({ id: c.id, label: c.name })),
+        ...wholeDeckChoice(state.playerDeck, isBasicPokemonCard),
         maxSelections: max,
         minSelections: 0,
-        cards: basics,
         chooser: "self",
       };
     },

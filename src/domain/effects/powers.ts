@@ -66,6 +66,7 @@ import { allOwnPokemon, findInPlay } from "@/domain/board";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import type { CardEffectDef, SelectionOption } from "./types";
 import { energyOption, pokemonOption } from "./trainers";
+import { wholeDeckChoice } from "./deck-search";
 
 // ============================================================================
 // Helpers
@@ -687,14 +688,12 @@ const TEAM_ROCKET_POWER_EFFECTS: Record<string, CardEffectDef> = {
     canUse: (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
     getSteps: (state, pokemonId, selections) => {
       if (selections.length > 0) return null;
-      const evolutions = state.playerDeck.filter(isEvolutionCard);
-      if (evolutions.length === 0) return null;
+      if (!state.playerDeck.some(isEvolutionCard)) return null;
       return {
         title: powerOf(state, pokemonId)?.name ?? "Luz Evolutiva",
         description: "Elige una carta de Evolución de tu mazo para tu mano",
-        options: evolutions.map((c) => ({ id: c.id, label: c.name })),
+        ...wholeDeckChoice(state.playerDeck, isEvolutionCard),
         maxSelections: 1,
-        cards: evolutions,
       };
     },
     resolve: (state, pokemonId, selections) => {

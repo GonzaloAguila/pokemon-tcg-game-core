@@ -12,6 +12,7 @@ export type {
   StatusCondition,
   PokemonInPlay,
   GameEvent,
+  LogCard,
   GamePhase,
   GameResult,
   GameModifier,
@@ -23,6 +24,7 @@ export type { ExecuteAttackOptions } from "@/lib/gameState";
 // Helpers
 export {
   createGameEvent,
+  toLogCards,
   findCardByName,
   createGameCard,
 } from "./helpers";

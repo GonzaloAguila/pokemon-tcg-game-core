@@ -40,6 +40,7 @@ import type { AttackEffect } from "@/domain/cards";
 import { cardsLeavingPlay, isEnergyCard, isPokemonCard, type DeckCardFilter } from "@/domain/cards";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkCoins, checkSelection } from "@/domain/effects/validate";
+import { wholeDeckChoice } from "@/domain/effects/deck-search";
 import { AttackEffectType, AttackTarget, CardKind, GamePhase, PokemonPowerType, PokemonStage, StatusCondition, type CoinFlipResult } from "@/domain/constants";
 import {
   applyAttackDamageReductions,
@@ -83,6 +84,7 @@ import {
   protectionBlocksDamage,
   settleLuckyDuelDraw,
   shuffle,
+  toLogCards,
 } from "./gameState";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 
@@ -306,29 +308,26 @@ function stepFor(
     case AttackEffectType.EvolveFromDeck: {
       const attacker = attackerOf(state, context);
       if (!attacker || getEvolutionBlocker(state)) return null;
-      const cards = state.playerDeck.filter(
-        (c) => isPokemonCard(c) && !!effect.searchPokemonNames?.includes(c.name) && c.evolvesFrom === attacker.pokemon.name
-      );
-      if (cards.length === 0) return null;
+      const evolvesAttacker = (c: GameCard) =>
+        isPokemonCard(c) && !!effect.searchPokemonNames?.includes(c.name) && c.evolvesFrom === attacker.pokemon.name;
+      if (!state.playerDeck.some(evolvesAttacker)) return null;
       return {
         title,
         description: `Elige la carta de Evolución de tu mazo que pones sobre ${attacker.pokemon.name}`,
-        options: cards.map((c) => ({ id: c.id, label: c.name })),
+        ...wholeDeckChoice(state.playerDeck, evolvesAttacker),
         maxSelections: 1,
-        cards,
         chooser: "self",
       };
     }
     case AttackEffectType.AttachEnergyFromDeck: {
       const attacker = attackerOf(state, context);
-      const cards = state.playerDeck.filter((c) => isEnergyCard(c) && c.isBasic && c.energyType === effect.energyType);
-      if (!attacker || cards.length === 0) return null;
+      const isWanted = (c: GameCard) => isEnergyCard(c) && c.isBasic && c.energyType === effect.energyType;
+      if (!attacker || !state.playerDeck.some(isWanted)) return null;
       return {
         title,
         description: `Elige una carta de Energía ${getEnergyTypeInSpanish(effect.energyType ?? "")} de tu mazo para unirla a ${attacker.pokemon.name}`,
-        options: cards.map((c) => ({ id: c.id, label: energyLabel(c) })),
+        ...wholeDeckChoice(state.playerDeck, isWanted),
         maxSelections: 1,
-        cards,
         chooser: "self",
       };
     }
@@ -387,10 +386,9 @@ function stepFor(
         description: effect.destination === "bench"
           ? `Elige ${max === 1 ? "1 Pokémon" : `hasta ${max} Pokémon`} de tu mazo para ponerlos en tu Banca`
           : `Elige ${min === max ? max : `hasta ${max}`} carta${max === 1 ? "" : "s"} de tu mazo para tu mano`,
-        options: cards.map((c) => ({ id: c.id, label: isEnergyCard(c) ? energyLabel(c) : c.name })),
+        ...wholeDeckChoice(state.playerDeck, (c) => cards.includes(c)),
         maxSelections: max,
         minSelections: min,
-        cards,
         chooser: "self",
       };
     }
@@ -676,7 +674,8 @@ function applyChoice(
           playerHand: state.playerHand.filter((c) => !selection.includes(c.id)),
           playerDeck: [...back, ...state.playerDeck],
         };
-        if (selection.length === 0) return { state: log(next, `${name}: no se puso ninguna carta encima del mazo`) };
+        // Nothing put back: nothing to search, the deck is still shuffled ("Then shuffle your deck")
+        if (selection.length === 0) return { state: log({ ...next, playerDeck: shuffle(next.playerDeck) }, `${name}: no se puso ninguna carta encima del mazo. Se mezcló el mazo`) };
         const after = log(next, `${name}: ${selection.length} carta${selection.length === 1 ? "" : "s"} de la mano encima del mazo`);
         const follow = followUp(after, selection);
         return follow ? { state: after, next: follow } : { state: log({ ...after, playerDeck: shuffle(after.playerDeck) }, `${name}: no se encontró nada. Se mezcló el mazo`) };
@@ -705,14 +704,11 @@ function applyChoice(
           : { playerHand: [...state.playerHand, ...found] }),
       };
       const what = found.map((c) => (isEnergyCard(c) ? energyLabel(c) : c.name)).join(", ");
-      return {
-        state: log(
-          next,
-          found.length === 0
-            ? `${name}: no se tomó ninguna carta. Se mezcló el mazo`
-            : `${name}: ${what} ${toBench ? "a la Banca" : "a la mano"}. Se mezcló el mazo`
-        ),
-      };
+      const message = found.length === 0
+        ? `${name}: no se tomó ninguna carta. Se mezcló el mazo`
+        : `${name}: ${what} ${toBench ? "a la Banca" : "a la mano"}. Se mezcló el mazo`;
+      // The cards found are shown to the other player (to the Bench they are face up anyway)
+      return { state: { ...next, events: [...next.events, createGameEvent(message, "action", toLogCards(found))] } };
     }
     case AttackEffectType.ReturnPokemonToHand: {
       if (selection.length === 0) return { state: log(state, `${name}: no se devolvió ningún Pokémon`) };

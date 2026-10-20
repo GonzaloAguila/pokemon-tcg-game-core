@@ -6,6 +6,7 @@
 import type { GameState, GameModifier, GameCard, PokemonInPlay } from "@/domain/match/types";
 import {
   createGameEvent,
+  toLogCards,
   drawCard,
   clearStatusConditionsOnRetreat,
   clearAllStatusConditions,
@@ -806,9 +807,17 @@ export function playLass(state: GameState, cardId: string): GameState {
   // Lass goes to discard
   const newDiscard = [...state.playerDiscard, card];
 
+  // "Each player shows their hand": the hands as they were when Lass was played (Lass aside)
+  const shownHand = (cards: GameCard[], whose: string) =>
+    cards.length > 0
+      ? createGameEvent(`Lass: mano ${whose}`, "info", toLogCards(cards))
+      : createGameEvent(`Lass: la mano ${whose} está vacía`, "info");
+
   const events = [
     ...state.events,
     createGameEvent(`Jugaste Lass`, "action"),
+    shownHand(handWithoutLass, "de quien la jugó"),
+    shownHand(state.opponentHand, "del otro jugador"),
     createGameEvent(
       `Barajaste ${playerTrainers.length} Trainer${playerTrainers.length !== 1 ? "s" : ""} en tu mazo`,
       "info"

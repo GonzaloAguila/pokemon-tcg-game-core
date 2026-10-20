@@ -15,6 +15,7 @@ export type {
   GameCard,
   PokemonInPlay,
   GameEvent,
+  LogCard,
   GameModifier,
   GameResult,
   PowerSuppression,

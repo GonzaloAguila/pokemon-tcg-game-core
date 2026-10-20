@@ -32,7 +32,7 @@ describe("Summon Minions (Dark Dragonite)", () => {
     const pending = next.pendingPowerChoice!;
     expect(pending.powerName).toBe("Invocar Secuaces");
     expect(pending.pokemonId).toBe(dragonite.id);
-    expect(pending.step.options.map((o) => o.label)).toEqual(["Abra", "Machop", "Zubat"]);
+    expect(pending.step.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Abra", "Machop", "Zubat"]);
     expect(pending.step.maxSelections).toBe(2);
     expect(pending.step.minSelections).toBe(0);
     expect(getTurnActionBlocker(next)).toMatch(/Poder Pokémon/);

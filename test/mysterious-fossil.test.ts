@@ -146,7 +146,7 @@ describe("Mysterious Fossil: other cards see a Trainer outside play", () => {
     const state = makeState({
       player: { active: inPlay("Machop"), hand: [ball, finder, revive, energy(Water), energy(Water)], deck: [fossil, gameCard("Abra")], discard: [{ ...fossil, id: "fossil-in-discard" }] },
     });
-    expect(getTrainerSteps(state, ball.id, [], ["heads"])!.options.map((o) => o.label)).toEqual(["Abra"]);
+    expect(getTrainerSteps(state, ball.id, [], ["heads"])!.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Abra"]);
     expect(getTrainerSteps(state, finder.id, [[state.playerHand[3].id, state.playerHand[4].id]])!.options.map((o) => o.label)).toEqual([
       "Mysterious Fossil",
     ]);

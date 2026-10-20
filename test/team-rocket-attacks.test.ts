@@ -31,7 +31,7 @@ const vs = (attacker: PokemonInPlay, defender: PokemonInPlay, extra: Parameters<
   makeState({ ...extra, player: { active: attacker, ...(extra.player ?? {}) }, opponent: { active: defender, ...(extra.opponent ?? {}) } });
 const choose = (state: GameState, selection: string[]) => resolveAttackChoice(state, selection, { skipEndTurn: true });
 const optionIds = (state: GameState) => state.pendingAttackChoice!.step.options.map((o) => o.id);
-const optionLabels = (state: GameState) => state.pendingAttackChoice!.step.options.map((o) => o.label);
+const optionLabels = (state: GameState) => state.pendingAttackChoice!.step.options.filter((o) => !o.disabled).map((o) => o.label);
 
 describe("choose 1 of the opponent's Pokémon (Stare, Flitter, Dig Under, Coin Hurl)", () => {
   it("Flitter: 20 to the chosen Pokémon, no Weakness/Resistance", () => {

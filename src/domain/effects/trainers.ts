@@ -102,6 +102,7 @@ import {
 } from "@/domain/trainers";
 import type { CardEffectDef, SelectionOption, SelectionStep } from "./types";
 import { STADIUM_EFFECTS } from "./stadiums";
+import { wholeDeckChoice } from "./deck-search";
 
 // ============================================================================
 // Option helpers
@@ -509,9 +510,8 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
         return {
           title: "Computer Search",
           description: "Selecciona 1 carta de tu mazo",
-          options: state.playerDeck.map(cardOption),
+          ...wholeDeckChoice(state.playerDeck, () => true, cardOption),
           maxSelections: 1,
-          cards: state.playerDeck,
         };
       }
       return null;
@@ -566,13 +566,11 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
         };
       }
       if (selections.length === 1) {
-        const inDeck = state.playerDeck.filter(isPokemonCard);
         return {
           title: "Pokémon Trader",
           description: "Selecciona un Pokémon de tu mazo para añadir a tu mano",
-          options: inDeck.map(cardOption),
+          ...wholeDeckChoice(state.playerDeck, isPokemonCard),
           maxSelections: 1,
-          cards: inDeck,
         };
       }
       return null;
@@ -682,14 +680,13 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
     coinFlips: () => 1,
     getSteps: (state, _cardId, selections, coinResults) => {
       if (coinResults?.[0] !== "heads" || selections.length > 0) return null;
-      const inDeck = state.playerDeck.filter((c) => c.kind === CardKind.Pokemon);
-      if (inDeck.length === 0) return null;
+      const isPokemon = (c: GameCard) => c.kind === CardKind.Pokemon;
+      if (!state.playerDeck.some(isPokemon)) return null;
       return {
         title: "Poké Ball",
         description: "Selecciona un Pokémon de tu mazo",
-        options: inDeck.map(cardOption),
+        ...wholeDeckChoice(state.playerDeck, isPokemon),
         maxSelections: 1,
-        cards: inDeck,
       };
     },
     resolve: (state, cardId, selections, { coinResults }) =>
@@ -768,14 +765,12 @@ Object.assign(TRAINER_EFFECTS, {
     canUse: (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
     getSteps: (state, _cardId, selections) => {
       if (selections.length > 0) return null;
-      const basics = state.playerDeck.filter(isBasicEnergy);
-      if (basics.length === 0) return null;
+      if (!state.playerDeck.some(isBasicEnergy)) return null;
       return {
         title: "Energy Search",
         description: "Elige una carta de Energía básica de tu mazo",
-        options: basics.map(energyOption),
+        ...wholeDeckChoice(state.playerDeck, isBasicEnergy, energyOption),
         maxSelections: 1,
-        cards: basics,
       };
     },
     resolve: (state, cardId, selections) => {
@@ -864,10 +859,9 @@ function challengeStep(state: GameState, side: "player" | "opponent", chooser: "
       answererDescription:
         room === 0 ? "Tu Banca está llena: no puedes poner Pokémon" : "Tu rival jugó Challenge!: elige los Pokémon Básicos de tu mazo que pones en tu Banca",
     }),
-    options: basics.map(cardOption),
+    ...wholeDeckChoice(deck, isBasicPokemon),
     maxSelections: Math.min(room, basics.length),
     minSelections: 0,
-    cards: basics,
     chooser,
     // Answer clock: no Basics benched
     ...(chooser === "opponent" && { defaultSelection: [] }),
@@ -931,14 +925,13 @@ Object.assign(TRAINER_EFFECTS, {
     canUse: (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
     getSteps: (state, _cardId, selections) => {
       if (selections.length > 0) return null;
-      const dark = state.playerDeck.filter((c) => isPokemonCard(c) && c.stage !== PokemonStage.Basic && c.name.includes("Dark"));
-      if (dark.length === 0) return null;
+      const isDarkEvolution = (c: GameCard) => isPokemonCard(c) && c.stage !== PokemonStage.Basic && c.name.includes("Dark");
+      if (!state.playerDeck.some(isDarkEvolution)) return null;
       return {
         title: "The Boss's Way",
         description: "Elige una carta de Evolución con «Dark» en su nombre de tu mazo",
-        options: dark.map(cardOption),
+        ...wholeDeckChoice(state.playerDeck, isDarkEvolution),
         maxSelections: 1,
-        cards: dark,
       };
     },
     resolve: (state, cardId, selections) => {
@@ -1168,9 +1161,8 @@ function deckSearch(
   return {
     getSteps: (state, _cardId, selections) => {
       if (selections.length > 0) return null;
-      const found = state.playerDeck.filter(filter);
-      if (found.length === 0) return null;
-      return { title: name, description, options: found.map(cardOption), maxSelections: 1, cards: found };
+      if (!state.playerDeck.some(filter)) return null;
+      return { title: name, description, ...wholeDeckChoice(state.playerDeck, filter), maxSelections: 1 };
     },
     resolve: (state, cardId, selections) => {
       const chosen = state.playerDeck.find((c) => c.id === selections[0]?.[0]);
@@ -1361,10 +1353,9 @@ Object.assign(TRAINER_EFFECTS, {
         return {
           title: "Erika's Maids",
           description: "Elige hasta 2 cartas de Pokémon Básico o de Evolución con Erika en su nombre de tu mazo",
-          options: found.map(cardOption),
+          ...wholeDeckChoice(state.playerDeck, ownersPokemonCard("Erika")),
           maxSelections: Math.min(2, found.length),
           minSelections: 0,
-          cards: found,
         };
       }
       return null;

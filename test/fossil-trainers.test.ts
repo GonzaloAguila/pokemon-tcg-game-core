@@ -34,7 +34,7 @@ describe("Energy Search: a basic Energy card from the deck to the hand", () => {
     const deck = [energy(Fire), gameCard("Abra"), energy(EnergyType.Colorless)];
     const state = makeState({ player: { active: inPlay("Machop"), hand: [search], deck } });
     const step = getTrainerSteps(state, search.id, [])!;
-    expect(step.options.map((o) => o.id)).toEqual([deck[0].id]);
+    expect(step.options.filter((o) => !o.disabled).map((o) => o.id)).toEqual([deck[0].id]);
     const next = playTrainerCard(state, search.id, [[deck[0].id]]);
     expect(names(next.playerHand)).toEqual(["Fire Energy"]);
     expect(next.playerDeck).toHaveLength(2);
