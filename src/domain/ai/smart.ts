@@ -77,8 +77,8 @@ import {
   prizesFor,
   type Threat,
 } from "./evaluate";
-import { canAffordDraws, planHandChange, planMinion, planTicklingMachine, planStadium, planStadiumAction, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
-import { canUseVermilionCoin, stadiumExtraTrainerDiscards } from "@/domain/stadiums/rules";
+import { canAffordDraws, planHandChange, planMinion, planTicklingMachine, planFuchsiaCityGym, planStadium, planStadiumAction, planStepIn, planSupportPowers, planTrainers, spareHandCards, wantedFromDeck, AI_NEVER_PLAYS } from "./cardEffects";
+import { canUseVermilionCoin, stadiumBenchPlayCoin, stadiumExtraTrainerDiscards } from "@/domain/stadiums/rules";
 import { hasOwner } from "@/domain/cards/owner";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import { attachedTrainerNamed, SABRINAS_ESP } from "@/domain/trainers/attached";
@@ -181,6 +181,10 @@ function planTurn(state: GameState, options: DecideOpponentTurnOptions): AIActio
   // A Stadium that helps (played alone, the turn is planned again: Narrow Gym may leave a Bench to trim)
   const stadium = planStadium(plan.view);
   if (stadium) return [...plan.actions, stadium];
+
+  // Fuchsia City Gym: a doomed Koga's Pokémon back into the deck (alone: a coin, maybe a promotion)
+  const fuchsia = planFuchsiaCityGym(plan.view);
+  if (fuchsia) return [...plan.actions, fuchsia];
 
   benchBasics(plan);
   evolveAll(plan);
@@ -355,13 +359,23 @@ function starterScore(v: GameState, card: GameCard): number {
   return card.hp + (cheapest <= 1 ? 25 : cheapest === 2 ? 10 : 0) - card.retreatCost * 8 - (evolvesInHand ? 15 : 0);
 }
 
+/**
+ * Rocket's Minefield Gym (tails: 2 damage counters on a Basic put onto the Bench): with a Benched
+ * Pokémon already, no Basic left at 10 HP or less by a tails, and past 2 Benched only ones worth
+ * the risk (basicValue ≥ 70: an evolution coming, a power).
+ */
+function minefieldRisk(v: GameState, card: GameCard): boolean {
+  if (!stadiumBenchPlayCoin(v) || v.playerBench.length === 0) return false;
+  return basicHp(card) <= 30 || (v.playerBench.length >= 2 && basicValue(v, card) < 70);
+}
+
 function benchBasics(plan: Plan): void {
   const snipers = opponentSnipes(plan.view);
   for (let guard = 0; guard < maxBenchSize(plan.view, "player"); guard++) {
     const v = plan.view;
     if (isBenchFull(v, "player")) return;
     const candidates = getBasicPokemonInHand(v, "player")
-      .filter((c) => canPlayBasicPokemon(v, c.id, "bench") === null)
+      .filter((c) => canPlayBasicPokemon(v, c.id, "bench") === null && !minefieldRisk(v, c))
       .sort((a, b) => basicValue(v, b) - basicValue(v, a));
     const card = candidates[0];
     if (!card) return;

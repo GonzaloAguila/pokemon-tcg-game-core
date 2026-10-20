@@ -27,7 +27,7 @@ describe("system (theme) decks are legal 60-card decks", () => {
   });
 });
 
-describe("Gym Heroes Gym Leader decks", () => {
+describe("Gym Leader decks (Gym Heroes + Gym Challenge)", () => {
   const leaders = [
     ["gym-heroes-brock", "Mazo de Brock", "Brock"],
     ["gym-heroes-misty", "Mazo de Misty", "Misty"],
@@ -35,16 +35,18 @@ describe("Gym Heroes Gym Leader decks", () => {
     ["gym-heroes-lt-surge", "Mazo de Lt. Surge", "Lt. Surge"],
     ["gym-heroes-sabrina", "Mazo de Sabrina", "Sabrina"],
     ["gym-heroes-blaine", "Mazo de Blaine", "Blaine"],
+    ["gym-challenge-giovanni", "Mazo de Giovanni", "Giovanni"],
+    ["gym-challenge-koga", "Mazo de Koga", "Koga"],
   ] as const;
 
   it("one per leader of the set, found by id", () => {
     expect(gymLeaderDecks.map((d) => [d.id, d.name])).toEqual(leaders.map(([id, name]) => [id, name]));
     for (const [id] of leaders) expect(getDeckById(id)?.id).toBe(id);
     // The classic theme decks stay as they were
-    expect(decks.some((d) => d.id.startsWith("gym-heroes-"))).toBe(false);
+    expect(decks.some((d) => d.id.startsWith("gym-"))).toBe(false);
   });
 
-  it.each(leaders)("%s: legal 60 cards from the Gym Heroes catalog (+ basic Energy), the leader's Pokémon only", (id, _name, leader) => {
+  it.each(leaders)("%s: legal 60 cards from the Gym Heroes / Gym Challenge catalogs (+ basic Energy), the leader's Pokémon only", (id, _name, leader) => {
     const deck = getDeckById(id)!;
     expect(resolveDeck(deck)).toHaveLength(deck.cards.length);
     const cards = buildDeckFromEntries(deck.cards);
@@ -53,7 +55,7 @@ describe("Gym Heroes Gym Leader decks", () => {
     const copies = new Map<string, number>();
     for (const card of cards) if (isLimitedInDeck(card)) copies.set(card.name, (copies.get(card.name) ?? 0) + 1);
     expect([...copies].filter(([, n]) => n > 4)).toEqual([]);
-    expect(cards.filter((c) => c.set !== CardSet.GymHeroes && !(c.kind === "energy" && c.isBasic)).map((c) => c.name)).toEqual([]);
+    expect(cards.filter((c) => c.set !== CardSet.GymHeroes && c.set !== CardSet.GymChallenge && !(c.kind === "energy" && c.isBasic)).map((c) => c.name)).toEqual([]);
     expect(cards.filter((c) => c.kind === "pokemon" && ownerOf(c) !== leader).map((c) => c.name)).toEqual([]);
     // Every evolution can come into play: its lower stage is in the deck
     const names = new Set(cards.map((c) => c.name));

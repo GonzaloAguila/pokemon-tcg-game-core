@@ -54,6 +54,10 @@
  * | Blaine's Quiz #1 (GH) | only with `otherPlayerAnswersByAI`: a Pokémon card in hand, deck ≥ 6 and 2 draws affordable (hand change) |
  * | Misty's Duel (GH) | only with `otherPlayerDuels` (someone shows the other player the duel): 2 other cards in hand or fewer, the opponent holds 4+, deck ≥ 8 and 5 draws affordable (a new hand of 5 on a win; the opponent's 4+ cards gain little if it loses) (hand change); its pick is `aiDuelPick`, submitted by the consumer / simulator, never by the executor |
  * | Celadon City Gym (Stadium action) | its Active is Asleep / Confused / Paralyzed and keeps an attack it can pay after discarding the Energy card |
+ * | Fuchsia City Gym (GC, Stadium action) | its most damaged Koga's Pokémon with ≤ 30 HP left: Benched, or the Active when it can't attack and has a Bench (planFuchsiaCityGym, alone; the AI promotes) |
+ * | Saffron City Gym (GC, Stadium action) | a spare basic Energy card of a Sabrina's Pokémon another of its Pokémon needs, with no Energy in hand and none attached this turn |
+ * | Chaos Gym (GC) | never played (stadiumValue −10); an offer is accepted when its own planners would play the card (wantsChaosGymOffer; executor answerChaosGymOfferForAI plays it at once) |
+ * | Rocket's Minefield Gym (GC) | smart.ts benchBasics: with a Benched Pokémon, no Basic of ≤ 30 HP, and past 2 only Basics worth the risk |
  * | Stadiums (GH) | planStadium: the one that helps it most by its rule (stadiumValue, read through the Stadium rule hooks) when it beats the Stadium in play for the AI — never its own replaced by a worse one (played alone, the turn is planned again) |
  * | Energy Removal, Super Energy Removal under No Removal Gym | only with 2 cards it can spare for the cost (spareHandCards; smart.ts trainerCandidates) |
  * | Blaine (GC) | whenever playable (no Energy attached yet, a Blaine's Pokémon, 2 Fire Energy cards): the Active first (hand change) |
@@ -104,7 +108,7 @@ import {
   staysInPlay,
   type SelectionStep,
 } from "@/domain/effects";
-import { getEffectivePokemonCard, hasStatusImmunity, isPowerActive } from "@/domain/powers";
+import { getEffectiveHp, getEffectivePokemonCard, hasStatusImmunity, isPowerActive } from "@/domain/powers";
 import { minSelectionsOf } from "@/domain/effects/validate";
 import { answerStepForAI } from "./pending";
 import { attachedTrainerNamed, BROCKS_PROTECTION, KOGAS_NINJA_TRICK } from "@/domain/trainers/attached";
@@ -157,13 +161,46 @@ export function psychicControlPick(view: GameState, controlId: string, options: 
       playerHand: [...view.playerHand.filter((h) => h.id !== controlId), c],
       playerDiscard: control ? [...view.playerDiscard, control] : view.playerDiscard,
     };
-    if (canPlayTrainerCard(virtual, c.id) !== null) continue;
-    const handChange = planHandChange(virtual, { ...options, otherPlayerAnswersByAI: false, otherPlayerAnswersByHuman: false, otherPlayerDuels: false });
-    if (handChange?.type === "playTrainer" && handChange.cardId === c.id) return c;
-    if (planTrainers(virtual, { willAttack: true }).some((a) => a.type === "playTrainer" && a.cardId === c.id)) return c;
-    if (c.name === "Professor Oak" && virtual.playerHand.length <= 3 && view.playerDeck.length >= 12) return c;
+    if (wouldPlayFromHand(virtual, c, options)) return c;
   }
   return undefined;
+}
+
+/**
+ * The AI's own planners would play `card` from the hand of `virtual` (AI view, the card already
+ * in `playerHand`): planHandChange / planTrainers pick it, or Professor Oak with a small hand and a
+ * deep deck. Used for Trainers it may play from somewhere else (Psychic Control, Chaos Gym's offer).
+ */
+function wouldPlayFromHand(virtual: GameState, card: GameCard, options: HandChangeOptions = {}): boolean {
+  if (canPlayTrainerCard(virtual, card.id) !== null) return false;
+  const handChange = planHandChange(virtual, { ...options, otherPlayerAnswersByAI: false, otherPlayerAnswersByHuman: false, otherPlayerDuels: false });
+  if (handChange?.type === "playTrainer" && handChange.cardId === card.id) return true;
+  if (planTrainers(virtual, { willAttack: true }).some((a) => a.type === "playTrainer" && a.cardId === card.id)) return true;
+  return card.name === "Professor Oak" && virtual.playerHand.length <= 3 && virtual.playerDeck.length >= 12;
+}
+
+/**
+ * Chaos Gym offers the AI the other player's failed Trainer (`view`: the AI's own view, the offer
+ * accepted-to-be: `pendingChaosOffer.offeredTo === "player"`): it takes it when its own planners
+ * would play that card from its hand right now (wouldPlayFromHand on a view with the card in the
+ * hand, its turn for the play) — never one whose steps the other side answers, nor one it never
+ * plays (neverBorrowed). Judged on the knowledge view (no peeking at hidden cards).
+ */
+export function wantsChaosGymOffer(view: GameState): boolean {
+  const offer = view.pendingChaosOffer;
+  if (!offer || offer.offeredTo !== "player" || neverBorrowed(offer.cardName)) return false;
+  const known = knowledgeView(view);
+  const pile = offer.owner === "player" ? "playerDiscard" : "opponentDiscard";
+  const card = known[pile].find((c) => c.id === offer.cardId);
+  if (!card || !isTrainerCard(card)) return false;
+  const virtual: GameState = {
+    ...known,
+    [pile]: known[pile].filter((c) => c.id !== offer.cardId),
+    playerHand: [...known.playerHand, card],
+    isPlayerTurn: true,
+    pendingChaosOffer: undefined,
+  };
+  return wouldPlayFromHand(virtual, card);
 }
 
 
@@ -209,8 +246,8 @@ function canAttackWith(view: GameState, pokemon: PokemonInPlay): boolean {
   return getAvailableAttacks(view, pokemon).some(({ index }) => canUseAttack(pokemon, index, view.opponentActivePokemon, view));
 }
 
-function remainingHp(pokemon: PokemonInPlay): number {
-  return isPokemonCard(pokemon.pokemon) ? pokemon.pokemon.hp - (pokemon.currentDamage ?? 0) : 0;
+function remainingHp(pokemon: PokemonInPlay, state?: GameState): number {
+  return isPokemonCard(pokemon.pokemon) ? getEffectiveHp(state, pokemon) - (pokemon.currentDamage ?? 0) : 0;
 }
 
 /**
@@ -383,7 +420,7 @@ function activeAboutToFall(view: GameState): boolean {
   const active = view.playerActivePokemon;
   if (!active || view.playerBench.length === 0 || activeCanAttack(view)) return false;
   const energyCards = active.attachedEnergy.filter((e) => isEnergyCard(e) || !!e.buzzapEnergyType);
-  return energyCards.length >= 2 && remainingHp(active) <= 20;
+  return energyCards.length >= 2 && remainingHp(active, view) <= 20;
 }
 
 export type HandChangeOptions = {
@@ -471,7 +508,7 @@ function planGymHeroesHandChange(view: GameState, options: HandChangeOptions): A
   const active = view.playerActivePokemon!;
   if (surge && !activeCanAttack(view)) {
     const stuck = [StatusCondition.Asleep, StatusCondition.Confused, StatusCondition.Paralyzed].some((c) => hasStatusCondition(active, c));
-    if (stuck || remainingHp(active) <= 20) return playTrainer(surge);
+    if (stuck || remainingHp(active, view) <= 20) return playTrainer(surge);
   }
 
   const flow = playable(view, "Energy Flow");
@@ -506,7 +543,7 @@ function giovanniTarget(view: GameState): PokemonInPlay | undefined {
 function lastResortTarget(view: GameState): PokemonInPlay | undefined {
   return ownPokemon(view)
     .filter((p) => hasOwner(p.pokemon, "Giovanni") && isPokemonCard(p.pokemon) && (p.currentDamage ?? 0) > 0)
-    .filter((p) => (p.currentDamage ?? 0) >= remainingHp(p) || remainingHp(p) <= 30)
+    .filter((p) => (p.currentDamage ?? 0) >= remainingHp(p, view) || remainingHp(p, view) <= 30)
     .sort((a, b) => (b.currentDamage ?? 0) - (a.currentDamage ?? 0))[0];
 }
 
@@ -658,7 +695,7 @@ function answerGymChallengeStep(view: GameState, cardId: string, name: string, s
       const bench = view.playerBench;
       return bestIds(view, step, (_c, id) => {
         const p = bench.find((b) => b.pokemon.id === id);
-        return p ? (canAttackWith(view, p) ? 1000 : 0) + remainingHp(p) : 0;
+        return p ? (canAttackWith(view, p) ? 1000 : 0) + remainingHp(p, view) : 0;
       }).slice(0, 1);
     }
     case "Sabrina": {
@@ -811,6 +848,8 @@ export function planStepIn(view: GameState): AIAction | null {
 export function planStadiumAction(view: GameState): AIAction | null {
   const active = view.playerActivePokemon;
   if (!active || !view.stadium || !view.opponentActivePokemon) return null;
+  if (view.stadium.card.name === "Saffron City Gym") return planSaffronCityGym(view);
+  if (view.stadium.card.name !== "Celadon City Gym") return null;
   const stopped = [StatusCondition.Asleep, StatusCondition.Confused, StatusCondition.Paralyzed].some((c) => hasStatusCondition(active, c));
   if (!stopped || canUseStadiumAction(view) !== null) return null;
   const first = getStadiumActionSteps(view, []);
@@ -823,6 +862,51 @@ export function planStadiumAction(view: GameState): AIAction | null {
     .find((e) => canAttackWith(view, { ...active, attachedEnergy: active.attachedEnergy.filter((x) => x.id !== e.id) }));
   if (!spare) return null;
   return { type: "useStadium", stadiumName: view.stadium.card.name, selections: [[active.pokemon.id], [spare.id]], delay: 800 };
+}
+
+/** How many of its attacks `pokemon` can pay and use right now (AI view). */
+function usableAttackCount(view: GameState, pokemon: PokemonInPlay): number {
+  return getAvailableAttacks(view, pokemon).filter(({ index }) => canUseAttack(pokemon, index, view.opponentActivePokemon, view)).length;
+}
+
+/**
+ * Saffron City Gym (a basic Energy card of a Sabrina's Pokémon back to the hand): only to move a
+ * spare Energy where it is needed — no Energy attached this turn and none in the hand, the
+ * Sabrina's Pokémon keeps every attack it can use now, and another of its Pokémon could use one
+ * more attack with that Energy (the turn's attachment then puts it there). One per plan.
+ */
+function planSaffronCityGym(view: GameState): AIAction | null {
+  if (view.energyAttachedThisTurn || view.playerHand.some(isEnergyCard) || canUseStadiumAction(view) !== null) return null;
+  const mine = ownPokemon(view);
+  for (const holder of mine) {
+    if (!hasOwner(holder.pokemon, "Sabrina")) continue;
+    const before = usableAttackCount(view, holder);
+    for (const e of [...holder.attachedEnergy.filter(isBasicEnergy)].sort((a, b) => getEnergyValue(a) - getEnergyValue(b))) {
+      const without = { ...holder, attachedEnergy: holder.attachedEnergy.filter((x) => x.id !== e.id) };
+      if (usableAttackCount(view, without) < before) continue;
+      const helps = mine.some(
+        (p) => p.pokemon.id !== holder.pokemon.id && usableAttackCount(view, { ...p, attachedEnergy: [...p.attachedEnergy, e] }) > usableAttackCount(view, p)
+      );
+      if (helps) return { type: "useStadium", stadiumName: "Saffron City Gym", selections: [[holder.pokemon.id], [e.id]], delay: 800 };
+    }
+  }
+  return null;
+}
+
+/**
+ * Fuchsia City Gym (heads: shuffle a Koga's Pokémon and its cards into the deck): denies a Prize —
+ * its most damaged Koga's Pokémon with 30 HP or less left, Benched, or the Active when it can't
+ * attack and a Benched Pokémon can take its place (the AI then promotes). The pick is only used on
+ * heads (the executor drops it on tails). Played alone: the turn is planned again.
+ */
+export function planFuchsiaCityGym(view: GameState): AIAction | null {
+  if (view.stadium?.card.name !== "Fuchsia City Gym" || !view.opponentActivePokemon || canUseStadiumAction(view) !== null) return null;
+  const active = view.playerActivePokemon;
+  const target = ownPokemon(view)
+    .filter((p) => hasOwner(p.pokemon, "Koga") && (p.currentDamage ?? 0) > 0 && remainingHp(p, view) <= 30)
+    .filter((p) => p.pokemon.id !== active?.pokemon.id || (view.playerBench.length > 0 && !activeCanAttack(view)))
+    .sort((a, b) => remainingHp(a, view) - remainingHp(b, view))[0];
+  return target ? { type: "useStadium", stadiumName: "Fuchsia City Gym", selections: [[target.pokemon.id]], delay: 800 } : null;
 }
 
 /** Gather Fire / Strange Behavior / Energy Charge / Soak Up / Emerge uses worth making now (in order). */
@@ -848,7 +932,7 @@ export function planSupportPowers(view: GameState): AIAction[] {
   // Strange Behavior: the Active's damage onto a Benched Slowbro that keeps ≥ 20 HP
   const slowbro = withUsablePower(view, "Comportamiento Extraño").find((p) => p.pokemon.id !== active.pokemon.id);
   if (slowbro && (active.currentDamage ?? 0) > 0) {
-    const room = Math.max(0, Math.floor((remainingHp(slowbro) - 20) / 10));
+    const room = Math.max(0, Math.floor((remainingHp(slowbro, view) - 20) / 10));
     const moves = Math.min((active.currentDamage ?? 0) / 10, room);
     for (let i = 0; i < moves; i++) actions.push(usePower(slowbro));
   }
@@ -900,7 +984,7 @@ export function planTrainers(view: GameState, options: { willAttack: boolean }):
   // Gym Heroes
   const active = view.playerActivePokemon;
   const damaged = ownPokemon(view).filter((p) => (p.currentDamage ?? 0) > 0);
-  add("Brock", () => damaged.length >= 2 || (!!active && (active.currentDamage ?? 0) > 0 && remainingHp(active) <= 30));
+  add("Brock", () => damaged.length >= 2 || (!!active && (active.currentDamage ?? 0) > 0 && remainingHp(active, view) <= 30));
   add("The Rocket's Trap", () => view.opponentHand.length >= 4);
   add("Misty", (card) => options.willAttack && !!active && hasOwner(active.pokemon, "Misty") && spareHandCards(view, card.id, 2, 25) !== null);
   add("Erika's Perfume", () => view.opponentHand.length >= 3 && !isBenchFull(view, "opponent"));
@@ -1103,7 +1187,7 @@ export function answerOpponentTrainerStepForAI(trainerView: GameState, cardId: s
     case "Warp Point": {
       const left = (id: string) => {
         const p = trainerView.opponentBench.find((b) => b.pokemon.id === id);
-        return p ? remainingHp(p) : 0;
+        return p ? remainingHp(p, trainerView) : 0;
       };
       return enabled.length > 0 ? [[...enabled].sort((a, b) => left(b) - left(a))[0]] : [];
     }

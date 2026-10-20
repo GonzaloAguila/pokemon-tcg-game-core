@@ -1,6 +1,7 @@
 /**
- * Gym Heroes theme decks: one per Gym Leader of the set (Brock, Misty, Erika, Lt. Surge, Sabrina,
- * Blaine), built from the Gym Heroes catalog plus Base Set basic Energy (the expansions have no
+ * Gym Leader theme decks: one per Gym Leader of Gym Heroes (Brock, Misty, Erika, Lt. Surge, Sabrina,
+ * Blaine — Sabrina's and Blaine's with their Gym Challenge evolutions), then Gym Challenge's
+ * Giovanni and Koga (gym-challenge-decks.ts), plus Base Set basic Energy (the expansions have no
  * Energy cards). Legal 60-card decks (at most 4 copies by name, basic Energy excepted); they back
  * the "Gym Leader" vs-AI mode, so their Trainers are ones the AI plays in single-player (no Erika,
  * Lt. Surge's Treaty, Blaine's Quiz #1, Misty's Duel or Charity: see ai/cardEffects.ts).
@@ -9,8 +10,10 @@
 
 import { CardSet } from "@/domain/constants";
 import type { Deck, DeckEntry } from "./types";
+import { gymChallengeLeaderDecks } from "./gym-challenge-decks";
 
 const gh = (cardNumber: number, quantity: number): DeckEntry => ({ cardNumber, quantity, set: CardSet.GymHeroes });
+const gc = (cardNumber: number, quantity: number): DeckEntry => ({ cardNumber, quantity, set: CardSet.GymChallenge });
 /** Base Set basic Energy: 97 Fighting, 98 Fire, 99 Grass, 100 Lightning, 101 Psychic, 102 Water */
 const energy = (cardNumber: number, quantity: number): DeckEntry => ({ cardNumber, quantity });
 
@@ -165,29 +168,36 @@ export const gymLeaderDecks: Deck[] = [
     image: "",
     featuredPokemon: [
       { cardNumber: 14, set: CardSet.GymHeroes }, // Sabrina's Gengar
-      { cardNumber: 59, set: CardSet.GymHeroes }, // Sabrina's Jynx
+      { cardNumber: 16, set: CardSet.GymChallenge }, // Sabrina's Alakazam
       { cardNumber: 60, set: CardSet.GymHeroes }, // Sabrina's Slowbro
     ],
     cards: [
       // Pokémon (22)
-      gh(93, 4), // Sabrina's Gastly
-      gh(58, 3), // Sabrina's Haunter
-      gh(14, 2), // Sabrina's Gengar
+      gh(93, 2), // Sabrina's Gastly
+      gc(97, 2), // Sabrina's Gastly (Gaseous Form)
+      gh(58, 2), // Sabrina's Haunter
+      gc(55, 1), // Sabrina's Haunter
+      gh(14, 1), // Sabrina's Gengar
+      gc(29, 1), // Sabrina's Gengar
       gh(91, 2), // Sabrina's Abra
+      gc(94, 1), // Sabrina's Abra
+      gc(58, 2), // Sabrina's Kadabra
+      gc(16, 1), // Sabrina's Alakazam
       gh(92, 2), // Sabrina's Drowzee
-      gh(59, 2), // Sabrina's Jynx
-      gh(94, 2), // Sabrina's Mr. Mime
-      gh(95, 3), // Sabrina's Slowpoke
-      gh(60, 2), // Sabrina's Slowbro
+      gc(56, 1), // Sabrina's Hypno
+      gh(95, 2), // Sabrina's Slowpoke
+      gh(60, 1), // Sabrina's Slowbro
+      gh(94, 1), // Sabrina's Mr. Mime
       // Trainers (12)
+      gc(20, 1), // Sabrina
+      gc(122, 2), // Saffron City Gym
+      gc(121, 1), // Sabrina's Psychic Control
       gh(117, 2), // Sabrina's ESP
-      gh(125, 2), // Sabrina's Gaze
+      gh(125, 1), // Sabrina's Gaze
       gh(111, 2), // Good Manners
-      gh(118, 2), // Secret Mission
+      gh(118, 1), // Secret Mission
       gh(116, 1), // Recall
-      gh(19, 1), // The Rocket's Trap
       gh(126, 1), // Trash Exchange
-      gh(119, 1), // Tickling Machine
       // Energy (26)
       energy(101, 26), // Psychic Energy
     ],
@@ -198,32 +208,36 @@ export const gymLeaderDecks: Deck[] = [
     image: "",
     featuredPokemon: [
       { cardNumber: 1, set: CardSet.GymHeroes }, // Blaine's Moltres
-      { cardNumber: 37, set: CardSet.GymHeroes }, // Blaine's Magmar
-      { cardNumber: 36, set: CardSet.GymHeroes }, // Blaine's Kangaskhan
+      { cardNumber: 2, set: CardSet.GymChallenge }, // Blaine's Charizard
+      { cardNumber: 1, set: CardSet.GymChallenge }, // Blaine's Arcanine
     ],
     cards: [
-      // Pokémon (21)
+      // Pokémon (24)
       gh(1, 1), // Blaine's Moltres
       gh(35, 2), // Blaine's Growlithe
       gh(62, 2), // Blaine's Growlithe
-      gh(36, 2), // Blaine's Kangaskhan
-      gh(37, 3), // Blaine's Magmar
+      gc(1, 2), // Blaine's Arcanine
       gh(61, 3), // Blaine's Charmander
-      gh(63, 3), // Blaine's Ponyta
-      gh(64, 2), // Blaine's Tauros
+      gc(31, 2), // Blaine's Charmeleon
+      gc(2, 1), // Blaine's Charizard
+      gh(63, 2), // Blaine's Ponyta
+      gc(33, 2), // Blaine's Rapidash
       gh(65, 3), // Blaine's Vulpix
+      gc(21, 2), // Blaine's Ninetales
+      gh(37, 2), // Blaine's Magmar
       // Trainers (12)
-      gh(105, 2), // Blaine's Last Resort
-      gh(121, 2), // Blaine's Gamble
+      gc(17, 2), // Blaine
+      gc(113, 2), // Cinnabar City Gym
+      gc(124, 1), // Fervor
+      gh(105, 1), // Blaine's Last Resort
+      gh(121, 1), // Blaine's Gamble
       gh(111, 2), // Good Manners
       gh(118, 1), // Secret Mission
       gh(122, 1), // Energy Flow
-      gh(124, 1), // Narrow Gym
-      gh(104, 1), // The Rocket's Training Gym
-      gh(113, 1), // Minion of Team Rocket
       gh(126, 1), // Trash Exchange
-      // Energy (27)
-      energy(98, 27), // Fire Energy
+      // Energy (24)
+      energy(98, 24), // Fire Energy
     ],
   },
+  ...gymChallengeLeaderDecks,
 ];

@@ -30,15 +30,17 @@ import {
   usePokemonPower,
   canUseStadiumAction,
   getStadiumActionCoinFlips,
+  getStadiumActionSteps,
   useStadiumAction,
   declineBorrowedTrainer,
+  declineChaosGymOffer,
   isChaosGymCoinPending,
   answerChaosGymOffer,
   forfeitChaosGymPlay,
   type CoinFlipRequirement,
 } from "@/domain/effects";
 import type { CoinFlipResult } from "@/domain/constants";
-import { answerOpponentTrainerStepForAI, answerPowerStepForAI, answerTrainerStepForAI, collectAnswers, neverBorrowed } from "./cardEffects";
+import { answerOpponentTrainerStepForAI, answerPowerStepForAI, answerTrainerStepForAI, collectAnswers, neverBorrowed, wantsChaosGymOffer } from "./cardEffects";
 import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapBenchTrim, swapStadium, swapSides as boardSwapSides } from "@/domain/board";
 import { swapSetAsideHands } from "@/domain/trainers/set-aside";
 import { swapLastDuel, swapPendingDuel } from "@/domain/duel/rps";
@@ -571,13 +573,29 @@ function passChaosGym(view: GameState, cardId: string, borrowed: boolean): { sta
 
 /**
  * Chaos Gym offers the AI the human's failed Trainer (state: the view of the side whose turn it is,
- * the human's; `pendingChaosOffer.offeredTo === "opponent"`): for now the AI always declines.
- * Unchanged without an offer to answer.
+ * the human's; `pendingChaosOffer.offeredTo === "opponent"`): it accepts when its own planners
+ * would play that card from its hand now (cardEffects.wantsChaosGymOffer) and plays it at once
+ * (its coins and answers, like its own Trainers; the result has no offer left), else declines.
+ * A play the engine refuses ends as a declined offer. Unchanged without an offer to answer.
  */
 export function answerChaosGymOfferForAI(state: GameState): GameState {
   const offer = state.pendingChaosOffer;
   if (!offer || offer.offeredTo !== "opponent" || offer.accepted) return state;
-  return answerChaosGymOffer(state, ["decline"]);
+  if (!wantsChaosGymOffer(boardSwapSides(state))) return answerChaosGymOffer(state, ["decline"]);
+  let accepted: GameState;
+  try {
+    accepted = answerChaosGymOffer(state, ["accept"]);
+  } catch (error) {
+    if (error instanceof IllegalActionError) return answerChaosGymOffer(state, ["decline"]);
+    throw error;
+  }
+  const played = actAs(
+    accepted,
+    "opponent",
+    (s) => canPlayTrainerCard(s, offer.cardId),
+    (s) => tryEffect(s, () => answerAndPlayTrainer(s, offer.cardId, offer.cardName, [], flipCoins(getTrainerCoinFlips(s, offer.cardId)), false))
+  );
+  return played.pendingChaosOffer ? declineChaosGymOffer(played) : played;
 }
 
 /**
@@ -645,13 +663,28 @@ export function answerOpponentTrainerStep(state: GameState, selection: string[])
   );
 }
 
-/** Uses the action of the Stadium in play for the AI with the answers it planned (Celadon City Gym). */
+/**
+ * Uses the action of the Stadium in play for the AI with the answers it planned (Celadon /
+ * Saffron City Gym; Fuchsia City Gym's pick only when its coin asks for it: the planned answers
+ * are kept for the steps the coins open). Its Active shuffled away (Fuchsia): the AI promotes.
+ */
 function executeStadiumAction(state: GameState, action: UseStadiumAction): GameState {
   return actAs(
     state,
     "opponent",
     (s) => canUseStadiumAction(s),
-    (s) => tryEffect(s, () => useStadiumAction(s, action.selections, { coinResults: flipCoins(getStadiumActionCoinFlips(s)) }))
+    (s) =>
+      tryEffect(s, () => {
+        const coinResults = flipCoins(getStadiumActionCoinFlips(s));
+        const coinsForSteps = coinResults.length > 0 ? coinResults : undefined;
+        const selections: string[][] = [];
+        for (const planned of action.selections) {
+          if (!getStadiumActionSteps(s, selections, coinsForSteps)) break;
+          selections.push(planned);
+        }
+        const used = useStadiumAction(s, selections, { coinResults });
+        return used.playerNeedsToPromote ? promoteActivePokemon(used, choosePromotion(knowledgeView(used), false), true) : used;
+      })
   );
 }
 

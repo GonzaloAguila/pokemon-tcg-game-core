@@ -18,6 +18,7 @@ import {
 } from "@/lib/gameState";
 import type { CoinFlipResult } from "@/domain/constants";
 import { isPokemonCard } from "@/domain/cards";
+import { getEffectiveHp } from "@/domain/powers";
 import { resolveBenchTrim, swapSides } from "@/domain/board";
 import { PokemonStage } from "@/domain/constants";
 import type { SelectionStep } from "@/domain/effects/types";
@@ -118,8 +119,8 @@ function resolveReactionForEvaluation(state: GameState, answer: string[]): GameS
   return resolveAttackChoice(state, answer, { ...NO_END, coinResults: flipAttackCoins(plan, () => "heads") });
 }
 
-function remainingHp(pokemon: PokemonInPlay): number {
-  return isPokemonCard(pokemon.pokemon) ? pokemon.pokemon.hp - (pokemon.currentDamage ?? 0) : 0;
+function remainingHp(pokemon: PokemonInPlay, state: GameState): number {
+  return isPokemonCard(pokemon.pokemon) ? getEffectiveHp(state, pokemon) - (pokemon.currentDamage ?? 0) : 0;
 }
 
 /**
@@ -196,7 +197,7 @@ export function resolveOwnAttackPendings(view: GameState, options: { flip?: () =
         (p) => !pending.matchDefenderType || !isPokemonCard(p.pokemon) || p.pokemon.types.some((t) => pending.defenderTypes?.includes(t))
       );
       // Opponent's bench: hit the weakest; own bench: as few as allowed, the healthiest
-      const sorted = [...eligible].sort((a, b) => remainingHp(a) - remainingHp(b));
+      const sorted = [...eligible].sort((a, b) => remainingHp(a, state) - remainingHp(b, state));
       const count = pending.targetSide === "opponent"
         ? Math.min(pending.maxTargets, sorted.length)
         : Math.min(pending.minTargets ?? 1, sorted.length);

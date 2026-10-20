@@ -178,6 +178,11 @@ function attackerOf(state: GameState, context: AttackChoiceContext): PokemonInPl
   return active && active.pokemon.id === context.attackerId ? active : null;
 }
 
+/** The attacking Pokémon wherever it is now (Active or Bench: an earlier step or a self switch may have Benched it). */
+function attackerInPlay(state: GameState, context: AttackChoiceContext): PokemonInPlay | null {
+  return [state.playerActivePokemon, ...state.playerBench].find((p) => p?.pokemon.id === context.attackerId) ?? null;
+}
+
 /** The Defending Pokémon, if it is still the opponent's Active and the attack can still affect it. */
 function defenderOf(state: GameState, context: AttackChoiceContext): PokemonInPlay | null {
   if (context.defenderKnockedOut || context.defenderBlocksEffects) return null;
@@ -515,8 +520,8 @@ function stepFor(
       };
     }
     case AttackEffectType.DiscardAttackerEnergy: {
-      // Energy Drain (Koga's Muk): its owner picks the attacker's Energy card
-      const attacker = attackerOf(state, context);
+      // Energy Drain (Koga's Muk): its owner picks the attacker's Energy card (Active or Benched by then)
+      const attacker = attackerInPlay(state, context);
       if (!attacker || attacker.attachedEnergy.length === 0) return null;
       const powerName = effect.sourceName ?? title;
       return {
@@ -1119,12 +1124,16 @@ function applyChoice(
       return { state: log(next, `${name}: unió ${taken.map(energyLabel).join(", ")} de la mano a ${attacker.pokemon.name}`) };
     }
     case AttackEffectType.DiscardAttackerEnergy: {
-      const attacker = state.playerActivePokemon!;
-      const energy = attacker.attachedEnergy.find((e) => e.id === selection[0])!;
+      const attacker = attackerInPlay(state, context);
+      const energy = attacker?.attachedEnergy.find((e) => e.id === selection[0]);
+      if (!attacker || !energy) return { state };
+      const lose = (p: PokemonInPlay): PokemonInPlay =>
+        p.pokemon.id === attacker.pokemon.id ? { ...p, attachedEnergy: p.attachedEnergy.filter((e) => e.id !== energy.id) } : p;
       const next = log(
         {
           ...state,
-          playerActivePokemon: { ...attacker, attachedEnergy: attacker.attachedEnergy.filter((e) => e.id !== energy.id) },
+          playerActivePokemon: state.playerActivePokemon && lose(state.playerActivePokemon),
+          playerBench: state.playerBench.map(lose),
           playerDiscard: [...state.playerDiscard, cardOutOfPlay(energy)],
         },
         `${effect.sourceName ?? name}: se descartó ${energyLabel(energy)} de ${attacker.pokemon.name}`

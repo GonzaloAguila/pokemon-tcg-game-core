@@ -136,6 +136,17 @@ describe("Energy Drain (Koga's Muk)", () => {
     expect(done.playerDiscard.map((c) => c.id)).toContain(dce);
   });
 
+  it("heads: still discards from the attacker after it went to the Bench (a self switch resolved first)", () => {
+    const attacker = { ...hitmonchan(), attachedEnergy: [energy(Fighting), energy(Fighting)] };
+    const benchMate = inPlay("Rattata", { set: "base" });
+    const next = jab(vs(attacker, gc("Koga's Muk"), { player: { bench: [benchMate] } }), [H]);
+    const switched: GameState = { ...next, playerActivePokemon: next.playerBench[0], playerBench: [next.playerActivePokemon!] };
+    const picked = attacker.attachedEnergy[0].id;
+    const done = resolveAttackChoice(switched, [picked], { skipEndTurn: true });
+    expect(done.playerBench[0].attachedEnergy.map((e) => e.id)).toEqual([attacker.attachedEnergy[1].id]);
+    expect(done.playerDiscard.map((c) => c.id)).toContain(picked);
+  });
+
   it("tails: nothing", () => {
     const next = jab(vs(hitmonchan(), gc("Koga's Muk")), [T]);
     expect(next.pendingAttackChoice).toBeUndefined();
