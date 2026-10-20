@@ -118,7 +118,7 @@ describe("Lucky Duel deck (buildLuckyDuelDeck / drawLuckyDuel)", () => {
 
   it("draws Basics from every set, the primary colour is the Basic's type", () => {
     expect(new Set(draws.map((d) => d.active.name)).size).toBeGreaterThan(50);
-    expect(new Set(draws.map((d) => d.active.set)).size).toBe(5);
+    expect(new Set(draws.map((d) => d.active.set)).size).toBe(6); // every released set (Gym Challenge since 0.9.0)
     for (const { active, colors } of draws) {
       if (active.types[0] !== EnergyType.Colorless) expect(colors[0]).toBe(active.types[0]);
     }

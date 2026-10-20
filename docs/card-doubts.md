@@ -233,7 +233,7 @@ The 91 Pokémon's attacks run on effect data (new kinds tabled at the top of `te
 - **Stalemates**: two sides whose attacks do no damage can play forever (Psychic Exchange returns the turn's draw with 6+ cards in hand; the smart AI refills a deck about to run out with it, which is correct play). The rules have no stalemate end; the simulator stops asking the bots at half its turn cap (`stalemateTurn`) so the deck-out ends the game. In single-player the human can always break it.
 - **Gym Leader decks** (`gymLeaderDecks`, ids `gym-heroes-<leader>`, "Mazo de <leader>"): only the leader's Pokémon from Gym Heroes, Trainers the AI plays in single-player (no Erika, Lt. Surge's Treaty, Blaine's Quiz #1, Misty's Duel, Charity), 26–27 basic Energy of the leader's type. Blaine has only Basic Pokémon in Gym Heroes (his evolutions are in Gym Challenge); Sabrina has no Gym Stadium in this set. `image` is empty: the frontend needs art (or the featured Pokémon) before showing them.
 
-## Gym Challenge (implemented in game-core 0.9.0, set still `inDevelopment` until the API and frontend are ready)
+## Gym Challenge (implemented and released in game-core 0.9.0)
 
 **ANSWERED 2026-10-19 by the owner: every default below is accepted.** Chaos Gym confirmed as the default: on tails the opponent is offered the Trainer and may accept or decline. Note for the AI entry: since game-core 0.8.3 single-player HAS a flow for the human to answer an AI Trainer step (`otherPlayerAnswersByHuman` → `pendingOpponentTrainerStep` → `answerOpponentTrainerStep`, used by Erika / Treaty / Quiz #1), so the AI may play the opponent-answered Gym Challenge Trainers (Quiz #2 / #3, Misty's Wish…) through it where that is a plain step; Chaos Gym's offer to the human needs its own off-turn flow.
 

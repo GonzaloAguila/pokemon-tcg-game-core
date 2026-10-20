@@ -712,8 +712,8 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  * in ALL_CARDS must have a TRAINER_EFFECTS entry (enforced by a test).
  */
 export const UNSUPPORTED_TRAINERS: readonly string[] = [
-  // Gym Challenge (catalog only, 2026-10-19): each name leaves this list when its plan task
-  // implements it (docs/superpowers/plans/2026-10-19-gym-challenge.md).
+  // Trainers of a set still in development (CardSetInfo.inDevelopment) wait here until they are
+  // implemented; empty since Gym Challenge's release (0.9.0).
 ];
 
 // Lt. Surge's Secret Plan: [[hand card id]] goes face down onto the Bench (domain/trainers/secret-plan.ts)

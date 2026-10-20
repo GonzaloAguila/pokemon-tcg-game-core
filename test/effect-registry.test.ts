@@ -30,8 +30,8 @@ describe("registry coverage", () => {
       (name) => !TRAINER_EFFECTS[name] && !UNSUPPORTED_TRAINERS.includes(name) && !isPlayedAsBasic(name) && !isStadium(name)
     );
     expect(missing).toEqual([]);
-    // Every catalog Trainer is playable but those of a set still in development (Gym Challenge:
-    // each leaves the allow-list as its plan task implements it)
+    // Every catalog Trainer is playable but those of a set still in development (none since
+    // Gym Challenge's release in 0.9.0)
     const inDevelopment = new Set(ALL_CARDS.filter((c) => c.kind === "trainer" && isSetInDevelopment(c)).map((c) => c.name));
     expect(UNSUPPORTED_TRAINERS.filter((name) => !inDevelopment.has(name))).toEqual([]);
     expect(isPlayedAsBasic("Mysterious Fossil") && isPlayedAsBasic("Clefairy Doll")).toBe(true);

@@ -9,12 +9,8 @@
  * owner's, see cards/owner.ts). Trainer and Stadium names stay in English as printed, with their
  * Spanish text (Stadiums: `TrainerType.Stadium`).
  *
- * IN PROGRESS (2026-10-19): the attacks that fit the existing effect vocabulary have their
- * `effects` (test/gym-challenge-attacks.test.ts), and so do the ones that needed new effect kinds
- * (test/gym-challenge-attack-effects.test.ts); the rest of the attacks, the powers and the
- * Trainers come with the next tasks of docs/superpowers/plans/2026-10-19-gym-challenge.md. The set
- * is registered with `inDevelopment: true` (kept out of random pools) until then. Power types are
- * placeholders (data only, see PokemonPowerType "Gym Challenge").
+ * Released in game-core 0.9.0 (docs/superpowers/plans/2026-10-19-gym-challenge.md): every attack,
+ * power and Trainer has its effect (test/gym-challenge-*.test.ts).
  */
 
 import { type AttackEffect, type Card, createPokemonCard, createTrainerCard, makeCardId } from "@/domain/cards";

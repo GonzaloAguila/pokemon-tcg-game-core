@@ -23,19 +23,18 @@ const damageOf = (value: string | number | undefined) => String(value ?? "").rep
 describe("Gym Challenge catalog", () => {
   const set = getSetById("gym-challenge")!;
 
-  it("is registered (in development: no effects yet)", () => {
+  it("is registered and released (0.9.0)", () => {
     expect(set.code).toBe("G2");
     expect(set.totalCards).toBe(132);
     expect(set.releaseDate).toBe("2000-10-16");
-    expect(set.inDevelopment).toBe(true);
+    expect(set.inDevelopment).toBeFalsy();
     expect(CARD_SETS.map((s) => s.id)).toContain("gym-challenge");
   });
 
-  it("stays out of the random pools while in development", () => {
-    expect(allSetIds()).not.toContain("gym-challenge");
-    expect(LUCKY_DUEL_BASICS.some((c) => isSetInDevelopment(c))).toBe(false);
-    expect(isSetInDevelopment(set.cards[0])).toBe(true);
-    expect(isSetInDevelopment(getSetById("gym-heroes")!.cards[0])).toBe(false);
+  it("is in the random pools (simulator default sets, Lucky Duel)", () => {
+    expect(allSetIds()).toContain("gym-challenge");
+    expect(set.cards.some((c) => isSetInDevelopment(c))).toBe(false);
+    expect(LUCKY_DUEL_BASICS.some((c) => c.set === set.cards[0].set)).toBe(true);
   });
 
   it("builds pkmncards image URLs (the dot kept, no set code, ♀ → female: checked with npm run check-images)", () => {

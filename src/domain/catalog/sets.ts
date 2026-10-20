@@ -105,8 +105,6 @@ export const CARD_SETS: readonly CardSetInfo[] = [
     totalCards: 132,
     cards: gymChallengeCards,
     imageUrl: getGymChallengeImageUrl,
-    // Catalog only (2026-10-19): effects come with docs/superpowers/plans/2026-10-19-gym-challenge.md
-    inDevelopment: true,
   },
 ];
 
