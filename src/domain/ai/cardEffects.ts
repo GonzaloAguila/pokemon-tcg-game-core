@@ -85,7 +85,15 @@ import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import { isBasicEnergy, isEnergyCard, isPokemonCard, isTrainerCard, isTrainerInPlay } from "@/domain/cards";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { AttackEffectType, BenchDamageTarget, EnergyType, PokemonStage, StatusCondition, TrainerType } from "@/domain/constants";
-import { stadiumBenchLimit, stadiumExtraTrainerDiscards, stadiumFavoredOwner, stadiumRetreatModifier } from "@/domain/stadiums/rules";
+import {
+  stadiumBenchLimit,
+  stadiumBenchPlayCoin,
+  stadiumExtraTrainerDiscards,
+  stadiumFavoredOwner,
+  stadiumFlipsTrainers,
+  stadiumResistanceModifier,
+  stadiumRetreatModifier,
+} from "@/domain/stadiums/rules";
 import {
   ACTIVATED_POWER_TYPES,
   canPlayTrainerCard,
@@ -734,7 +742,12 @@ function wantsToRetreat(pokemon: PokemonInPlay): boolean {
  * - a Bench limit (stadiumBenchLimit): 1.5 per Pokémon the other side would have to return,
  *   −1.5 per own one;
  * - a cost on Energy Removal (stadiumExtraTrainerDiscards): +1 when it has 2+ Energy cards to
- *   protect, −1 when it holds an Energy Removal / Super Energy Removal itself.
+ *   protect, −1 when it holds an Energy Removal / Super Energy Removal itself;
+ * - weaker Resistance (stadiumResistanceModifier, Resistance Gym): +0.5 per opposing Pokémon
+ *   resisting its Active's type, −0.5 per own one resisting the opposing Active's type;
+ * - a coin on Benched Basics (stadiumBenchPlayCoin, Minefield): −0.5 per Basic in its hand;
+ * - Trainers flipping first (stadiumFlipsTrainers, Chaos Gym): −10 (the AI never plays it).
+ * (Cinnabar / Viridian / Fuchsia / Saffron City Gym count through the favored owner.)
  */
 export function stadiumValue(view: GameState, stadium: GameCard): number {
   const s: GameState = { ...view, stadium: { card: stadium, playedBy: "player" } };
@@ -752,6 +765,15 @@ export function stadiumValue(view: GameState, stadium: GameCard): number {
     const holdsRemoval = s.playerHand.some((c) => isTrainerCard(c) && ENERGY_REMOVALS.includes(c.name));
     value += (attached >= 2 ? 1 : 0) - (holdsRemoval ? 1 : 0);
   }
+  if (stadiumResistanceModifier(s) > 0) {
+    const resisting = (team: PokemonInPlay[], attacker: PokemonInPlay | null) => {
+      const type = attacker && isPokemonCard(attacker.pokemon) ? attacker.pokemon.types[0] : undefined;
+      return type ? team.filter((p) => isPokemonCard(p.pokemon) && (p.pokemon.resistances ?? []).includes(type)).length : 0;
+    };
+    value += 0.5 * (resisting(theirs, s.playerActivePokemon) - resisting(ownPokemon(s), s.opponentActivePokemon));
+  }
+  if (stadiumBenchPlayCoin(s)) value -= 0.5 * s.playerHand.filter((c) => isPokemonCard(c) && c.stage === PokemonStage.Basic).length;
+  if (stadiumFlipsTrainers(s)) value -= 10;
   return value;
 }
 

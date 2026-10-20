@@ -1029,7 +1029,7 @@ const GYM_CHALLENGE_POWER_EFFECTS: Record<string, CardEffectDef> = {
         events.push(createGameEvent(`${power.name}: no había ninguna carta de Evolución de ${self.pokemon.name} en el mazo. Se mezcló el mazo`, "action"));
         return markPowerAsUsed({ ...state, playerDeck: shuffle(state.playerDeck), events }, pokemonId);
       }
-      const evolved = evolvePokemonInPlay(self, card, state.turnNumber);
+      const evolved = evolvePokemonInPlay(self, card, state.turnNumber, state);
       const next = replaceOwn({ ...state, playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== card.id)) }, pokemonId, evolved);
       events.push(createGameEvent(`${power.name}: ${self.pokemon.name} evolucionó a ${card.name}. Se mezcló el mazo`, "action"));
       // A transformed Ditto facing it copies the new card (checkKnockouts)

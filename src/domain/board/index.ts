@@ -17,14 +17,15 @@ import {
   getEnergyTypeInSpanish,
 } from "@/lib/gameState";
 import { cardsLeavingPlay, isEnergyCard, isPlayableAsBasic, isPokemonCard, isTrainerInPlay, toInPlayCard } from "@/domain/cards";
-import { GamePhase, PokemonStage } from "@/domain/constants";
+import { GamePhase, PokemonStage, type CoinFlipResult } from "@/domain/constants";
 import { attachEnergyWithRainDance, canAutoAttachEnergy, getEvolutionBlockingPokemon, getTrainerBlockingPokemon, healOnEnergyAttach } from "@/domain/powers";
-import { assertLegal } from "@/shared/errors";
+import { assertLegal, IllegalActionError } from "@/shared/errors";
 import { allOwnPokemon, findInPlay } from "./locate";
 import { isBenchFull } from "./bench";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import { SPECIAL_ENERGY_ATTACH_EFFECTS, type OnAttachFromHand } from "./special-energy";
 import { isTrainerLocked } from "@/domain/trainers/side-marks";
+import { MINEFIELD_DAMAGE, stadiumBenchPlayCoin, stadiumEvolutionHeal, stadiumFlipsTrainers } from "@/domain/stadiums/rules";
 
 export { findInPlay, findOwnPokemon, allOwnPokemon, MAX_BENCH_SIZE } from "./locate";
 export { maxBenchSize, isBenchFull, swapBenchTrim } from "./bench";
@@ -66,6 +67,8 @@ export function getTurnActionBlocker(state: GameState): string | null {
   if (state.pendingBorrowedTrainer) {
     return `Primero juega ${state.pendingBorrowedTrainer.cardName} (Sabrina's Psychic Control) o renuncia a usarla`;
   }
+  if (state.pendingChaosGymPlay) return `Primero juega ${state.pendingChaosGymPlay.cardName} (Chaos Gym salió cara)`;
+  if (state.pendingChaosOffer) return `Espera: el otro jugador decide si usa ${state.pendingChaosOffer.cardName} (Chaos Gym)`;
   if (state.playerNeedsToPromote || state.opponentNeedsToPromote) {
     return "Primero hay que elegir un nuevo Pokémon activo";
   }
@@ -140,16 +143,58 @@ export function canPlayBasicPokemon(state: GameState, cardId: string, position: 
   return null;
 }
 
+/** Options of playBasicPokemon. */
+export type PlayBasicOptions = {
+  /**
+   * The coin getPlayBasicCoinFlips asks for (Rocket's Minefield Gym / Chaos Gym). Omitted: the
+   * engine flips it itself (Math.random). A list of the wrong length throws (a caller bug).
+   */
+  coinResults?: CoinFlipResult[];
+};
+
+/**
+ * Coins putting the card `cardId` of the hand into play at `position` flips first (0 or 1):
+ * - Chaos Gym: a Trainer played as a Basic (Mysterious Fossil, Clefairy Doll) is a Trainer played:
+ *   tails, it can't be played and goes to the discard pile (it stays in play: nobody else may use it);
+ * - Rocket's Minefield Gym: a Basic (Fossil / Doll too) put onto the Bench from the hand during
+ *   play: tails, 2 damage counters on it.
+ * Never during setup. Only one Stadium is in play, so never both.
+ */
+export function getPlayBasicCoinFlips(state: GameState, cardId: string, position: BoardPosition): number {
+  if (isSetupPhase(state) || position !== "bench") return 0;
+  const card = state.playerHand.find((c) => c.id === cardId);
+  if (!card) return 0;
+  if (card.kind === "trainer" && stadiumFlipsTrainers(state)) return 1;
+  return stadiumBenchPlayCoin(state) ? 1 : 0;
+}
+
 /**
  * Put a Basic Pokémon from the hand into play. `playedOnTurn` is the current turn number
- * during the game and 0 for Pokémon placed during setup (before turn 1).
+ * during the game and 0 for Pokémon placed during setup (before turn 1). The coin of
+ * getPlayBasicCoinFlips comes in `options.coinResults` (omitted: the engine flips it).
  */
-export function playBasicPokemon(state: GameState, cardId: string, position: BoardPosition): GameState {
+export function playBasicPokemon(state: GameState, cardId: string, position: BoardPosition, options: PlayBasicOptions = {}): GameState {
   assertLegal(canPlayBasicPokemon(state, cardId, position));
   const card = state.playerHand.find((c) => c.id === cardId)!;
   const playedOnTurn = isSetupPhase(state) ? 0 : state.turnNumber;
-  const pokemon = newPokemonInPlay(card, playedOnTurn);
+  const coinCount = getPlayBasicCoinFlips(state, cardId, position);
+  const coins = options.coinResults ?? Array.from({ length: coinCount }, (): CoinFlipResult => (Math.random() < 0.5 ? "heads" : "tails"));
+  if (coins.length !== coinCount) throw new IllegalActionError(`Se esperaban ${coinCount} monedas`);
   const playerHand = state.playerHand.filter((c) => c.id !== cardId);
+  const stadiumName = state.stadium?.card.name ?? "";
+  if (coinCount > 0 && card.kind === "trainer" && stadiumFlipsTrainers(state)) {
+    if (coins[0] === "tails") {
+      return {
+        ...state,
+        playerHand,
+        playerDiscard: [...state.playerDiscard, card],
+        events: [...state.events, createGameEvent(`${stadiumName}: salió cruz, ${card.name} no se puede jugar y se descarta`, "action")],
+      };
+    }
+    state = { ...state, events: [...state.events, createGameEvent(`${stadiumName}: salió cara, ${card.name} se juega con normalidad`, "info")] };
+  }
+  const mined = coinCount > 0 && stadiumBenchPlayCoin(state) && coins[0] === "tails";
+  const pokemon = { ...newPokemonInPlay(card, playedOnTurn), ...(mined && { currentDamage: MINEFIELD_DAMAGE }) };
 
   if (position === "active") {
     return {
@@ -163,10 +208,17 @@ export function playBasicPokemon(state: GameState, cardId: string, position: Boa
     ...state,
     playerHand,
     playerBench: [...state.playerBench.filter((p) => p != null), pokemon],
-    events: [...state.events, createGameEvent(`Colocaste ${card.name} en la banca`, "action")],
+    events: [
+      ...state.events,
+      createGameEvent(`Colocaste ${card.name} en la banca`, "action"),
+      ...(coinCount > 0 && stadiumBenchPlayCoin(state)
+        ? [createGameEvent(mined ? `${stadiumName}: salió cruz, 2 contadores de daño sobre ${card.name}` : `${stadiumName}: salió cara, nada le pasa a ${card.name}`, "info")]
+        : []),
+    ],
   };
-  // "When you play <it> from your hand" powers (none on Basic Pokémon yet; not during setup)
-  return isSetupPhase(state) ? benched : triggerOnPlayPower(benched, pokemon.pokemon.id);
+  // "When you play <it> from your hand" powers (none on Basic Pokémon yet; not during setup);
+  // Rocket's Minefield Gym's counters may Knock it Out (a Mysterious Fossil: no Prize)
+  return isSetupPhase(state) ? benched : triggerOnPlayPower(mined ? checkKnockouts(benched) : benched, pokemon.pokemon.id);
 }
 
 // ============================================================================
@@ -290,12 +342,15 @@ export function attachEnergyCard(state: GameState, energyCardId: string, targetP
  * the previous card goes under it. Classic rule: evolving removes Special Conditions and
  * ends every effect of attacks on it (protection, Leer, Acid, Sand-attack, Minimize...).
  * `playedOnTurn` becomes the current turn (it can't evolve again this turn).
- * Shared by evolvePokemonCard and Pokémon Breeder.
+ * Shared by every evolution path (evolvePokemonCard, Pokémon Breeder, EvolveFromDeck, Lunar Power,
+ * Emerge…): Viridian City Gym's heal (stadiumEvolutionHeal) applies to all of them.
  */
-export function evolvePokemonInPlay(target: PokemonInPlay, evolutionCard: GameCard, turnNumber: number): PokemonInPlay {
+export function evolvePokemonInPlay(target: PokemonInPlay, evolutionCard: GameCard, turnNumber: number, state: GameState): PokemonInPlay {
+  const heal = stadiumEvolutionHeal(state, evolutionCard, target.currentDamage ?? 0);
   return {
     ...clearEffectsAsIfEvolved(target),
     pokemon: evolutionCard,
+    ...(heal > 0 && { currentDamage: (target.currentDamage ?? 0) - heal }),
     previousEvolutions: [...(target.previousEvolutions ?? []), target.pokemon],
     playedOnTurn: turnNumber,
   };
@@ -389,7 +444,8 @@ export function evolvePokemonCard(state: GameState, evolutionCardId: string, tar
   assertLegal(canEvolve(state, evolutionCardId, targetPokemonId));
   const card = state.playerHand.find((c) => c.id === evolutionCardId)!;
   const target = findInPlay(state, "player", targetPokemonId)!;
-  const evolved = evolvePokemonInPlay(target.pokemon, card, state.turnNumber);
+  const evolved = evolvePokemonInPlay(target.pokemon, card, state.turnNumber, state);
+  const healed = (target.pokemon.currentDamage ?? 0) - (evolved.currentDamage ?? 0);
 
   // The evolved Active may change what a transformed Ditto copies (checkKnockouts); then its
   // "when you play it from your hand" power (Summon Minions, Sneak Attack, Reel In)
@@ -402,6 +458,7 @@ export function evolvePokemonCard(state: GameState, evolutionCardId: string, tar
     events: [
       ...state.events,
       createGameEvent(`${target.pokemon.pokemon.name} evolucionó a ${card.name}`, "action"),
+      ...(healed > 0 ? [createGameEvent(`${state.stadium?.card.name ?? ""}: se retiraron ${healed / 10} contadores de daño de ${card.name}`, "info")] : []),
     ],
   }), evolutionCardId);
 }

@@ -32,11 +32,14 @@ import {
   getStadiumActionCoinFlips,
   useStadiumAction,
   declineBorrowedTrainer,
+  isChaosGymCoinPending,
+  answerChaosGymOffer,
+  forfeitChaosGymPlay,
   type CoinFlipRequirement,
 } from "@/domain/effects";
 import type { CoinFlipResult } from "@/domain/constants";
 import { answerOpponentTrainerStepForAI, answerPowerStepForAI, answerTrainerStepForAI, collectAnswers, neverBorrowed } from "./cardEffects";
-import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapBenchTrim, swapStadium } from "@/domain/board";
+import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapBenchTrim, swapStadium, swapSides as boardSwapSides } from "@/domain/board";
 import { swapSetAsideHands } from "@/domain/trainers/set-aside";
 import { swapLastDuel, swapPendingDuel } from "@/domain/duel/rps";
 import { choosePromotion } from "./choices";
@@ -80,6 +83,7 @@ function swapSides(state: GameState): GameState {
     ...(state.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(state.pendingDuel) }),
     ...(state.lastDuel !== undefined && { lastDuel: swapLastDuel(state.lastDuel) }),
     ...(state.pendingBenchTrim !== undefined && { pendingBenchTrim: swapBenchTrim(state.pendingBenchTrim) }),
+    ...(state.pendingChaosOffer !== undefined && { pendingChaosOffer: boardSwapSides({ ...state, pendingChaosOffer: state.pendingChaosOffer }).pendingChaosOffer }),
   };
 }
 
@@ -521,6 +525,10 @@ function executeTrainer(state: GameState, action: PlayTrainerAction): GameState 
     (s) => canPlayTrainerCard(s, cardId),
     (s) =>
       tryEffect(s, () => {
+        // Chaos Gym: its coin first; tails ends here (the other player may be offered the card)
+        const chaos = passChaosGym(s, cardId, false);
+        if (!chaos.heads) return chaos.state;
+        s = chaos.state;
         const coins = flipCoins(getTrainerCoinFlips(s, cardId));
         const played = !action.answerAtPlay
           ? finishTrainer(s, cardId, action.selections, coins)
@@ -537,8 +545,39 @@ function executeTrainer(state: GameState, action: PlayTrainerAction): GameState 
 function playBorrowedTrainer(view: GameState): GameState {
   const { cardId, cardName } = view.pendingBorrowedTrainer!;
   if (neverBorrowed(cardName) || canPlayTrainerCard(view, cardId) !== null) return declineBorrowedTrainer(view);
-  const played = tryEffect(view, () => answerAndPlayTrainer(view, cardId, cardName, [], flipCoins(getTrainerCoinFlips(view, cardId)), false));
-  return played === view ? declineBorrowedTrainer(view) : played;
+  // Chaos Gym flips for the borrowed card too
+  let chaos: { state: GameState; heads: boolean };
+  try {
+    chaos = passChaosGym(view, cardId, true);
+  } catch (error) {
+    if (error instanceof IllegalActionError) return declineBorrowedTrainer(view);
+    throw error;
+  }
+  if (!chaos.heads) return chaos.state;
+  const passed = chaos.state;
+  const played = tryEffect(passed, () => answerAndPlayTrainer(passed, cardId, cardName, [], flipCoins(getTrainerCoinFlips(passed, cardId)), false));
+  return played === passed ? forfeitChaosGymPlay(declineBorrowedTrainer(passed)) : played;
+}
+
+/**
+ * Chaos Gym's coin for the AI's Trainer `cardId` (when it is in play): `heads` false = the card
+ * did nothing (`state` may offer it to the other player); else `state` is where it is played normally.
+ */
+function passChaosGym(view: GameState, cardId: string, borrowed: boolean): { state: GameState; heads: boolean } {
+  if (!isChaosGymCoinPending(view, cardId)) return { state: view, heads: true };
+  const flipped = playTrainerCard(view, cardId, [], { coinResults: flipCoins(1), ...(borrowed && { borrowedFromOpponentDiscard: true }) });
+  return { state: flipped, heads: !!flipped.pendingChaosGymPlay };
+}
+
+/**
+ * Chaos Gym offers the AI the human's failed Trainer (state: the view of the side whose turn it is,
+ * the human's; `pendingChaosOffer.offeredTo === "opponent"`): for now the AI always declines.
+ * Unchanged without an offer to answer.
+ */
+export function answerChaosGymOfferForAI(state: GameState): GameState {
+  const offer = state.pendingChaosOffer;
+  if (!offer || offer.offeredTo !== "opponent" || offer.accepted) return state;
+  return answerChaosGymOffer(state, ["decline"]);
 }
 
 /**

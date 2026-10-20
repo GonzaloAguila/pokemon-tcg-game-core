@@ -68,7 +68,7 @@ import {
   isDamageBlocked,
 } from "@/domain/powers";
 import { evolvePokemonInPlay, getEvolutionBlocker, maxBenchSize } from "@/domain/board";
-import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
+import { resistanceAmount, stadiumIgnoresResistance, stadiumIgnoresWeakness } from "@/domain/stadiums/rules";
 import { IllegalActionError } from "@/shared/errors";
 import { attackBonusFromModifiers, modifierAppliesTo } from "./modifiers";
 import type { AttackCoinPlan, AttackReactions, GameCard, GameState, PendingAttackChoice, PendingResolutionOptions, PokemonInPlay } from "./gameState";
@@ -949,7 +949,7 @@ function applyChoice(
     case AttackEffectType.EvolveFromDeck: {
       const attacker = state.playerActivePokemon!;
       const card = state.playerDeck.find((c) => c.id === selection[0])!;
-      const evolved = evolvePokemonInPlay(attacker, card, state.turnNumber);
+      const evolved = evolvePokemonInPlay(attacker, card, state.turnNumber, state);
       const next: GameState = {
         ...state,
         playerActivePokemon: evolved,
@@ -1155,7 +1155,7 @@ function applyChoice(
       }
       const card = state.playerDeck.find((c) => c.id === cardId)!;
       const target = pending.picked ? state.playerBench.find((p) => p.pokemon.id === selection[0])! : benchedEvolvableBy(state, card)[0];
-      const evolved = evolvePokemonInPlay(target, card, state.turnNumber);
+      const evolved = evolvePokemonInPlay(target, card, state.turnNumber, state);
       const next: GameState = {
         ...state,
         playerBench: state.playerBench.map((p) => (p.pokemon.id === target.pokemon.id ? evolved : p)),
@@ -1288,8 +1288,8 @@ export function dealChosenTargetDamage(
     const type = attacker.shiftedType ?? attackerCard.types[0];
     const weaknesses = target.modifiedWeakness ? [target.modifiedWeakness] : targetCard.weaknesses ?? [];
     const resistances = target.modifiedResistance ? [target.modifiedResistance] : targetCard.resistances ?? [];
-    if (type && weaknesses.includes(type)) damage *= 2;
-    if (type && resistances.includes(type) && !stadiumIgnoresResistance(state, attacker)) damage = Math.max(0, damage - 30);
+    if (type && weaknesses.includes(type) && !stadiumIgnoresWeakness(state, type, target)) damage *= 2;
+    if (type && resistances.includes(type) && !stadiumIgnoresResistance(state, attacker)) damage = Math.max(0, damage - resistanceAmount(state));
   }
   let consumedReduction = false;
   if (isActive) {

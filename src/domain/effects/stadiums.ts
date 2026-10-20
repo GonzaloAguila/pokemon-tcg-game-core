@@ -11,9 +11,9 @@
  * City Gym) has a STADIUM_ACTIONS entry, run by the Stadium action entry points (./index.ts).
  */
 
-import { createGameEvent, energyCardLabel, type GameState, type PokemonInPlay } from "@/lib/gameState";
+import { createGameEvent, energyCardLabel, shuffle, type GameState, type PokemonInPlay } from "@/lib/gameState";
 import { allOwnPokemon, requireBenchTrims } from "@/domain/board";
-import { cardOutOfPlay, isEnergyCard } from "@/domain/cards";
+import { cardOutOfPlay, cardsLeavingPlay, isBasicEnergy, isEnergyCard } from "@/domain/cards";
 import { hasOwner } from "@/domain/cards/owner";
 import { StatusCondition } from "@/domain/constants";
 import { NARROW_GYM_BENCH_SIZE } from "@/domain/stadiums/rules";
@@ -130,6 +130,18 @@ function celadonTargets(state: GameState): PokemonInPlay[] {
   );
 }
 
+/** Fuchsia City Gym: the player's Pokémon with Koga in its name that may go back to the deck (never its last Pokémon). */
+function fuchsiaTargets(state: GameState): PokemonInPlay[] {
+  return allOwnPokemon(state, "player").filter(
+    (p) => hasOwner(p.pokemon, "Koga") && (p.pokemon.id !== state.playerActivePokemon?.pokemon.id || state.playerBench.length > 0)
+  );
+}
+
+/** Saffron City Gym: the player's Pokémon with Sabrina in its name and a basic Energy card attached. */
+function saffronTargets(state: GameState): PokemonInPlay[] {
+  return allOwnPokemon(state, "player").filter((p) => hasOwner(p.pokemon, "Sabrina") && p.attachedEnergy.some(isBasicEnergy));
+}
+
 /** The same Pokémon (by id) replaced on the player's side. */
 function replaceOwn(state: GameState, pokemonId: string, next: PokemonInPlay): GameState {
   const swap = (p: PokemonInPlay) => (p.pokemon.id === pokemonId ? next : p);
@@ -148,8 +160,91 @@ function replaceOwn(state: GameState, pokemonId: string, next: PokemonInPlay): G
  * | Stadium | selections |
  * |---|---|
  * | Celadon City Gym | [[pokemonId with Erika in its name], [energyCardId attached to it]] — discards it; that Pokémon is no longer Asleep, Confused, Paralyzed or Poisoned. No per-turn limit. |
+ * | Fuchsia City Gym (GC) | 1 coin; heads: [[pokemonId with Koga in its name] or [] to shuffle none] — it and its cards are shuffled into the deck (the Active only with a Benched Pokémon: then its player promotes). Once during each player's turn (`fuchsiaCityGymUsedOnTurn`), tails included. |
+ * | Saffron City Gym (GC) | [[pokemonId with Sabrina in its name], [basic Energy card id attached to it]] — back to the hand. Any number of times. |
  */
 export const STADIUM_ACTIONS: Record<string, CardEffectDef> = {
+  "Fuchsia City Gym": {
+    canUse(state) {
+      if (state.fuchsiaCityGymUsedOnTurn === state.turnNumber) return "Ya usaste Fuchsia City Gym este turno";
+      return fuchsiaTargets(state).length > 0
+        ? null
+        : "Necesitas un Pokémon con Koga en su nombre que pueda volver al mazo (el Activo solo con un Pokémon en la Banca)";
+    },
+    coinFlips: () => 1,
+    getSteps(state, _sourceId, selections, coinResults) {
+      if (coinResults?.[0] !== "heads" || selections.length > 0) return null;
+      const targets = fuchsiaTargets(state);
+      return {
+        title: "Fuchsia City Gym",
+        description: "Salió cara: puedes barajar en tu mazo 1 de tus Pokémon con Koga en su nombre y todas sus cartas",
+        options: targets.map((p) => ({ id: p.pokemon.id, label: p.pokemon.name })),
+        maxSelections: 1,
+        minSelections: 0,
+        thumbnails: targets.map((p) => p.pokemon),
+      };
+    },
+    resolve(state, _sourceId, selections, { coinResults }) {
+      const used: GameState = { ...state, fuchsiaCityGymUsedOnTurn: state.turnNumber };
+      const target = coinResults?.[0] === "heads" ? fuchsiaTargets(state).find((p) => p.pokemon.id === selections[0]?.[0]) : undefined;
+      if (!target) {
+        const line = coinResults?.[0] === "heads" ? "Fuchsia City Gym: salió cara, no se barajó ningún Pokémon" : "Fuchsia City Gym: salió cruz, no pasa nada";
+        return { ...used, events: [...state.events, createGameEvent(line, "info")] };
+      }
+      const isActive = state.playerActivePokemon?.pokemon.id === target.pokemon.id;
+      return {
+        ...used,
+        playerActivePokemon: isActive ? null : state.playerActivePokemon,
+        playerBench: state.playerBench.filter((p) => p.pokemon.id !== target.pokemon.id),
+        playerDeck: shuffle([...state.playerDeck, ...cardsLeavingPlay(target)]),
+        ...(isActive && { playerNeedsToPromote: true }),
+        events: [
+          ...state.events,
+          createGameEvent(`Fuchsia City Gym: salió cara, ${target.pokemon.name} y todas sus cartas se barajaron en el mazo`, "action"),
+          ...(isActive ? [createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")] : []),
+        ],
+      };
+    },
+  },
+  "Saffron City Gym": {
+    canUse(state) {
+      return saffronTargets(state).length > 0 ? null : "Necesitas un Pokémon con Sabrina en su nombre con una carta de Energía básica unida";
+    },
+    getSteps(state, _sourceId, selections) {
+      if (selections.length === 0) {
+        const targets = saffronTargets(state);
+        return {
+          title: "Saffron City Gym",
+          description: "Selecciona un Pokémon con Sabrina en su nombre",
+          options: targets.map((p) => ({ id: p.pokemon.id, label: p.pokemon.name })),
+          maxSelections: 1,
+          thumbnails: targets.map((p) => p.pokemon),
+        };
+      }
+      if (selections.length === 1) {
+        const target = saffronTargets(state).find((p) => p.pokemon.id === selections[0][0]);
+        const energies = target ? target.attachedEnergy.filter(isBasicEnergy) : [];
+        return {
+          title: "Saffron City Gym",
+          description: `Selecciona la carta de Energía básica de ${target?.pokemon.name ?? "ese Pokémon"} que vuelve a tu mano`,
+          options: energies.map((e) => ({ id: e.id, label: energyCardLabel(e) })),
+          maxSelections: 1,
+          thumbnails: energies,
+        };
+      }
+      return null;
+    },
+    resolve(state, _sourceId, selections) {
+      const target = saffronTargets(state).find((p) => p.pokemon.id === selections[0][0])!;
+      const energy = target.attachedEnergy.find((e) => e.id === selections[1][0])!;
+      const next = replaceOwn(state, target.pokemon.id, { ...target, attachedEnergy: target.attachedEnergy.filter((e) => e.id !== energy.id) });
+      return {
+        ...next,
+        playerHand: [...state.playerHand, cardOutOfPlay(energy)],
+        events: [...state.events, createGameEvent(`Saffron City Gym: ${energyCardLabel(energy)} de ${target.pokemon.name} volvió a la mano`, "action")],
+      };
+    },
+  },
   "Celadon City Gym": {
     canUse(state) {
       return celadonTargets(state).length > 0

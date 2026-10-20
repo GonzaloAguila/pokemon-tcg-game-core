@@ -15,7 +15,7 @@ import { swapSideTurns } from "@/domain/trainers/side-marks";
  * ownership, PlusPower/Defender owner, starting player, who played the Stadium, whose Bench
  * must be trimmed (pendingBenchTrim), whose hand is set aside (setAsideHands), the Misty's Duel
  * picks (pendingDuel) and result (lastDuel), the Gym Challenge side marks (trainerLockUntilTurn,
- * benchProtectedUntilTurn), and the game result. Swapping twice
+ * benchProtectedUntilTurn), Chaos Gym's offer (pendingChaosOffer's owner / offeredTo), and the game result. Swapping twice
  * returns an equal state. Pending attack flags (pendingForceSwitch...) and power prompts are
  * NOT swapped: they belong to the acting side and must be resolved in that perspective.
  */
@@ -54,5 +54,12 @@ export function swapSides(state: GameState): GameState {
     ...(state.lastDuel !== undefined && { lastDuel: swapLastDuel(state.lastDuel) }),
     ...(state.trainerLockUntilTurn !== undefined && { trainerLockUntilTurn: swapSideTurns(state.trainerLockUntilTurn) }),
     ...(state.benchProtectedUntilTurn !== undefined && { benchProtectedUntilTurn: swapSideTurns(state.benchProtectedUntilTurn) }),
+    ...(state.pendingChaosOffer !== undefined && {
+      pendingChaosOffer: {
+        ...state.pendingChaosOffer,
+        owner: state.pendingChaosOffer.owner === "player" ? ("opponent" as const) : ("player" as const),
+        offeredTo: state.pendingChaosOffer.offeredTo === "player" ? ("opponent" as const) : ("player" as const),
+      },
+    }),
   };
 }

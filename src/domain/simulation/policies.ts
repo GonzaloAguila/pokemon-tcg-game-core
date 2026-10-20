@@ -38,6 +38,7 @@ import {
   canPlayBasicPokemon,
   getEvolutionTargets,
   getTurnActionBlocker,
+  getPlayBasicCoinFlips,
   playBasicPokemon,
   attachEnergyCard,
   evolvePokemonCard,
@@ -321,7 +322,8 @@ export function legalActions(view: GameState, rng: Rng, answer: (step: Selection
     if (canPlayBasicPokemon(view, card.id, "bench") === null) {
       // Trainers played as Basics keep their name in the stats ("benchTrainer Mysterious Fossil")
       const label = card.kind === "trainer" ? `benchTrainer ${card.name}` : `bench ${card.name}`;
-      add("bench", { label, run: (v) => playBasicPokemon(v, card.id, "bench") });
+      // Rocket's Minefield Gym / Chaos Gym: the coin comes from the seeded rng
+      add("bench", { label, run: (v) => playBasicPokemon(v, card.id, "bench", { coinResults: flipFor(getPlayBasicCoinFlips(v, card.id, "bench"), rng) }) });
     }
     if (isPokemonCard(card) && card.stage !== PokemonStage.Basic) {
       for (const targetId of getEvolutionTargets(view, card.id)) {

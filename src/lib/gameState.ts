@@ -56,7 +56,7 @@ import {
 import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
 import { isLuckyDuel, type GameMode } from "@/domain/lucky-duel/mode";
 import { getLuckyDuelAttackBlocker } from "@/domain/lucky-duel/rules";
-import { stadiumIgnoresResistance, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
+import { resistanceAmount, stadiumIgnoresResistance, stadiumIgnoresWeakness, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkCoins } from "@/domain/effects/validate";
 import { attachedTrainerNamed, benchedLeavers, expireAttachedTrainers, CHARITY, SABRINAS_ESP, BROCKS_PROTECTION, KOGAS_NINJA_TRICK } from "@/domain/trainers/attached";
@@ -502,6 +502,26 @@ export type GameState = {
    * endTurn gives it up. Read on the acting side's view: not swapped by swapSides.
    */
   pendingBorrowedTrainer?: { cardId: string; cardName: string };
+  /**
+   * Chaos Gym (Gym Challenge) came up heads for this Trainer of the side whose turn it is (in its
+   * hand, or the card pendingBorrowedTrainer names): it is now played normally with the generic
+   * Trainer flow (its own coins and steps; no Chaos Gym coin again). Every other action waits
+   * (getTurnActionBlocker); endTurn discards it unplayed. Read on the acting side's view: not
+   * swapped by swapSides (effects/chaos-gym.ts).
+   */
+  pendingChaosGymPlay?: { cardId: string; cardName: string };
+  /**
+   * Chaos Gym came up tails for a Trainer that doesn't stay in play: it did nothing and is in its
+   * owner's discard pile; the other player of the side whose turn it is (`offeredTo`) may use it
+   * as if it were in its own hand. `owner` / `offeredTo` are relative sides (swapped by
+   * swapSides). The offer is answered on the acting side's view (getChaosGymOfferStep, chooser
+   * "opponent" → answerChaosGymOffer); once `accepted`, `offeredTo` plays it on its own view
+   * with the generic Trainer flow, out of turn (or gives it up: declineChaosGymOffer). Blocks every
+   * action of the acting side and endTurn (effects/chaos-gym.ts).
+   */
+  pendingChaosOffer?: ChaosGymOffer;
+  /** Fuchsia City Gym (Gym Challenge): the turn number in which it was last used (once during each player's turn). */
+  fuchsiaCityGymUsedOnTurn?: number;
   /**
    * Single-player: a Trainer the AI plays (the side whose turn it is) waits for the other
    * player's answer to one of its steps (`step.chooser: "opponent"`: Erika, Lt. Surge's Treaty,
@@ -2607,6 +2627,18 @@ function expireEndOfTurnTrainers(state: GameState, side: "player" | "opponent", 
     : { ...state, opponentActivePokemon: newActive, opponentBench: newBench, opponentHand: [...state.opponentHand, ...toHand], opponentDiscard: [...state.opponentDiscard, ...toDiscard] };
 }
 
+/** Chaos Gym's offer of a failed Trainer to the other player (GameState.pendingChaosOffer). */
+export type ChaosGymOffer = {
+  cardId: string;
+  cardName: string;
+  /** Whose discard pile the card is in (relative). */
+  owner: "player" | "opponent";
+  /** Who may use it (relative): always the other player of the side whose turn it is. */
+  offeredTo: "player" | "opponent";
+  /** The offered player said yes: it now plays the card on its own view (generic Trainer flow). */
+  accepted?: boolean;
+};
+
 export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = false): GameState {
   // Block turn end while an ATTACK is still resolving (switch, deck search, bench damage selection).
   // pendingTypeShift / pendingPeek are optional Pokémon Power prompts opened during the turn:
@@ -2615,9 +2647,19 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   if (
     gameState.pendingForceSwitch || gameState.pendingSelfSwitch || gameState.pendingDeckSearch ||
     gameState.pendingBenchDamageSelection || gameState.pendingAttackChoice || gameState.pendingPowerChoice ||
-    gameState.pendingBenchTrim || gameState.pendingDuel
+    gameState.pendingBenchTrim || gameState.pendingDuel || gameState.pendingChaosOffer
   ) {
     return gameState;
+  }
+  // Chaos Gym heads but the card was never played: it is discarded without effect
+  const unplayed = gameState.pendingChaosGymPlay;
+  if (unplayed) {
+    const inHand = gameState.playerHand.find((c) => c.id === unplayed.cardId);
+    gameState = {
+      ...gameState,
+      pendingChaosGymPlay: undefined,
+      ...(inHand && { playerHand: gameState.playerHand.filter((c) => c.id !== unplayed.cardId), playerDiscard: [...gameState.playerDiscard, inHand] }),
+    };
   }
 
   // State-based Knock Outs first (a transformed Ditto whose copy no longer fits its damage)
@@ -3918,8 +3960,8 @@ export function knockOutRetaliationDamage(
   const type = knockedOut.shiftedType ?? knockedOutCard.types[0];
   const weaknesses = attacker.modifiedWeakness ? [attacker.modifiedWeakness] : attackerCard.weaknesses ?? [];
   const resistances = attacker.modifiedResistance ? [attacker.modifiedResistance] : attackerCard.resistances ?? [];
-  if (damage > 0 && type && weaknesses.includes(type)) damage *= 2;
-  if (damage > 0 && type && resistances.includes(type)) damage = Math.max(0, damage - 30);
+  if (damage > 0 && type && weaknesses.includes(type) && !stadiumIgnoresWeakness(state, type, attacker)) damage *= 2;
+  if (damage > 0 && type && resistances.includes(type)) damage = Math.max(0, damage - resistanceAmount(state));
   return damage;
 }
 
@@ -3952,8 +3994,8 @@ export function counterAttackDamage(
     const type = damaged.shiftedType ?? damagedCard?.types[0];
     const weaknesses = attacker.modifiedWeakness ? [attacker.modifiedWeakness] : attackerCard?.weaknesses ?? [];
     const resistances = attacker.modifiedResistance ? [attacker.modifiedResistance] : attackerCard?.resistances ?? [];
-    if (type && weaknesses.includes(type)) damage *= 2;
-    if (type && resistances.includes(type)) damage = Math.max(0, damage - 30);
+    if (type && weaknesses.includes(type) && !stadiumIgnoresWeakness(state, type, attacker)) damage *= 2;
+    if (type && resistances.includes(type)) damage = Math.max(0, damage - resistanceAmount(state));
   }
   return damage;
 }
@@ -4760,7 +4802,9 @@ function executeAttackUnchecked(
     (attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance && !e.resistanceOnly) ?? false);
   // Hook Shot: "Don't apply Resistance for this attack"
   const ignoresResistance = ignoresWeaknessResistance || (attack.effects?.some((e) => e.type === AttackEffectType.IgnoreWeaknessResistance) ?? false);
-  const hasWeakness = !isMirrorMove && !ignoresWeaknessResistance && defenderWeaknesses.includes(attackerType);
+  // Cinnabar City Gym: no Weakness for a Water attacker against a Pokémon with Blaine in its name
+  const hasWeakness = !isMirrorMove && !ignoresWeaknessResistance && defenderWeaknesses.includes(attackerType) &&
+    !stadiumIgnoresWeakness(gameState, attackerType, defender);
   // The Stadium in play may cancel Resistance for this attacker (stadiums/rules.ts)
   const hasResistance = !isMirrorMove && !ignoresResistance && !stadiumIgnoresResistance(gameState, attacker) &&
     defenderResistances.includes(attackerType);
@@ -4770,9 +4814,9 @@ function executeAttackUnchecked(
     damage *= 2;
   }
 
-  // Aplicar resistencia (-30)
+  // Aplicar resistencia (-30; -10 with Resistance Gym)
   if (hasResistance) {
-    damage = Math.max(0, damage - 30);
+    damage = Math.max(0, damage - resistanceAmount(gameState));
   }
 
   // Vermilion City Gym heads: 10 more if the attack does damage to the Defending Pokémon

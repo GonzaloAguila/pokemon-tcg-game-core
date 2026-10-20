@@ -29,6 +29,7 @@ import { IllegalActionError } from "@/shared/errors";
 import type { GameCard, GameState, PokemonInPlay } from "./gameState";
 import { checkKnockouts, createGameEvent, shuffle } from "./gameState";
 import { maxBenchSize } from "@/domain/board";
+import { resistanceAmount, stadiumIgnoresWeakness } from "@/domain/stadiums/rules";
 
 /** A choice left by a power played from the hand (see the table above). */
 export type PendingPowerChoice = {
@@ -72,8 +73,8 @@ function powerDamageWithWeakness(state: GameState, source: PokemonInPlay, target
   const weaknesses = target.modifiedWeakness ? [target.modifiedWeakness] : targetCard?.weaknesses ?? [];
   const resistances = target.modifiedResistance ? [target.modifiedResistance] : targetCard?.resistances ?? [];
   let damage = amount;
-  if (sourceType && weaknesses.includes(sourceType)) damage *= 2;
-  if (sourceType && resistances.includes(sourceType)) damage = Math.max(0, damage - 30);
+  if (sourceType && weaknesses.includes(sourceType) && !stadiumIgnoresWeakness(state, sourceType, target)) damage *= 2;
+  if (sourceType && resistances.includes(sourceType)) damage = Math.max(0, damage - resistanceAmount(state));
   return damage;
 }
 

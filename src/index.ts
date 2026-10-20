@@ -115,9 +115,11 @@ export { IllegalActionError, assertLegal } from "./shared/errors";
 // Board actions (engine-owned: put Basics into play, attach Energy, evolve)
 // =============================================================================
 
-export type { BoardPosition, OnAttachFromHand, InPlayLocation } from "./domain/board";
+export type { BoardPosition, OnAttachFromHand, InPlayLocation, PlayBasicOptions } from "./domain/board";
+export type { ChaosGymOffer } from "./lib/gameState";
 export {
   canPlayBasicPokemon,
+  getPlayBasicCoinFlips,
   playBasicPokemon,
   canAttachEnergy,
   attachEnergyCard,
@@ -156,6 +158,15 @@ export {
   stadiumOffersAttackCoin,
   canUseVermilionCoin,
   VERMILION_COIN_DAMAGE,
+  // Gym Challenge Stadiums
+  RESISTANCE_AMOUNT,
+  resistanceAmount,
+  stadiumResistanceModifier,
+  stadiumIgnoresWeakness,
+  stadiumEvolutionHeal,
+  stadiumBenchPlayCoin,
+  stadiumFlipsTrainers,
+  MINEFIELD_DAMAGE,
 } from "./domain/stadiums/rules";
 
 // Tickling Machine: hands set aside face down (state.setAsideHands; consumers mask them for BOTH players)
@@ -319,6 +330,12 @@ export {
   isPlayedAsBasic,
   staysInPlay,
   declineBorrowedTrainer,
+  // Chaos Gym (Gym Challenge)
+  isChaosGymCoinPending,
+  getChaosGymOfferStep,
+  answerChaosGymOffer,
+  declineChaosGymOffer,
+  forfeitChaosGymPlay,
   canPlayTrainerCard,
   getTrainerSteps,
   getTrainerCoinFlips,
@@ -373,6 +390,7 @@ export {
   answerOpponentTrainerStep,
   answerOpponentTrainerStepForAI,
   answerAttackChoiceForAI,
+  answerChaosGymOfferForAI,
 } from "./domain/ai";
 export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice, chooseBenchTrim, resolveBenchTrimForAI } from "./domain/ai/pending";
 

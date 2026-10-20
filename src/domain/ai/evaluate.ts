@@ -24,7 +24,7 @@ import type { Attack, PokemonCard } from "@/domain/cards";
 import { givesPrizeWhenKnockedOut, isEnergyCard, isPokemonCard, isTrainerInPlay } from "@/domain/cards";
 import { AttackEffectType, EnergyType, PokemonPowerType, StatusCondition, type CoinFlipResult } from "@/domain/constants";
 import { swapSides } from "@/domain/board";
-import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
+import { resistanceAmount, stadiumIgnoresResistance, stadiumIgnoresWeakness } from "@/domain/stadiums/rules";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
 import {
   applyAttackDamageReductions,
@@ -245,8 +245,8 @@ function computeAttackDamage(
       if (damage > 0) damage += getConfusedDamageBonus(w, attacker) + (attacker.nextTurnBonusDamage ?? 0);
     }
     if (!ignoresWR && damage > 0 && attackerType) {
-      if (weaknesses.includes(attackerType)) damage *= 2;
-      if (resistances.includes(attackerType) && !ignoresResistance) damage = Math.max(0, damage - 30);
+      if (weaknesses.includes(attackerType) && !stadiumIgnoresWeakness(w, attackerType, defender)) damage *= 2;
+      if (resistances.includes(attackerType) && !ignoresResistance) damage = Math.max(0, damage - resistanceAmount(w));
     }
     if (plusPower > 0 && damage > 0) damage += plusPower;
     if (defenderMinus > 0) damage = Math.max(0, damage - defenderMinus);
@@ -457,7 +457,7 @@ export function powerAgainst(v: GameState, side: Rel, card: PokemonCard, attack:
   const defender = target ? cardOf(v, target) : undefined;
   const type = card.types[0];
   if (defender && type && power > 0) {
-    if ((defender.weaknesses ?? []).includes(type)) power *= 1.6;
+    if ((defender.weaknesses ?? []).includes(type) && !(target && stadiumIgnoresWeakness(v, type, target))) power *= 1.6;
     // Pewter City Gym: no Resistance against Pokémon with Brock in their names
     if ((defender.resistances ?? []).includes(type) && !stadiumIgnoresResistance(v, { pokemon: card })) power = Math.max(5, power - 25);
   }

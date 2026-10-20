@@ -9,6 +9,13 @@
  * | Narrow Gym | no Bench may hold more than 4 Pokémon | stadiumBenchLimit (maxBenchSize) |
  * | No Removal Gym | discard 2 cards from the hand to play Energy Removal / Super Energy Removal | stadiumExtraTrainerDiscards (Trainer entry points) |
  * | Vermilion City Gym | optional coin when a Pokémon with Lt. Surge in its name attacks: heads 10 more to the Defending Pokémon (after W/R, only if the attack damaged it), tails 10 to the attacker | stadiumOffersAttackCoin, canUseVermilionCoin (getAttackCoinPlan / executeAttack `vermilionCoin`) |
+ * | Resistance Gym (GC) | every Resistance is 20 less (−30 → −10) | resistanceAmount (every Weakness / Resistance site, AI estimates) |
+ * | Cinnabar City Gym (GC) | no Weakness when a Water Pokémon (current type) damages a Pokémon with Blaine in its name | stadiumIgnoresWeakness (same sites) |
+ * | Viridian City Gym (GC) | a Pokémon with Giovanni in its name that evolves (any path) loses 2 damage counters (1 if it has 1) | stadiumEvolutionHeal (evolvePokemonInPlay) |
+ * | Rocket's Minefield Gym (GC) | a Basic put onto the Bench from the hand flips: tails 2 damage counters | stadiumBenchPlayCoin (getPlayBasicCoinFlips / playBasicPokemon) |
+ * | Chaos Gym (GC) | every non-Stadium Trainer played flips first (effects/chaos-gym.ts) | stadiumFlipsTrainers |
+ *
+ * Fuchsia City Gym and Saffron City Gym (GC) are STADIUM_ACTIONS entries (effects/stadiums.ts).
  *
  * stadiumFavoredOwner says whose Pokémon the leader Gyms favor (the AI judges a Stadium with the
  * hooks). Only this file and effects/stadiums.ts name Stadium cards. Narrow Gym's on-play discard-down
@@ -17,6 +24,7 @@
  */
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
+import { EnergyType } from "@/domain/constants";
 import { getAvailableAttacks } from "@/lib/gameState";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { stadiumNamed } from "@/domain/board/stadium";
@@ -51,6 +59,10 @@ const FAVORED_OWNER: Readonly<Record<string, PokemonOwner>> = {
   "Cerulean City Gym": "Misty",
   "Vermilion City Gym": "Lt. Surge",
   "Celadon City Gym": "Erika",
+  "Cinnabar City Gym": "Blaine",
+  "Viridian City Gym": "Giovanni",
+  "Fuchsia City Gym": "Koga",
+  "Saffron City Gym": "Sabrina",
 };
 
 /**
@@ -62,6 +74,46 @@ const FAVORED_OWNER: Readonly<Record<string, PokemonOwner>> = {
 export function stadiumFavoredOwner(state: GameState): PokemonOwner | null {
   const name = state.stadium?.card.name;
   return (name && FAVORED_OWNER[name]) || null;
+}
+
+/** Printed Resistance of every classic card: −30. */
+export const RESISTANCE_AMOUNT = 30;
+
+/** How much the Stadium in play lowers every Resistance (Resistance Gym: 20, so −30 → −10), else 0. */
+export function stadiumResistanceModifier(state: GameState): number {
+  return stadiumNamed(state, "Resistance Gym") ? 20 : 0;
+}
+
+/** Damage a Resistance takes off now: 30, 10 with Resistance Gym. */
+export function resistanceAmount(state: GameState): number {
+  return RESISTANCE_AMOUNT - stadiumResistanceModifier(state);
+}
+
+/**
+ * Cinnabar City Gym: no Weakness when damage of type `damageType` (the attacker's current type:
+ * Conversion / Venomoth's Shift / Transform count) is done to `damaged` (Blaine in its name).
+ */
+export function stadiumIgnoresWeakness(state: GameState, damageType: string | undefined, damaged: { pokemon: { name: string } }): boolean {
+  return stadiumNamed(state, "Cinnabar City Gym") && damageType === EnergyType.Water && hasOwner(damaged.pokemon, "Blaine");
+}
+
+/** Damage Viridian City Gym removes from `evolvedCard` (Giovanni in its name) when it evolves: up to 20, else 0. */
+export function stadiumEvolutionHeal(state: GameState, evolvedCard: { name: string }, currentDamage: number): number {
+  if (!stadiumNamed(state, "Viridian City Gym") || !hasOwner(evolvedCard, "Giovanni")) return 0;
+  return Math.min(20, Math.max(0, currentDamage));
+}
+
+/** Rocket's Minefield Gym: damage counters (as damage) a Basic put onto the Bench from the hand gets on tails. */
+export const MINEFIELD_DAMAGE = 20;
+
+/** Rocket's Minefield Gym is in play: a Basic (Mysterious Fossil / Clefairy Doll too) put onto the Bench from the hand flips a coin. */
+export function stadiumBenchPlayCoin(state: GameState): boolean {
+  return stadiumNamed(state, "Rocket's Minefield Gym");
+}
+
+/** Chaos Gym is in play: every non-Stadium Trainer played flips a coin first (effects/chaos-gym.ts). */
+export function stadiumFlipsTrainers(state: GameState): boolean {
+  return stadiumNamed(state, "Chaos Gym");
 }
 
 /** Cards from the hand a player must discard to play the Trainer `trainerName` (No Removal Gym: 2 for (Super) Energy Removal). */

@@ -1473,7 +1473,7 @@ export function playPokemonBreeder(
       : state.playerBench[targetIndex];
 
   // Evolve: basic → stage 2 (skipping stage 1); same reset as a normal evolution
-  const evolvedPokemon = evolvePokemonInPlay(target, stage2Card, state.turnNumber);
+  const evolvedPokemon = evolvePokemonInPlay(target, stage2Card, state.turnNumber, state);
 
   let newActive = state.playerActivePokemon;
   let newBench = [...state.playerBench];

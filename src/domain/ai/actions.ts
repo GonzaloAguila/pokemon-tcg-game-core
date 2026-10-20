@@ -34,7 +34,7 @@ import {
 import type { Side } from "./types";
 import { resolveOwnPowerChoice } from "./pending";
 import { getEffectivePokemonCard } from "@/domain/powers";
-import { stadiumIgnoresResistance } from "@/domain/stadiums/rules";
+import { resistanceAmount, stadiumIgnoresResistance, stadiumIgnoresWeakness } from "@/domain/stadiums/rules";
 
 /** Getters para acceder al estado según el lado */
 function getHand(state: GameState, side: Side): GameCard[] {
@@ -309,7 +309,7 @@ export function canKnockOut(
   let damage = estimateBaseDamage(state, side, { ...attacker, pokemon: attackerCard }, { ...defender, pokemon: defenderCard }, attack);
 
   // Aplicar debilidad
-  const hasWeakness = defenderCard.weaknesses?.includes(attackerCard.types[0]) ?? false;
+  const hasWeakness = (defenderCard.weaknesses?.includes(attackerCard.types[0]) ?? false) && !stadiumIgnoresWeakness(state, attackerCard.types[0], defender);
   if (hasWeakness) {
     damage *= 2;
   }
@@ -318,7 +318,7 @@ export function canKnockOut(
   // Pewter City Gym: no Resistance against Pokémon with Brock in their names
   const hasResistance = (defenderCard.resistances?.includes(attackerCard.types[0]) ?? false) && !stadiumIgnoresResistance(state, attacker);
   if (hasResistance) {
-    damage = Math.max(0, damage - 30);
+    damage = Math.max(0, damage - resistanceAmount(state));
   }
 
   // Check defender protection (full or threshold-based)
@@ -358,12 +358,12 @@ export function estimateAttackDamage(
   let damage = estimateBaseDamage(state, side, { ...attacker, pokemon: attackerCard }, { ...defender, pokemon: defenderCard }, attack);
 
   // Debilidad/resistencia
-  const hasWeakness = defenderCard.weaknesses?.includes(attackerCard.types[0]) ?? false;
+  const hasWeakness = (defenderCard.weaknesses?.includes(attackerCard.types[0]) ?? false) && !stadiumIgnoresWeakness(state, attackerCard.types[0], defender);
   if (hasWeakness) damage *= 2;
 
   // Pewter City Gym: no Resistance against Pokémon with Brock in their names
   const hasResistance = (defenderCard.resistances?.includes(attackerCard.types[0]) ?? false) && !stadiumIgnoresResistance(state, attacker);
-  if (hasResistance) damage = Math.max(0, damage - 30);
+  if (hasResistance) damage = Math.max(0, damage - resistanceAmount(state));
 
   // Check defender protection (full or threshold-based)
   if (protectionBlocksDamage(defender, damage)) {

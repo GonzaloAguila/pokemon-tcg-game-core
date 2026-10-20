@@ -34,7 +34,17 @@ import { GamePhase, PokemonPowerType, PokemonStage } from "@/domain/constants";
 import type { Deck } from "@/domain/decks";
 import { getBenchTrimStep, resolveBenchTrim, swapSides } from "@/domain/board";
 import { aiDuelPick, submitDuelPick } from "@/domain/duel/rps";
-import { ACTIVATED_POWER_TYPES, canPlayTrainerCard, declineBorrowedTrainer, type SelectionStep } from "@/domain/effects";
+import {
+  ACTIVATED_POWER_TYPES,
+  answerChaosGymOffer,
+  canPlayTrainerCard,
+  declineBorrowedTrainer,
+  declineChaosGymOffer,
+  forfeitChaosGymPlay,
+  getChaosGymOfferStep,
+  stepForAnswerer,
+  type SelectionStep,
+} from "@/domain/effects";
 import { isPowerActive } from "@/domain/powers";
 import { drawLuckyDuel, initializeLuckyDuelGame, isLuckyDuel } from "@/domain/lucky-duel";
 import { cardIdentities, checkInvariants, ownedCardIds, type CardIdentity } from "./invariants";
@@ -328,6 +338,48 @@ class GameRunner {
             return play.run(v);
           } catch (error) {
             if (error instanceof UnanswerableStepError) return declineBorrowedTrainer(v);
+            throw error;
+          }
+        },
+      });
+      return true;
+    }
+    if (view.pendingChaosGymPlay) {
+      // Chaos Gym came up heads: the acting side plays the card normally now (or it is lost)
+      const { cardId, cardName } = view.pendingChaosGymPlay;
+      const play = trainerAction(cardId, cardName, rng, (step) => this.policy(actor).answer(step, rng));
+      this.apply(actor, {
+        label: `chaos heads ${cardName}`,
+        run: (v) => {
+          if (canPlayTrainerCard(v, cardId) !== null) return forfeitChaosGymPlay(v);
+          try {
+            return play.run(v);
+          } catch (error) {
+            if (error instanceof UnanswerableStepError) return forfeitChaosGymPlay(v);
+            throw error;
+          }
+        },
+      });
+      return true;
+    }
+    if (view.pendingChaosOffer) {
+      // Chaos Gym came up tails: the other side answers the offer (its policy), then plays the card on its own view
+      const offer = view.pendingChaosOffer;
+      if (!offer.accepted) {
+        const step = getChaosGymOfferStep(view)!;
+        const chosen = this.answer(other, stepForAnswerer(step));
+        this.apply(actor, { label: `chaos offer ${chosen[0]} ${offer.cardName}`, run: (v) => answerChaosGymOffer(v, chosen) });
+        return true;
+      }
+      const play = trainerAction(offer.cardId, offer.cardName, rng, (step) => this.policy(other).answer(step, rng));
+      this.apply(other, {
+        label: `chaos offer play ${offer.cardName}`,
+        run: (v) => {
+          if (canPlayTrainerCard(v, offer.cardId) !== null) return declineChaosGymOffer(v);
+          try {
+            return play.run(v);
+          } catch (error) {
+            if (error instanceof UnanswerableStepError) return declineChaosGymOffer(v);
             throw error;
           }
         },

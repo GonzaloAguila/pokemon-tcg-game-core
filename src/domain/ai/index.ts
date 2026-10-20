@@ -48,7 +48,7 @@ export { knowledgeView } from "./knowledge";
 export { evaluateBoard } from "./evaluate";
 
 // Executor (apply actions to state)
-export { executeAIAction, finishAIAttackAfterReaction, answerOpponentTrainerStep } from "./executor";
+export { executeAIAction, finishAIAttackAfterReaction, answerOpponentTrainerStep, answerChaosGymOfferForAI } from "./executor";
 export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice, chooseBenchTrim, resolveBenchTrimForAI } from "./pending";
 
 // Actions (low-level state transformations)
