@@ -147,7 +147,8 @@ function trainerDef(state: GameState, cardId: string): { def?: CardEffectDef; re
 
 /** null when the Trainer in the hand can be played now, else the Spanish reason. */
 export function canPlayTrainerCard(state: GameState, cardId: string): string | null {
-  state = trainerView(state, cardId).view;
+  const { view, kind } = trainerView(state, cardId);
+  state = view;
   if (!state.isPlayerTurn && state.pendingChaosOffer?.offeredTo === "player") {
     return state.pendingChaosOffer.accepted ? `Solo puedes usar ${state.pendingChaosOffer.cardName} (Chaos Gym)` : "Primero responde a Chaos Gym";
   }
@@ -160,6 +161,8 @@ export function canPlayTrainerCard(state: GameState, cardId: string): string | n
   if (luckyDuel) return luckyDuel;
   const { def, reason } = trainerDef(state, cardId);
   if (!def) return reason;
+  // Chaos Gym's offer is used during the other player's turn: "this turn" effects do nothing then
+  if (kind === "offer" && def.ownTurnOnly) return "Su efecto solo dura tu propio turno: no se puede usar en el turno del rival";
   return def.canUse(state, cardId);
 }
 

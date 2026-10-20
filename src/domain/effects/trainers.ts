@@ -1485,10 +1485,12 @@ Object.assign(TRAINER_EFFECTS, {
         disableAutoSelect: true,
       };
     },
-    resolve: (state, cardId, selections, { coinResults, skipEndTurn }) => {
+    resolve: (state, cardId, selections, { coinResults, skipEndTurn, offTurn }) => {
       const coins = coinResults ?? [];
       const played = discardPlayed(state, cardId, `Jugaste Minion of Team Rocket - Monedas: ${coins.map((c) => `[coin:${c}]`).join(", ")}`);
       if (coins.some((c) => c === "tails")) {
+        // A Chaos Gym offer is used during the opponent's turn: there is no turn of its player to end
+        if (offTurn) return { ...played, events: [...played.events, createGameEvent("Minion of Team Rocket: no es el turno de quien lo usó, no pasa nada", "info")] };
         // "your turn ends immediately (you can't attack this turn)"
         const over: GameState = {
           ...played,
@@ -1519,6 +1521,8 @@ Object.assign(TRAINER_EFFECTS, {
       const { coinResults, skipEndTurn } = context;
       const heads = coinResults?.[0] === "heads";
       const played = discardPlayed(state, cardId, `Jugaste Tickling Machine - Moneda: [coin:${heads ? "heads" : "tails"}]`);
+      // A Chaos Gym offer is used during the opponent's turn: there is no turn of its player to end
+      if (!heads && context.offTurn) return { ...played, events: [...played.events, createGameEvent("Tickling Machine: no es el turno de quien lo usó, no pasa nada", "info")] };
       if (!heads) {
         // "your turn ends immediately (you can't attack this turn)": as Minion of Team Rocket's tails
         const over: GameState = {
@@ -2528,6 +2532,14 @@ Object.assign(TRAINER_EFFECTS, {
  * Trainers that stay in play once played (attached Trainers, PlusPower / Defender, Stadiums, the
  * ones played as Basic Pokémon, Lt. Surge's Secret Plan): Sabrina's Psychic Control can't use them.
  */
+/**
+ * Trainers whose whole effect lasts "this turn" / "your turn" of their player (the marks are on the
+ * turn, e.g. recallActiveOnTurn, energyAttachedThisTurn, Misty / Koga modifiers): useless, and
+ * wrong for the marks, during the opponent's turn, so a Chaos Gym offer never uses them.
+ */
+const OWN_TURN_ONLY = ["Recall", "Misty", "Koga", "Giovanni", "Blaine"];
+for (const name of OWN_TURN_ONLY) TRAINER_EFFECTS[name] = { ...TRAINER_EFFECTS[name], ownTurnOnly: true };
+
 const STAY_IN_PLAY = new Set(["PlusPower", "Defender", CHARITY, SABRINAS_ESP, BROCKS_PROTECTION, KOGAS_NINJA_TRICK, "Lt. Surge's Secret Plan"]);
 export function staysInPlay(card: GameCard): boolean {
   return card.kind === CardKind.Trainer && (card.trainerType === TrainerType.Stadium || !!card.playsAsBasic || STAY_IN_PLAY.has(card.name));

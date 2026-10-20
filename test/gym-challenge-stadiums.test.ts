@@ -20,6 +20,7 @@ import {
   isChaosGymCoinPending,
   playTrainerCard,
   stepForAnswerer,
+  TRAINER_EFFECTS,
   useStadiumAction,
 } from "@/domain/effects";
 import { evolvePokemonCard, getPlayBasicCoinFlips, getTurnActionBlocker, playBasicPokemon, swapSides } from "@/domain/board";
@@ -275,6 +276,34 @@ describe("Chaos Gym", () => {
     expect(machine.used.setAsideHands).toEqual([expect.objectContaining({ side: "player", returnsAfterTurn: machine.turn + 2 })]);
     const walls = offer(card("Transparent Walls"), []);
     expect(walls.used.benchProtectedUntilTurn?.opponent).toBe(walls.turn + 2);
+  });
+
+  it("an offered card's tails 'your turn ends' does nothing out of turn: the owner's turn goes on (Minion of Team Rocket, Tickling Machine)", () => {
+    for (const [trainer, coins] of [
+      [gameCard("Minion of Team Rocket", "gym-heroes"), [T, T]],
+      [gameCard("Tickling Machine", "gym-heroes"), [T]],
+    ] as const) {
+      const state = withStadium("Chaos Gym", { player: { hand: [trainer, bill()] } });
+      const theirs = swapSides(answerChaosGymOffer(playTrainerCard(state, trainer.id, [], { coinResults: [T] }), ["accept"]));
+      const used = swapSides(playTrainerCard(deepFreeze(theirs), trainer.id, [], { coinResults: [...coins] }));
+      expect([trainer.name, used.attackedThisTurn ?? false, used.isPlayerTurn, getTurnActionBlocker(used)]).toEqual([trainer.name, false, true, null]);
+      expect(names(used.playerDiscard)).toEqual([trainer.name]);
+    }
+  });
+
+  it("Trainers whose whole effect is 'this turn' / 'your turn' are never offered (Recall, Misty, Koga, Giovanni, Blaine)", () => {
+    for (const name of ["Recall", "Misty", "Koga", "Giovanni", "Blaine"]) expect([name, TRAINER_EFFECTS[name].ownTurnOnly]).toEqual([name, true]);
+    // Recall's mark is on the turn (recallActiveOnTurn): used by the opponent it would arm the owner's Active
+    for (const trainer of [gameCard("Recall", "gym-heroes"), card("Koga")]) {
+      const state = withStadium("Chaos Gym", { player: { hand: [trainer, bill()] } });
+      const tails = playTrainerCard(state, trainer.id, [], { coinResults: [T] });
+      expect([trainer.name, tails.pendingChaosOffer]).toEqual([trainer.name, undefined]);
+      expect(names(tails.playerDiscard)).toEqual([trainer.name]);
+      expect(tails.recallActiveOnTurn).toBeUndefined();
+    }
+    // Played on its own turn they still work
+    const recall = gameCard("Recall", "gym-heroes");
+    expect(playTrainerCard(makeState({ player: { hand: [recall] } }), recall.id, []).recallActiveOnTurn).toBeDefined();
   });
 
   it("Review Focus 4: the owner is never asked the card's coins or steps; the opponent's use asks them on its own view", () => {

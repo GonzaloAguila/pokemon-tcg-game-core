@@ -132,4 +132,10 @@ export interface CardEffectDef {
    * only after canUse passed and every selection was checked against its step's options.
    */
   resolve(state: GameState, sourceId: string, selections: string[][], context: CardEffectContext): GameState;
+  /**
+   * Trainers only: the whole effect lasts "this turn" / "your turn" (Recall, Misty, Koga, Giovanni,
+   * Blaine), so it does nothing during the opponent's turn: a Chaos Gym offer can't use it (it is
+   * never offered). See trainers.ts OWN_TURN_ONLY.
+   */
+  ownTurnOnly?: boolean;
 }
