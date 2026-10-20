@@ -263,6 +263,20 @@ describe("Chaos Gym", () => {
     expect(getTurnActionBlocker(used)).toBeNull();
   });
 
+  it("an offered card is played out of turn: its user's opponent's next turn is 2 turns away (Tickling Machine, Transparent Walls)", () => {
+    const offer = (trainer: ReturnType<typeof card>, coins: ("heads" | "tails")[]) => {
+      const state = withStadium("Chaos Gym", { player: { hand: [trainer, bill()] } });
+      const theirs = swapSides(answerChaosGymOffer(playTrainerCard(state, trainer.id, [], { coinResults: [T] }), ["accept"]));
+      return { turn: state.turnNumber, used: swapSides(playTrainerCard(deepFreeze(theirs), trainer.id, [], { coinResults: coins })) };
+    };
+    // Sim regression (6 sets, explore seed 11, game 277): the owner's hand came back at the end of
+    // its next turn (T+2) but the pile said T+1
+    const machine = offer(gameCard("Tickling Machine", "gym-heroes"), [H]);
+    expect(machine.used.setAsideHands).toEqual([expect.objectContaining({ side: "player", returnsAfterTurn: machine.turn + 2 })]);
+    const walls = offer(card("Transparent Walls"), []);
+    expect(walls.used.benchProtectedUntilTurn?.opponent).toBe(walls.turn + 2);
+  });
+
   it("Review Focus 4: the owner is never asked the card's coins or steps; the opponent's use asks them on its own view", () => {
     const ball = gameCard("Poké Ball");
     const state = withStadium("Chaos Gym", {

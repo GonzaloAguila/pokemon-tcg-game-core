@@ -97,6 +97,12 @@ export type CardEffectContext = {
    * from the opponent's discard pile (`state.pendingBorrowedTrainer`); throws otherwise.
    */
   borrowedFromOpponentDiscard?: boolean;
+  /**
+   * Set by the registry for a Chaos Gym offer: the card is played during the OTHER player's turn,
+   * so "your opponent's next turn" is turnNumber + 2 and "your next turn" turnNumber + 1
+   * (trainers.ts `opponentsNextTurn` / `yourNextTurn`).
+   */
+  offTurn?: boolean;
 };
 
 /**

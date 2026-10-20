@@ -109,7 +109,7 @@ import {
   playRevive,
   playPokemonFlute,
 } from "@/domain/trainers";
-import type { CardEffectDef, SelectionOption, SelectionStep } from "./types";
+import type { CardEffectContext, CardEffectDef, SelectionOption, SelectionStep } from "./types";
 import { STADIUM_EFFECTS } from "./stadiums";
 import { wholeDeckChoice } from "./deck-search";
 
@@ -189,13 +189,23 @@ function ownTargetIndex(state: GameState, pokemonId: string): number {
 }
 
 /** A Trainer that asks nothing (its rules are all in `play`) */
-function immediate(play: (state: GameState, cardId: string) => GameState, canUse?: (state: GameState, cardId: string) => string | null): CardEffectDef {
+function immediate(
+  play: (state: GameState, cardId: string, context: CardEffectContext) => GameState,
+  canUse?: (state: GameState, cardId: string) => string | null
+): CardEffectDef {
   return {
     canUse: canUse ?? (() => null),
     getSteps: () => null,
-    resolve: (state, cardId) => play(state, cardId),
+    resolve: (state, cardId, _selections, context) => play(state, cardId, context),
   };
 }
+
+/**
+ * "Your opponent's next turn" / "your next turn" for the card's player. A Chaos Gym offer
+ * (`context.offTurn`) is played during the opponent's turn: their next turn is 2 turns away.
+ */
+const opponentsNextTurn = (state: GameState, context: CardEffectContext) => state.turnNumber + (context.offTurn ? 2 : 1);
+const yourNextTurn = (state: GameState, context: CardEffectContext) => state.turnNumber + (context.offTurn ? 1 : 2);
 
 /** A Trainer with exactly one step */
 function singleStep(
@@ -1125,11 +1135,11 @@ Object.assign(TRAINER_EFFECTS, {
     },
   },
 
-  "Goop Gas Attack": immediate((state, cardId) => {
+  "Goop Gas Attack": immediate((state, cardId, context) => {
     const played = discardPlayed(state, cardId, "Jugaste Goop Gas Attack: todos los Poderes Pokémon dejan de funcionar hasta el final del siguiente turno");
     return {
       ...played,
-      powersSuppressed: [...(state.powersSuppressed ?? []), { source: "Goop Gas Attack", expiresAfterTurn: state.turnNumber + 1 }],
+      powersSuppressed: [...(state.powersSuppressed ?? []), { source: "Goop Gas Attack", expiresAfterTurn: opponentsNextTurn(state, context) }],
     };
   }),
 
@@ -1505,7 +1515,8 @@ Object.assign(TRAINER_EFFECTS, {
     canUse: () => null,
     coinFlips: () => 1,
     getSteps: () => null,
-    resolve: (state, cardId, _selections, { coinResults, skipEndTurn }) => {
+    resolve: (state, cardId, _selections, context) => {
+      const { coinResults, skipEndTurn } = context;
       const heads = coinResults?.[0] === "heads";
       const played = discardPlayed(state, cardId, `Jugaste Tickling Machine - Moneda: [coin:${heads ? "heads" : "tails"}]`);
       if (!heads) {
@@ -1519,7 +1530,7 @@ Object.assign(TRAINER_EFFECTS, {
       }
       // "Nobody may look at those cards": the log only counts them. Back at the end of the
       // opponent's next turn (endTurn)
-      const aside = setAsideHand(played, "opponent", state.turnNumber + 1);
+      const aside = setAsideHand(played, "opponent", opponentsNextTurn(state, context));
       const line =
         played.opponentHand.length === 0
           ? "Tickling Machine: el otro jugador no tiene cartas en la mano"
@@ -2383,13 +2394,13 @@ Object.assign(TRAINER_EFFECTS, {
         cards: state.playerDeck,
       };
     },
-    resolve: (state, cardId, selections, { coinResults }) => {
-      const heads = coinResults?.[0] === "heads";
+    resolve: (state, cardId, selections, context) => {
+      const heads = context.coinResults?.[0] === "heads";
       const played = discardPlayed(state, cardId, `Jugaste Rocket's Secret Experiment - Moneda: [coin:${heads ? "heads" : "tails"}]`);
       if (!heads) {
         return {
           ...played,
-          trainerLockUntilTurn: markSide(state.trainerLockUntilTurn, "player", state.turnNumber + 2),
+          trainerLockUntilTurn: markSide(state.trainerLockUntilTurn, "player", yourNextTurn(state, context)),
           events: [...played.events, createGameEvent("Rocket's Secret Experiment: quien lo jugó no puede jugar cartas de Entrenador hasta el final de su próximo turno", "action")],
         };
       }
@@ -2408,11 +2419,11 @@ Object.assign(TRAINER_EFFECTS, {
   },
 
   // "Until the end of your opponent's next turn, prevent all damage done by attacks to your Benched Pokémon."
-  "Transparent Walls": immediate((state, cardId) => {
+  "Transparent Walls": immediate((state, cardId, context) => {
     const played = discardPlayed(state, cardId, "Jugaste Transparent Walls");
     return {
       ...played,
-      benchProtectedUntilTurn: markSide(state.benchProtectedUntilTurn, "player", state.turnNumber + 1),
+      benchProtectedUntilTurn: markSide(state.benchProtectedUntilTurn, "player", opponentsNextTurn(state, context)),
       events: [
         ...played.events,
         createGameEvent("Transparent Walls: hasta el final del próximo turno del otro jugador, los ataques no hacen daño a los Pokémon en la Banca de quien lo jugó", "info"),

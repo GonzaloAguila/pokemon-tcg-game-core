@@ -74,7 +74,11 @@ function runEffect(
   if (!Array.isArray(selections)) throw new IllegalActionError("Selecciones no válidas");
   checkCoins(coinRequirement(def, state, sourceId, selections), coins);
   checkSelections(def, state, sourceId, selections, coins.length > 0 ? coins : undefined);
-  const next = def.resolve(state, sourceId, selections, { coinResults: coins, ...(context.skipEndTurn && { skipEndTurn: true }) });
+  const next = def.resolve(state, sourceId, selections, {
+    coinResults: coins,
+    ...(context.skipEndTurn && { skipEndTurn: true }),
+    ...(context.offTurn && { offTurn: true }),
+  });
   // The wrapped legacy functions return the same object when their own checks fail
   if (next === state) throw new IllegalActionError("No se pudo aplicar el efecto");
   // State-based Knock Outs (e.g. Gust of Wind changed what a transformed Ditto copies)
@@ -221,7 +225,7 @@ export function playTrainerCard(
   if (chaos) return resolveChaosGymCoin(state, cardId, kind === "borrowed", selections, context.coinResults);
   const { borrowedFromOpponentDiscard: _borrowed, ...effectContext } = context;
   // Chaos Gym's offer is played out of turn: it never ends the turn
-  const next = runEffect(trainerDef(view, cardId).def!, view, cardId, selections, kind === "offer" ? { ...effectContext, skipEndTurn: true } : effectContext);
+  const next = runEffect(trainerDef(view, cardId).def!, view, cardId, selections, kind === "offer" ? { ...effectContext, skipEndTurn: true, offTurn: true } : effectContext);
   if (kind === "borrowed") return returnBorrowedCard(next, cardId);
   if (kind === "offer") return finishChaosGymOffer(state, next, state.pendingChaosOffer!);
   return next;
