@@ -60,6 +60,7 @@ import { getLuckyDuelAttackBlocker } from "@/domain/lucky-duel/rules";
 import { resistanceAmount, stadiumIgnoresResistance, stadiumIgnoresWeakness, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkCoins } from "@/domain/effects/validate";
+import { wholeDeckChoice } from "@/domain/effects/deck-search";
 import { attachedTrainerNamed, benchedLeavers, expireAttachedTrainers, CHARITY, SABRINAS_ESP, BROCKS_PROTECTION, KOGAS_NINJA_TRICK } from "@/domain/trainers/attached";
 import { returnSetAsideHand, type SetAsideHand } from "@/domain/trainers/set-aside";
 export type { SetAsideHand } from "@/domain/trainers/set-aside";
@@ -191,11 +192,19 @@ export type PokemonInPlay = {
   mustFlipToAttackTurn?: number;
 };
 
+/**
+ * A card shown in a log line (the hand Lass reveals, the Energy Sleight of Hand finds): only
+ * what is printed on it, never its in-game id. Build them with `toLogCards`.
+ */
+export type LogCard = { name: string; imageUrl: string };
+
 export type GameEvent = {
   id: string;
   timestamp: number;
   message: string;
   type: "info" | "action" | "system";
+  /** Cards the line shows to both players (consumers render them as thumbnails) */
+  cards?: LogCard[];
 };
 
 // Re-export GamePhase from constants for backward compatibility
@@ -579,14 +588,21 @@ export type GameState = {
  */
 export function createGameEvent(
   message: string,
-  type: GameEvent["type"] = "info"
+  type: GameEvent["type"] = "info",
+  cards?: LogCard[]
 ): GameEvent {
   return {
     id: `event-${Date.now()}-${Math.random()}`,
     timestamp: Date.now(),
     message,
     type,
+    ...(cards && cards.length > 0 && { cards }),
   };
+}
+
+/** The log form of some cards: name + catalog image, no ids (see LogCard). */
+export function toLogCards(cards: readonly GameCard[]): LogCard[] {
+  return cards.map((card) => ({ name: card.name, imageUrl: getCatalogImageUrl(card) }));
 }
 
 /** Catalog card by name across all sets (see the set registry). */
@@ -4706,10 +4722,9 @@ function executeAttackUnchecked(
         {
           title: printedAttack.name,
           description: `Antes de hacer el daño puedes buscar en tu mazo hasta ${max} Pokémon Básicos llamados ${preSearch.deckFilter?.names?.join(" o ") ?? ""} para ponerlos en tu Banca`,
-          options: found.map((c) => ({ id: c.id, label: c.name })),
+          ...wholeDeckChoice(gameState.playerDeck, (c) => found.includes(c)),
           maxSelections: max,
           minSelections: 0,
-          cards: found,
           disableAutoSelect: true,
           chooser: "self",
           defaultSelection: [],

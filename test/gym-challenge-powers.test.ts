@@ -309,7 +309,7 @@ describe("Call the Boss (Giovanni's Persian)", () => {
     const giovanni = gameCard("Giovanni", "gym-challenge");
     const state = makeState({ player: { active: meowth, hand: [persian], deck: [energy(Lightning), giovanni] }, opponent: { active: inPlay("Rattata", { set: "base" }) } });
     const evolved = evolvePokemonCard(state, persian.id, meowth.pokemon.id);
-    expect(evolved.pendingPowerChoice?.step.options.map((o) => o.id)).toEqual([giovanni.id]);
+    expect(evolved.pendingPowerChoice?.step.options.filter((o) => !o.disabled).map((o) => o.id)).toEqual([giovanni.id]);
     const done = resolvePowerChoice(evolved, [giovanni.id]);
     expect(done.playerHand.map((c) => c.id)).toContain(giovanni.id);
     expect(done.playerDeck).toHaveLength(1);

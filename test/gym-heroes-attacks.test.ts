@@ -144,7 +144,7 @@ import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { gymHeroesCards } from "@/domain/catalog";
 import type { Attack, AttackEffect, PokemonCard } from "@/domain/cards";
 import { AttackEffectType, AttackTarget, BenchDamageTarget, EnergyType, StatusCondition } from "@/domain/constants";
-import { makeState, inPlay, gameCard, energy, armedFor, attackIndex, names, deepFreeze } from "./helpers/state";
+import { makeState, inPlay, gameCard, energy, armedFor, attackIndex, names, deepFreeze, takeable } from "./helpers/state";
 
 const { Water, Fire, Grass, Lightning, Psychic, Fighting, Colorless } = EnergyType;
 const H = "heads" as const;
@@ -599,7 +599,8 @@ describe("new effect kinds", () => {
       const deck = [gameCard("Abra"), energy(Water), gameCard("Potion", "base"), energy(Fire)];
       const next = use(search({ deckFilter: { basicEnergy: true }, destination: "hand", amount: 1, minAmount: 1 }, { player: { deck } }));
       const step = next.pendingAttackChoice!.step;
-      expect(step.cards!.map((c) => c.name)).toEqual(["Water Energy", "Fire Energy"]);
+      expect(names(takeable(step))).toEqual(["Water Energy", "Fire Energy"]);
+      expect(step.cards!.length).toBe(deck.length);
       expect([step.minSelections, step.maxSelections]).toEqual([1, 1]);
       const done = choose(next, [deck[3].id]);
       expect(names(done.playerHand)).toEqual(["Fire Energy"]);
@@ -624,7 +625,7 @@ describe("new effect kinds", () => {
       const state = search(friend, { player: { deck } });
       expect(use(state, [T]).pendingAttackChoice).toBeUndefined();
       const next = use(state, [H]);
-      expect(names(next.pendingAttackChoice!.step.cards!)).toEqual(["Misty's Goldeen"]);
+      expect(names(takeable(next.pendingAttackChoice!.step))).toEqual(["Misty's Goldeen"]);
       const done = choose(next, [deck[0].id]);
       expect(names(done.playerBench.map((p) => p.pokemon))).toEqual(["Misty's Goldeen"]);
       expect(done.playerBench[0].playedOnTurn).toBe(3);
@@ -1056,7 +1057,7 @@ describe("Gym Heroes attacks, card by card", () => {
   it("#32 Banco de Medusas: any number of Tentacool / Tentacruel (any owner) to the hand", () => {
     const deck = [gymHand(57), gameCard("Tentacruel", "fossil"), gameCard("Abra")];
     const next = attack(vs(gym(32), dummy(), { player: { deck } }), "Banco de Medusas");
-    expect(names(next.pendingAttackChoice!.step.cards!)).toEqual(["Misty's Tentacool", "Tentacruel"]);
+    expect(names(takeable(next.pendingAttackChoice!.step))).toEqual(["Misty's Tentacool", "Tentacruel"]);
   });
 
   it("#34 Polen Curativo: 10 per heads from each of your Pokémon; Distorsión Sónica: confused with 1 heads", () => {
@@ -1120,7 +1121,7 @@ describe("Gym Heroes attacks, card by card", () => {
   it("#54 / #66 Llamar a un Amigo: heads = a Basic with the owner's name onto the Bench", () => {
     const deck = [gymHand(85), gymHand(69), gymHand(55)];
     const misty = attack(vs(gym(54), dummy(), { player: { deck } }), "Llamar a un Amigo", [H]);
-    expect(names(misty.pendingAttackChoice!.step.cards!)).toEqual(["Misty's Goldeen"]);
+    expect(names(takeable(misty.pendingAttackChoice!.step))).toEqual(["Misty's Goldeen"]);
     const brock = attack(vs(gym(66), dummy(), { player: { deck } }), "Llamar a un Amigo", [H]);
     expect(names(choose(brock, [deck[1].id]).playerBench.map((p) => p.pokemon))).toEqual(["Brock's Onix"]);
     expect(attack(vs(gym(66), dummy(), { player: { deck } }), "Llamar a un Amigo", [T]).pendingAttackChoice).toBeUndefined();

@@ -228,7 +228,7 @@ describe("Erika's Maids", () => {
     expect(first.source).toBe("hand");
     expect(first.maxSelections).toBe(2);
     const second = getTrainerSteps(state, trainer.id, [traded.map((c) => c.id)])!;
-    expect(second.options.map((o) => o.label)).toEqual(["Erika's Oddish", "Erika's Gloom", "Erika's Bellsprout"]);
+    expect(second.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Erika's Oddish", "Erika's Gloom", "Erika's Bellsprout"]);
     expect(second.maxSelections).toBe(2);
     expect(second.minSelections).toBe(0);
     const next = playTrainerCard(state, trainer.id, [traded.map((c) => c.id), [deck[0].id, deck[2].id]]);

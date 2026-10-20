@@ -240,7 +240,7 @@ describe("generic trainer entry points", () => {
     expect(() => playTrainerCard(state, ball.id, [], {})).toThrow(/moneda/);
     expect(getTrainerSteps(state, ball.id, [], ["tails"])).toBeNull();
     expect(names(playTrainerCard(state, ball.id, [], { coinResults: ["tails"] }).playerDiscard)).toEqual(["Poké Ball"]);
-    expect(getTrainerSteps(state, ball.id, [], ["heads"])?.options.map((o) => o.id)).toEqual([onix.id]);
+    expect(getTrainerSteps(state, ball.id, [], ["heads"])?.options.filter((o) => !o.disabled).map((o) => o.id)).toEqual([onix.id]);
     const next = playTrainerCard(state, ball.id, [[onix.id]], { coinResults: ["heads"] });
     expect(next.playerHand.some((c) => c.id === onix.id)).toBe(true);
   });

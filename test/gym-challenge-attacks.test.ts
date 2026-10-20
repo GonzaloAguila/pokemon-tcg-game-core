@@ -98,7 +98,7 @@ import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { gymChallengeCards } from "@/domain/catalog";
 import type { PokemonCard } from "@/domain/cards";
 import { EnergyType, StatusCondition } from "@/domain/constants";
-import { makeState, inPlay, gameCard, energy, armedFor, attackIndex, names, deepFreeze } from "./helpers/state";
+import { makeState, inPlay, gameCard, energy, armedFor, attackIndex, names, deepFreeze, takeable } from "./helpers/state";
 
 const { Water, Fire, Lightning, Psychic } = EnergyType;
 const { Asleep, Confused, Paralyzed, Poisoned } = StatusCondition;
@@ -480,7 +480,7 @@ describe("Gym Challenge attacks on the existing effect vocabulary", () => {
   it("#62 Avivar: a Fire Energy card from the deck attached to Blaine's Growlithe", () => {
     const deck = [energy(Water), energy(Fire), gameCard("Abra")];
     const next = attack(deepFreeze(vs(gym(62), dummy(), { player: { deck } })), "Avivar");
-    const options = next.pendingAttackChoice!.step.options;
+    const options = next.pendingAttackChoice!.step.options.filter((o) => !o.disabled);
     expect(options.map((o) => o.label)).toEqual(["Energía Fuego"]);
     const done = choose(next, [options[0].id]);
     expect(names(done.playerActivePokemon!.attachedEnergy).slice(-1)).toEqual(["Fire Energy"]);
@@ -537,7 +537,7 @@ describe("Gym Challenge attacks on the existing effect vocabulary", () => {
   it("#95 Apoyo de Energía: a Psychic Energy card from the deck to the hand", () => {
     const deck = [energy(Water), energy(Psychic), gameCard("Abra")];
     const next = attack(deepFreeze(vs(gym(95), dummy(), { player: { deck } })), "Apoyo de Energía");
-    expect(names(next.pendingAttackChoice!.step.cards!)).toEqual(["Psychic Energy"]);
+    expect(names(takeable(next.pendingAttackChoice!.step))).toEqual(["Psychic Energy"]);
     const done = choose(next, [deck[1].id]);
     expect(names(done.playerHand)).toEqual(["Psychic Energy"]);
     expect(done.playerDeck).toHaveLength(2);

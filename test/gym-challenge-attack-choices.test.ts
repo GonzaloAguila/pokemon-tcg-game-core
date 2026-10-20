@@ -27,7 +27,7 @@ import type { PokemonCard } from "@/domain/cards";
 import { swapSides } from "@/domain/board";
 import { EnergyType } from "@/domain/constants";
 import { answerAttackChoiceForAI } from "@/domain/ai/attackAnswers";
-import { makeState, inPlay, gameCard, energy, armedFor, attackIndex, names, deepFreeze } from "./helpers/state";
+import { makeState, inPlay, gameCard, energy, armedFor, attackIndex, names, deepFreeze, takeable } from "./helpers/state";
 
 const { Fire, Grass, Water, Psychic } = EnergyType;
 const H = "heads" as const;
@@ -115,7 +115,7 @@ describe("Lunar Power (Erika's Clefairy)", () => {
     const charmeleon = gameCard("Charmeleon", "base");
     const state = vs(gym(40), dummy(), { player: { bench: [charmander], deck: [charmeleon, energy(Fire)] } });
     const after = attack(state, "Poder Lunar", [H]);
-    expect(step(after).cards!.map((c) => c.id)).toEqual([charmeleon.id]);
+    expect(takeable(step(after)).map((c) => c.id)).toEqual([charmeleon.id]);
     const done = choose(after, [charmeleon.id]);
     expect(done.playerBench[0].pokemon.name).toBe("Charmeleon");
     expect(names(done.playerBench[0].previousEvolutions)).toEqual(["Charmander"]);
@@ -174,7 +174,7 @@ describe("Messenger (Koga's Pidgey)", () => {
     expect(after.playerActivePokemon).toBeNull();
     expect(after.playerNeedsToPromote).toBe(true);
     expect(after.playerDeck.slice(0, 2).map((c) => c.id)).toEqual([pidgey.pokemon.id, pidgey.attachedEnergy[0].id]);
-    expect(step(after).options.map((o) => o.id)).toEqual([charmander.id]);
+    expect(takeable(step(after)).map((c) => c.id)).toEqual([charmander.id]);
     const done = choose(after, [charmander.id]);
     expect(ids(done.playerHand)).toEqual([charmander.id]);
     expect(done.playerDeck).toHaveLength(4);
@@ -283,7 +283,7 @@ describe("Group Attack (Koga's Zubat)", () => {
     const asked = attack(state, "Ataque en Grupo");
     expect(asked.pendingAttackChoice!.reaction).toBeDefined();
     expect(asked.opponentActivePokemon!.currentDamage).toBe(0);
-    expect(step(asked).options.map((o) => o.id)).toEqual([z1.id, z2.id]);
+    expect(step(asked).options.filter((o) => !o.disabled).map((o) => o.id)).toEqual([z1.id, z2.id]);
     expect([step(asked).minSelections, step(asked).maxSelections]).toEqual([0, 2]);
     expect(answerAttackChoiceForAI(asked)).toEqual([z1.id, z2.id]);
     const done = choose(asked, [z1.id, z2.id]);

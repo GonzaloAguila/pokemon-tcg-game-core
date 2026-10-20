@@ -41,7 +41,7 @@ import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { gymChallengeCards } from "@/domain/catalog";
 import type { PokemonCard } from "@/domain/cards";
 import { EnergyType, StatusCondition } from "@/domain/constants";
-import { makeState, inPlay, gameCard, energy, armedFor, attackIndex, names, deepFreeze } from "./helpers/state";
+import { makeState, inPlay, gameCard, energy, armedFor, attackIndex, names, deepFreeze, takeable } from "./helpers/state";
 
 const { Fire, Lightning, Psychic, Grass, Water } = EnergyType;
 const { Confused, Poisoned } = StatusCondition;
@@ -200,7 +200,7 @@ describe("Gym Challenge attack effects that need new engine code", () => {
     const deck = [gameCard("Potion", "base"), energy(Grass), gameCard("Bill", "base")];
     const state = deepFreeze(vs(gym(39), dummy(), { player: { deck } }));
     const heads = attack(state, "Hacer Recados", [H]);
-    expect(heads.pendingAttackChoice!.step.options.map((o) => o.label).sort()).toEqual(["Bill", "Potion"]);
+    expect(names(takeable(heads.pendingAttackChoice!.step)).sort()).toEqual(["Bill", "Potion"]);
     const done = choose(heads, [heads.pendingAttackChoice!.step.options.find((o) => o.label === "Bill")!.id]);
     expect([names(done.playerHand), done.playerDeck.length]).toEqual([["Bill"], 2]);
     expect(attack(state, "Hacer Recados", [T]).pendingAttackChoice).toBeUndefined();

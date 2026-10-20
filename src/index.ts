@@ -15,6 +15,7 @@ export type {
   GameCard,
   GameModifier,
   GameEvent,
+  LogCard,
 } from "./domain/match";
 
 
@@ -297,6 +298,7 @@ export {
 // Utilities
 export {
   createGameEvent,
+  toLogCards,
   shuffle,
   drawCard,
   getEnergyValue,

@@ -255,7 +255,7 @@ describe("Pokémon Breeder on Fossil lines and its blockers", () => {
     });
     const bred = playTrainerCard(setup(), breeder.id, [[darkDragonite.id], [dratini.pokemon.id]]);
     const pending = bred.pendingPowerChoice!;
-    expect(pending.step.options.map((o) => o.label)).toEqual(["Abra", "Machop"]);
+    expect(pending.step.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Abra", "Machop"]);
     const done = resolvePowerChoice(bred, [abra.id, machop.id]);
     expect(names(done.playerBench.map((p) => p.pokemon))).toEqual(["Dark Dragonite", "Abra", "Machop"]);
     const gooped = playTrainerCard(setup({ powersSuppressed: [{ source: "Goop Gas Attack", expiresAfterTurn: 9 }] }), breeder.id, [[darkDragonite.id], [dratini.pokemon.id]]);
@@ -449,7 +449,7 @@ describe("Hand / deck / discard Trainers and Trainers played as Basics", () => {
     const darkRaichu = gameCard("Dark Raichu", "rocket");
     const state = makeState({ player: { active: inPlay("Machop"), hand: [trader, fossilCard(), abra], deck: [doll(), darkRaichu] }, opponent: { active: inPlay("Onix") } });
     expect(getTrainerSteps(state, trader.id, [])!.options.map((o) => o.label)).toEqual(["Abra"]);
-    expect(getTrainerSteps(state, trader.id, [[abra.id]])!.options.map((o) => o.label)).toEqual(["Dark Raichu"]);
+    expect(getTrainerSteps(state, trader.id, [[abra.id]])!.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Dark Raichu"]);
     const next = playTrainerCard(state, trader.id, [[abra.id], [darkRaichu.id]]);
     expect(names(next.playerHand).sort()).toEqual(["Dark Raichu", "Mysterious Fossil"]);
   });
@@ -484,7 +484,7 @@ describe("Hand / deck / discard Trainers and Trainers played as Basics", () => {
     const darkGolbat = gameCard("Dark Golbat", "rocket");
     const deck = [base("Kadabra"), gameCard("Golbat", "fossil"), darkGolbat, fossilCard(), gameCard("Dark Alakazam", "rocket")];
     const state = makeState({ player: { active: inPlay("Machop"), hand: [boss], deck }, opponent: { active: inPlay("Onix") } });
-    expect(getTrainerSteps(state, boss.id, [])!.options.map((o) => o.label)).toEqual(["Dark Golbat", "Dark Alakazam"]);
+    expect(getTrainerSteps(state, boss.id, [])!.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Dark Golbat", "Dark Alakazam"]);
   });
 
   it("Challenge! never offers a Mysterious Fossil or a Clefairy Doll from the deck (not Basic Pokémon cards)", () => {
@@ -494,8 +494,8 @@ describe("Hand / deck / discard Trainers and Trainers played as Basics", () => {
       player: { active: inPlay("Machop"), hand: [challenge], deck: [fossilCard(), doll(), abra, gameCard("Dark Golbat", "rocket")] },
       opponent: { active: inPlay("Onix"), deck: [doll(), gameCard("Machop", "base")] },
     });
-    expect(getTrainerSteps(state, challenge.id, [["accept"]])!.options.map((o) => o.label)).toEqual(["Abra"]);
-    expect(getTrainerSteps(state, challenge.id, [["accept"], [abra.id]])!.options.map((o) => o.label)).toEqual(["Machop"]);
+    expect(getTrainerSteps(state, challenge.id, [["accept"]])!.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Abra"]);
+    expect(getTrainerSteps(state, challenge.id, [["accept"], [abra.id]])!.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Machop"]);
   });
 
   it("a Basic benched by Challenge! can't be evolved (nor bred) that turn", () => {

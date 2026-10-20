@@ -180,7 +180,7 @@ describe("activated powers", () => {
     const deck = [card("Abra"), card("Dark Golbat"), energy(Fire), card("Dark Dragonite")];
     const state = makeState({ player: { active: dragonair, deck }, opponent: { active: inPlay("Onix") } });
     const step = getPowerSteps(state, dragonair.pokemon.id, [])!;
-    expect(step.options.map((o) => o.label)).toEqual(["Dark Golbat", "Dark Dragonite"]);
+    expect(step.options.filter((o) => !o.disabled).map((o) => o.label)).toEqual(["Dark Golbat", "Dark Dragonite"]);
     const next = usePokemonPower(state, dragonair.pokemon.id, [[step.options[1].id]]);
     expect(names(next.playerHand)).toEqual(["Dark Dragonite"]);
     expect(next.playerDeck).toHaveLength(3);
