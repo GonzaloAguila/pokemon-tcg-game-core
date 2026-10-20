@@ -215,6 +215,7 @@ export function checkInvariants(state: GameState, context: InvariantContext): st
       state.pendingBenchTrim && "pendingBenchTrim",
       state.pendingDuel && "pendingDuel",
       state.pendingTypeShift && "pendingTypeShift",
+      state.pendingBorrowedTrainer && "pendingBorrowedTrainer",
       state.playerCanTakePrize && "playerCanTakePrize",
       state.opponentCanTakePrize && "opponentCanTakePrize",
       state.playerNeedsToPromote && "playerNeedsToPromote",

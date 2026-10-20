@@ -54,6 +54,10 @@
  * | Lt. Surge's Treaty (GH) | [["prizes"/"draw"] (chooser: opponent)]; "prizes": + [[own Prize position "0".."n-1"]] (self) + [[opponent's Prize position]] (chooser: opponent). "prizes" disabled when both sides hold their last Prize |
  * | Blaine's Quiz #1 (GH) | [[handPokemonCardId] (self), [length in inches, e.g. "346"] (chooser: opponent; 4 options, quizLengthOptions)] |
  * | Misty's Duel (GH) | [] (state.pendingDuel: each side picks rock / paper / scissors with submitDuelPick, domain/duel/rps.ts) |
+ * | Blaine's Quiz #2 (GC) | [[handCardId] (self), ["pokemon"/"trainer"/"energy"] (chooser: opponent)] |
+ * | Blaine's Quiz #3 (GC) | [[handPokemonCardId] (self), [attack index] (self), [card name] (chooser: opponent; 4 names, quizCardNameOptions)] |
+ * | Misty's Wish (GC) | [[own Prize position] (self), [] (look: `cards` = that Prize, reveals "ownPrizes"), [handCardId] (self; only with another card in hand), ["accept"/"decline"] (chooser: opponent)] |
+ * | Sabrina's Psychic Control (GC) | 1 coin; heads: [[cardId in the opponent's discard pile]] → state.pendingBorrowedTrainer; then that card's own flow with `borrowedFromOpponentDiscard` (registered in effects/index.ts) |
  *
  * Mysterious Fossil and Clefairy Doll have no entry: they are played as Basic Pokémon
  * (playBasicPokemon; see isPlayedAsBasic).
@@ -64,14 +68,14 @@ import { applyStatusCondition, clearStatusConditionsOnRetreat, createGameEvent, 
 import { arePrizesRevealed, hasStatusImmunity, healOnEnergyAttach } from "@/domain/powers";
 import { markSide } from "@/domain/trainers/side-marks";
 import { modifiersAttachedTo } from "@/lib/modifiers";
-import { ALL_CARDS, heightInInches, pokedexHeight, pokedexSpecies, quizLengthOptions } from "@/domain/catalog";
+import { ALL_CARDS, heightInInches, pokedexHeight, pokedexSpecies, quizCardNameOptions, quizLengthOptions } from "@/domain/catalog";
 import { cardOutOfPlay, cardsLeavingPlay, isBasicEnergy, isEnergyCard, isPokemonCard } from "@/domain/cards";
 import { hasOwner, type PokemonOwner } from "@/domain/cards/owner";
 import { attachTrainer, CHARITY, SABRINAS_ESP, BROCKS_PROTECTION, KOGAS_NINJA_TRICK, type AttachedTrainerExpiry } from "@/domain/trainers/attached";
 import { energyRemovalBlocked } from "@/lib/gameState";
 import { setAsideHand, TICKLING_MACHINE } from "@/domain/trainers/set-aside";
 import { MISTYS_DUEL, startDuel } from "@/domain/duel/rps";
-import { CardKind, EnergyType, GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
+import { CardKind, EnergyType, GamePhase, PokemonStage, StatusCondition, TrainerType } from "@/domain/constants";
 import { isBenchFull, maxBenchSize, findInPlay, getEvolutionBlocker, newPokemonInPlay } from "@/domain/board";
 import {
   playBill,
@@ -712,10 +716,6 @@ export const UNSUPPORTED_TRAINERS: readonly string[] = [
   // implements it (docs/superpowers/plans/2026-10-19-gym-challenge.md). Its 7 Stadiums need no
   // entry here: they fall back to playStadium (in play, no rule yet).
   "Lt. Surge's Secret Plan",
-  "Misty's Wish",
-  "Blaine's Quiz #2",
-  "Blaine's Quiz #3",
-  "Sabrina's Psychic Control",
 ];
 
 // ============================================================================
@@ -723,7 +723,7 @@ export const UNSUPPORTED_TRAINERS: readonly string[] = [
 // ============================================================================
 
 /** The Trainer leaves the hand for the discard pile (after its effect). */
-function discardPlayed(state: GameState, cardId: string, message: string): GameState {
+export function discardPlayed(state: GameState, cardId: string, message: string): GameState {
   const card = state.playerHand.find((c) => c.id === cardId)!;
   return {
     ...state,
@@ -2498,6 +2498,217 @@ Object.assign(TRAINER_EFFECTS, {
     (state, cardId) => attachPlayed(state, cardId, state.playerActivePokemon!.pokemon.id, "whileActive"),
     (state) => (state.playerActivePokemon && hasOwner(state.playerActivePokemon.pokemon, "Koga") ? null : "Tu Pokémon Activo debe tener Koga en su nombre")
   ),
+} satisfies Record<string, CardEffectDef>);
+
+// ============================================================================
+// Gym Challenge: Trainers the opponent answers or that use hidden cards (the face-down card /
+// Prize never reaches the opponent's step nor the log; the AI answers with
+// answerOpponentTrainerStepForAI)
+// ============================================================================
+
+/**
+ * Trainers that stay in play once played (attached Trainers, PlusPower / Defender, Stadiums, the
+ * ones played as Basic Pokémon, Lt. Surge's Secret Plan): Sabrina's Psychic Control can't use them.
+ */
+const STAY_IN_PLAY = new Set(["PlusPower", "Defender", CHARITY, SABRINAS_ESP, BROCKS_PROTECTION, KOGAS_NINJA_TRICK, "Lt. Surge's Secret Plan"]);
+export function staysInPlay(card: GameCard): boolean {
+  return card.kind === CardKind.Trainer && (card.trainerType === TrainerType.Stadium || !!card.playsAsBasic || STAY_IN_PLAY.has(card.name));
+}
+
+type QuizCategory = "pokemon" | "trainer" | "energy";
+/** Blaine's Quiz #2's answer for a hand card (Mysterious Fossil / Clefairy Doll are Trainer cards). */
+const quizCategory = (c: GameCard): QuizCategory => (isPokemonCard(c) ? "pokemon" : isEnergyCard(c) ? "energy" : "trainer");
+const QUIZ_CATEGORY_LABELS: Record<QuizCategory, string> = { pokemon: "Pokémon", trainer: "Entrenador", energy: "Energía" };
+
+/** Pokémon cards of the hand Blaine's Quiz #3 can use (Basic or Evolution, with an attack to name). */
+const quizAttackCards = (state: GameState, cardId: string) => otherHandCards(state, cardId).filter((c) => isPokemonCard(c) && c.attacks.length > 0);
+
+/** The quiz's outcome: right → the opponent draws `count`, wrong → the player does. */
+function settleQuiz(state: GameState, title: string, right: boolean, count: number, told: string): GameState {
+  const said = { ...state, events: [...state.events, createGameEvent(`${title}: ${told} y ${right ? "acertó" : "falló"} (la carta vuelve a la mano de quien lo jugó)`, "action")] };
+  if (right) {
+    const { state: drew, drawn } = opponentDraws(said, count);
+    return { ...drew, events: [...drew.events, createGameEvent(`${title}: el otro jugador robó ${cardsCount(drawn)}`, "info")] };
+  }
+  const { state: drew, drawn } = drawCards(said, count);
+  return { ...drew, events: [...drew.events, createGameEvent(`Robaste ${cardsCount(drawn)}`, "info")] };
+}
+
+Object.assign(TRAINER_EFFECTS, {
+  // "Put 1 card from your hand face down in front of you. Your opponent guesses whether it's an
+  // Energy, Trainer or Pokémon card…" Right: the opponent draws 2; wrong: the player draws 2.
+  "Blaine's Quiz #2": {
+    canUse: (state, cardId) => (otherHandCards(state, cardId).length > 0 ? null : "Necesitas otra carta en tu mano"),
+    getSteps: (state, cardId, selections) => {
+      if (selections.length === 0) {
+        return {
+          title: "Blaine's Quiz #2",
+          description: "Elige una carta de tu mano y ponla boca abajo: tu rival adivinará si es una carta de Pokémon, de Entrenador o de Energía",
+          options: otherHandCards(state, cardId).map(cardOption),
+          maxSelections: 1,
+          source: "hand",
+          disableAutoSelect: true,
+        };
+      }
+      if (selections.length === 1) {
+        const options = (["pokemon", "trainer", "energy"] as const).map((id) => ({ id, label: QUIZ_CATEGORY_LABELS[id] }));
+        return {
+          title: "Blaine's Quiz #2",
+          description: "Tu rival adivina si tu carta boca abajo es de Pokémon, de Entrenador o de Energía",
+          answererTitle: "Blaine's Quiz #2",
+          answererDescription:
+            "Tu rival jugó Blaine's Quiz #2 y puso boca abajo una carta de su mano: ¿es una carta de Pokémon, de Entrenador o de Energía? Si aciertas, robas 2 cartas; si fallas, tu rival roba 2",
+          options,
+          maxSelections: 1,
+          disableAutoSelect: true,
+          chooser: "opponent",
+          // Answer clock: the first option
+          defaultSelection: ["pokemon"],
+        };
+      }
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const hidden = state.playerHand.find((c) => c.id === selections[0][0])!;
+      const guess = selections[1][0] as QuizCategory;
+      const played = discardPlayed(state, cardId, "Jugaste Blaine's Quiz #2");
+      return settleQuiz(played, "Blaine's Quiz #2", quizCategory(hidden) === guess, 2, `el otro jugador dijo ${QUIZ_CATEGORY_LABELS[guess]}`);
+    },
+  },
+
+  // "Put a Basic Pokémon or Evolution card from your hand face down in front of you and tell your
+  // opponent the name of 1 of its attacks. Your opponent guesses the name of that card…" The guess
+  // is among 4 names (quizCardNameOptions). Right: the opponent draws 3; wrong: the player draws 3.
+  "Blaine's Quiz #3": {
+    canUse: (state, cardId) => (quizAttackCards(state, cardId).length > 0 ? null : "Necesitas una carta de Pokémon Básico o de Evolución en tu mano"),
+    getSteps: (state, cardId, selections) => {
+      if (selections.length === 0) {
+        return {
+          title: "Blaine's Quiz #3",
+          description: "Elige una carta de Pokémon Básico o de Evolución de tu mano: dirás a tu rival el nombre de 1 de sus ataques y adivinará el nombre de la carta",
+          options: quizAttackCards(state, cardId).map(cardOption),
+          maxSelections: 1,
+          source: "hand",
+          disableAutoSelect: true,
+        };
+      }
+      const named = quizAttackCards(state, cardId).find((c) => c.id === selections[0][0]);
+      if (!named || !isPokemonCard(named)) return null; // not an offered card: the first answer is refused anyway
+      if (selections.length === 1) {
+        return {
+          title: "Blaine's Quiz #3",
+          description: `Elige el ataque de ${named.name} cuyo nombre dirás a tu rival`,
+          options: named.attacks.map((a, i) => ({ id: String(i), label: a.name })),
+          maxSelections: 1,
+        };
+      }
+      if (selections.length === 2) {
+        const attack = named.attacks[Number(selections[1][0])];
+        if (!attack) return null;
+        const options = quizCardNameOptions(named, attack.name).map((name) => ({ id: name, label: name }));
+        return {
+          title: "Blaine's Quiz #3",
+          description: `Tu rival adivina el nombre de tu carta boca abajo (tiene el ataque ${attack.name})`,
+          answererTitle: "Blaine's Quiz #3",
+          answererDescription: `Tu rival jugó Blaine's Quiz #3: su carta boca abajo tiene el ataque ${attack.name}. ¿Cómo se llama? Si aciertas, robas 3 cartas; si fallas, tu rival roba 3`,
+          options,
+          maxSelections: 1,
+          disableAutoSelect: true,
+          chooser: "opponent",
+          // Answer clock: the first name offered (alphabetical: says nothing about the answer)
+          defaultSelection: options.slice(0, 1).map((o) => o.id),
+        };
+      }
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const named = state.playerHand.find((c) => c.id === selections[0][0])!;
+      const attack = isPokemonCard(named) ? named.attacks[Number(selections[1][0])]?.name : undefined;
+      const guess = selections[2][0];
+      const played = discardPlayed(state, cardId, "Jugaste Blaine's Quiz #3");
+      return settleQuiz(played, "Blaine's Quiz #3", guess === named.name, 3, `el ataque era ${attack}; el otro jugador dijo ${guess}`);
+    },
+  },
+
+  // "Look at 1 of your Prizes. Then ask your opponent if you can switch it with 1 card from your
+  // hand. If your opponent agrees and you have any other cards in your hand, switch those cards.
+  // If your opponent refuses, return that Prize face down and draw a card."
+  // Steps: Prize position → the look (0-selection, reveals "ownPrizes") → the hand card offered
+  // (only with other cards in hand) → the opponent's accept / decline (blind).
+  "Misty's Wish": {
+    canUse: (state) => (state.playerPrizes.length > 0 ? null : "No te quedan cartas de Premio"),
+    getSteps: (state, cardId, selections) => {
+      if (selections.length === 0) {
+        return { ...prizePositionStep(state, "player"), title: "Misty's Wish", description: "Elige 1 de tus cartas de Premio para mirarla" };
+      }
+      const position = Number(selections[0][0]);
+      const prize = state.playerPrizes[position];
+      if (!prize) return null;
+      if (selections.length === 1) {
+        return {
+          title: "Misty's Wish",
+          description: `Tu Premio ${position + 1} es ${prize.name}`,
+          options: [],
+          maxSelections: 0,
+          cards: [prize],
+          reveals: "ownPrizes",
+        };
+      }
+      const others = otherHandCards(state, cardId);
+      const offers = others.length > 0;
+      if (offers && selections.length === 2) {
+        return {
+          title: "Misty's Wish",
+          description: "Elige la carta de tu mano que ofrecerás a tu rival a cambio de ese Premio",
+          options: others.map(cardOption),
+          maxSelections: 1,
+          source: "hand",
+          disableAutoSelect: true,
+        };
+      }
+      if (selections.length === (offers ? 3 : 2)) {
+        return {
+          title: "Misty's Wish",
+          description: "Tu rival decide si puedes cambiar ese Premio por la carta de tu mano (si se niega, robas 1 carta)",
+          answererTitle: "Misty's Wish",
+          answererDescription:
+            "Tu rival jugó Misty's Wish: miró 1 de sus Premios y quiere cambiarlo por 1 carta de su mano. ¿Aceptas? Si te niegas, tu rival roba 1 carta",
+          options: [
+            { id: "accept", label: "Aceptar el cambio" },
+            { id: "decline", label: "Negarse: tu rival roba 1 carta" },
+          ],
+          maxSelections: 1,
+          disableAutoSelect: true,
+          chooser: "opponent",
+          // Answer clock: decline (the player only draws 1)
+          defaultSelection: ["decline"],
+        };
+      }
+      return null;
+    },
+    resolve: (state, cardId, selections) => {
+      const position = Number(selections[0][0]);
+      const answer = selections[selections.length - 1][0];
+      const offeredId = selections.length === 4 ? selections[2][0] : undefined;
+      const played = discardPlayed(state, cardId, "Jugaste Misty's Wish");
+      if (answer === "decline") {
+        const refused = { ...played, events: [...played.events, createGameEvent("Misty's Wish: el otro jugador se negó; el Premio vuelve boca abajo", "info")] };
+        const { state: drew, drawn } = drawCards(refused, 1);
+        return { ...drew, events: [...drew.events, createGameEvent(`Robaste ${cardsCount(drawn)}`, "info")] };
+      }
+      const offered = offeredId ? played.playerHand.find((c) => c.id === offeredId) : undefined;
+      if (!offered) {
+        return { ...played, events: [...played.events, createGameEvent("Misty's Wish: el otro jugador aceptó, pero quien lo jugó no tenía otra carta en la mano", "info")] };
+      }
+      const prize = played.playerPrizes[position];
+      return {
+        ...played,
+        playerHand: [...played.playerHand.filter((c) => c.id !== offered.id), prize],
+        playerPrizes: played.playerPrizes.map((c, i) => (i === position ? offered : c)),
+        events: [...played.events, createGameEvent(`Misty's Wish: el otro jugador aceptó; quien lo jugó cambió el Premio ${position + 1} por una carta de su mano`, "action")],
+      };
+    },
+  },
 } satisfies Record<string, CardEffectDef>);
 
 /**

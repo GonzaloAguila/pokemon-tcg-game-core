@@ -31,3 +31,4 @@ export {
 } from "./sets";
 export type { CardSetId, CardSetInfo } from "./sets";
 export { POKEDEX_HEIGHTS, pokedexSpecies, pokedexHeight, heightInInches, quizLengthOptions } from "./pokedex-heights";
+export { quizCardNameOptions } from "./quiz";

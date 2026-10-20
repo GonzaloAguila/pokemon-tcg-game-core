@@ -67,6 +67,8 @@
  * | Koga's Ninja Trick (GC) | its Active has Koga in its name, a Benched Pokémon and no Ninja Trick yet (attackAnswers decides the switch) |
  * | Rocket's Secret Experiment (GC) | deck > 5 and no other Trainer in hand (a tails locks them) (hand change) |
  * | Warp Point (GC) | only when the other player can answer (OTHER_PLAYER_ANSWERS): its Active can't attack and a Benched Pokémon can |
+ * | Blaine's Quiz #2 / #3, Misty's Wish (GC) | only when the other player can answer: deck ≥ 6 / 7 / 3 and the draws affordable; Wish offers its least valuable card (hand change) |
+ * | Sabrina's Psychic Control (GC) | a Trainer of the other side's discard pile its own planners would play from the hand (psychicControlPick); played at once after heads (hand change) |
  * | Erika's Kindness (GC) | it heals 20+ of its own damage and more than the other side's |
  * | Koga (GC) | it will attack with a Koga's Active and the Defending Pokémon can be Poisoned |
  * | Transparent Walls (GC) | the opposing Active has an attack that damages its Bench |
@@ -91,13 +93,14 @@ import {
   canUseStadiumAction,
   getStadiumActionSteps,
   getTrainerSteps,
+  staysInPlay,
   type SelectionStep,
 } from "@/domain/effects";
 import { getEffectivePokemonCard, hasStatusImmunity, isPowerActive } from "@/domain/powers";
 import { minSelectionsOf } from "@/domain/effects/validate";
 import { answerStepForAI } from "./pending";
 import { attachedTrainerNamed, BROCKS_PROTECTION, KOGAS_NINJA_TRICK } from "@/domain/trainers/attached";
-import { unknownOwnCards } from "./knowledge";
+import { knowledgeView, unknownOwnCards } from "./knowledge";
 import type { AIAction } from "./types";
 
 /**
@@ -115,7 +118,45 @@ export const AI_NEVER_PLAYS: ReadonlySet<string> = new Set(["Challenge!", "Digge
  * consumer asks (`otherPlayerAnswersByHuman`: the executor stops at
  * `state.pendingOpponentTrainerStep`, answered with answerOpponentTrainerStep).
  */
-export const OTHER_PLAYER_ANSWERS: ReadonlySet<string> = new Set(["Erika", "Lt. Surge's Treaty", "Blaine's Quiz #1", "Warp Point"]);
+export const OTHER_PLAYER_ANSWERS: ReadonlySet<string> = new Set([
+  "Erika",
+  "Lt. Surge's Treaty",
+  "Blaine's Quiz #1",
+  "Warp Point",
+  "Blaine's Quiz #2",
+  "Blaine's Quiz #3",
+  "Misty's Wish",
+]);
+
+export const PSYCHIC_CONTROL = "Sabrina's Psychic Control";
+
+/** Trainers the AI never takes with Sabrina's Psychic Control (another Psychic Control, the ones it never plays or whose steps the other side answers). */
+export const neverBorrowed = (name: string) => name === PSYCHIC_CONTROL || AI_NEVER_PLAYS.has(name) || OTHER_PLAYER_ANSWERS.has(name);
+
+/**
+ * Sabrina's Psychic Control: the Trainer of the other side's discard pile (public) the AI would
+ * play if it were in its hand — its own planners (planHandChange / planTrainers) pick it on a view
+ * with that card in the hand; Professor Oak with a small hand and a deep deck. undefined = none.
+ */
+export function psychicControlPick(view: GameState, controlId: string, options: HandChangeOptions = {}): GameCard | undefined {
+  const control = view.playerHand.find((c) => c.id === controlId);
+  const seen = new Set<string>();
+  for (const c of view.opponentDiscard) {
+    if (!isTrainerCard(c) || staysInPlay(c) || neverBorrowed(c.name) || seen.has(c.name)) continue;
+    seen.add(c.name);
+    const virtual: GameState = {
+      ...view,
+      playerHand: [...view.playerHand.filter((h) => h.id !== controlId), c],
+      playerDiscard: control ? [...view.playerDiscard, control] : view.playerDiscard,
+    };
+    if (canPlayTrainerCard(virtual, c.id) !== null) continue;
+    const handChange = planHandChange(virtual, { ...options, otherPlayerAnswersByAI: false, otherPlayerAnswersByHuman: false, otherPlayerDuels: false });
+    if (handChange?.type === "playTrainer" && handChange.cardId === c.id) return c;
+    if (planTrainers(virtual, { willAttack: true }).some((a) => a.type === "playTrainer" && a.cardId === c.id)) return c;
+    if (c.name === "Professor Oak" && virtual.playerHand.length <= 3 && view.playerDeck.length >= 12) return c;
+  }
+  return undefined;
+}
 
 
 // ============================================================================
@@ -369,6 +410,13 @@ function planOpponentAnsweredTrainers(view: GameState, affords: (count: number) 
   if (quiz && view.playerDeck.length >= 6 && affords(2)) return playTrainer(quiz);
   const warp = playable(view, "Warp Point");
   if (warp && wantsWarpPoint(view)) return playTrainer(warp);
+  // Gym Challenge: the card comes back to the hand (Quiz) / at worst it draws 1 (Misty's Wish)
+  const quiz2 = playable(view, "Blaine's Quiz #2");
+  if (quiz2 && view.playerDeck.length >= 6 && affords(2)) return playTrainer(quiz2);
+  const quiz3 = playable(view, "Blaine's Quiz #3");
+  if (quiz3 && view.playerDeck.length >= 7 && affords(3)) return playTrainer(quiz3);
+  const wish = playable(view, "Misty's Wish");
+  if (wish && view.playerDeck.length >= 3 && affords(1)) return playTrainer(wish);
   return null;
 }
 
@@ -489,6 +537,10 @@ function planGymChallengeHandChange(view: GameState, options: HandChangeOptions)
   const fervor = playable(view, "Fervor");
   if (fervor && needed.includes(EnergyType.Fire) && deck.length >= 10 && (!options.saveDeck || canAffordDraws(view, 3))) return playTrainer(fervor);
 
+  // Sabrina's Psychic Control: a Trainer of the other side's discard pile it would play from its hand
+  const control = playable(view, PSYCHIC_CONTROL);
+  if (control && psychicControlPick(view, control.id, options)) return playTrainer(control);
+
   // A tails locks its Trainers: only with no other Trainer in hand
   const experiment = playable(view, "Rocket's Secret Experiment");
   if (experiment && deck.length > 5 && !hand.some((c) => c.id !== experiment.id && isTrainerCard(c))) return playTrainer(experiment);
@@ -605,6 +657,17 @@ function answerGymChallengeStep(view: GameState, cardId: string, name: string, s
       const move = sabrinaMove(view);
       const wanted = step.options.some((o) => o.id === move?.from.pokemon.id) ? move?.from : move?.to;
       return prefer(view, step, [(_c, id) => id === wanted?.pokemon.id]);
+    }
+    case "Misty's Wish":
+      // Its Prize: any position (face down); the card it offers: its least valuable one
+      if (step.source === "hand") return bestIds(view, step, (c) => -(c ? handCardValue(view, c) : 0)).slice(0, 1);
+      return answerStepForAI(step);
+    case PSYCHIC_CONTROL: {
+      const ids = enabledIds(step);
+      const pick = psychicControlPick(knowledgeView(view), cardId);
+      const label = (id: string) => step.options.find((o) => o.id === id)?.label ?? "";
+      const id = ids.find((option) => option === pick?.id) ?? ids.find((option) => !neverBorrowed(label(option))) ?? ids[0];
+      return id !== undefined ? [id] : [];
     }
     case "Blaine":
       // The Active first (ownPokemonChoices lists it first), then the first 2 Fire Energy cards
@@ -991,12 +1054,14 @@ function answerGymHeroesStep(view: GameState, cardId: string, name: string, step
  * |---|---|
  * | Erika | the most cards it can draw without emptying its deck |
  * | Lt. Surge's Treaty | "prizes" when the AI has as many Prizes left as the Trainer's player or fewer (it gains as much or more; on 1 Prize it wins), else "draw"; its own Prize: any position (face down) |
- * | Blaine's Quiz #1 | a random length among the 4 offered (Math.random: seeded by the simulator) |
+ * | Blaine's Quiz #1 / #2 / #3 | a random option among the offered ones (Math.random: seeded by the simulator) |
+ * | Misty's Wish | "decline" (the player draws 1; it never lets them pick a card they looked at) |
  * | Warp Point | its Benched Pokémon with the most HP left |
  * | anything else (Challenge!) | answerStepForAI |
  */
 export function answerOpponentTrainerStepForAI(trainerView: GameState, cardId: string, step: SelectionStep): string[] {
-  const name = trainerView.playerHand.find((c) => c.id === cardId)?.name;
+  // The Trainer is in that player's hand, or Sabrina's Psychic Control borrowed it from the AI's discard pile
+  const name = (trainerView.playerHand.find((c) => c.id === cardId) ?? trainerView.opponentDiscard.find((c) => c.id === cardId))?.name;
   const enabled = enabledIds(step);
   switch (name) {
     case "Erika":
@@ -1008,7 +1073,11 @@ export function answerOpponentTrainerStepForAI(trainerView: GameState, cardId: s
       }
       return answerStepForAI(step);
     case "Blaine's Quiz #1":
+    case "Blaine's Quiz #2":
+    case "Blaine's Quiz #3":
       return enabled.length > 0 ? [enabled[Math.min(enabled.length - 1, Math.floor(Math.random() * enabled.length))]] : [];
+    case "Misty's Wish":
+      return enabled.includes("decline") ? ["decline"] : answerStepForAI(step);
     case "Warp Point": {
       const left = (id: string) => {
         const p = trainerView.opponentBench.find((b) => b.pokemon.id === id);

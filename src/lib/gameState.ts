@@ -494,6 +494,15 @@ export type GameState = {
    */
   pendingDuel?: PendingDuel;
   /**
+   * Sabrina's Psychic Control (Gym Challenge) came up heads: the side whose turn it is may now play
+   * this Trainer of the opponent's discard pile as if it were in its hand (the generic Trainer
+   * flow with this `cardId`: canPlayTrainerCard / getTrainerSteps / playTrainerCard with
+   * `borrowedFromOpponentDiscard`); the card stays in the opponent's discard pile. Every other
+   * action waits (getTurnActionBlocker) until it is played or given up (declineBorrowedTrainer);
+   * endTurn gives it up. Read on the acting side's view: not swapped by swapSides.
+   */
+  pendingBorrowedTrainer?: { cardId: string; cardName: string };
+  /**
    * Single-player: a Trainer the AI plays (the side whose turn it is) waits for the other
    * player's answer to one of its steps (`step.chooser: "opponent"`: Erika, Lt. Surge's Treaty,
    * Blaine's Quiz #1). The card stays in the AI's hand; `answerOpponentTrainerStep` (domain/ai)
@@ -2621,7 +2630,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
   const newTurnNumber = currentTurn + 1;
   const events: GameEvent[] = [...gameState.events];
 
-  let updatedState: GameState = { ...gameState, pendingTypeShift: undefined, pendingPeek: undefined, lastDuel: undefined };
+  let updatedState: GameState = { ...gameState, pendingTypeShift: undefined, pendingPeek: undefined, lastDuel: undefined, pendingBorrowedTrainer: undefined };
 
   // The end of the turn, before the between-turns checkup: the ending side's attached Trainers
   // leave (Charity back to the hand, Sabrina's ESP to the discard pile)

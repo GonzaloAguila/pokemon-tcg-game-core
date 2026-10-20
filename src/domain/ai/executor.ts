@@ -31,10 +31,11 @@ import {
   canUseStadiumAction,
   getStadiumActionCoinFlips,
   useStadiumAction,
+  declineBorrowedTrainer,
   type CoinFlipRequirement,
 } from "@/domain/effects";
 import type { CoinFlipResult } from "@/domain/constants";
-import { answerOpponentTrainerStepForAI, answerPowerStepForAI, answerTrainerStepForAI, collectAnswers } from "./cardEffects";
+import { answerOpponentTrainerStepForAI, answerPowerStepForAI, answerTrainerStepForAI, collectAnswers, neverBorrowed } from "./cardEffects";
 import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapBenchTrim, swapStadium } from "@/domain/board";
 import { swapSetAsideHands } from "@/domain/trainers/set-aside";
 import { swapLastDuel, swapPendingDuel } from "@/domain/duel/rps";
@@ -521,10 +522,23 @@ function executeTrainer(state: GameState, action: PlayTrainerAction): GameState 
     (s) =>
       tryEffect(s, () => {
         const coins = flipCoins(getTrainerCoinFlips(s, cardId));
-        if (!action.answerAtPlay) return finishTrainer(s, cardId, action.selections, coins);
-        return answerAndPlayTrainer(s, cardId, trainerName, [], coins, !!action.waitsForOtherPlayer);
+        const played = !action.answerAtPlay
+          ? finishTrainer(s, cardId, action.selections, coins)
+          : answerAndPlayTrainer(s, cardId, trainerName, [], coins, !!action.waitsForOtherPlayer);
+        return played.pendingBorrowedTrainer ? playBorrowedTrainer(played) : played;
       })
   );
+}
+
+/**
+ * Sabrina's Psychic Control came up heads (AI view): the AI plays the Trainer it chose from the
+ * other side's discard pile right away, answering its steps; one it can't (or won't) play is given up.
+ */
+function playBorrowedTrainer(view: GameState): GameState {
+  const { cardId, cardName } = view.pendingBorrowedTrainer!;
+  if (neverBorrowed(cardName) || canPlayTrainerCard(view, cardId) !== null) return declineBorrowedTrainer(view);
+  const played = tryEffect(view, () => answerAndPlayTrainer(view, cardId, cardName, [], flipCoins(getTrainerCoinFlips(view, cardId)), false));
+  return played === view ? declineBorrowedTrainer(view) : played;
 }
 
 /**

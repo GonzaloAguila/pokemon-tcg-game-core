@@ -34,13 +34,13 @@ import { GamePhase, PokemonPowerType, PokemonStage } from "@/domain/constants";
 import type { Deck } from "@/domain/decks";
 import { getBenchTrimStep, resolveBenchTrim, swapSides } from "@/domain/board";
 import { aiDuelPick, submitDuelPick } from "@/domain/duel/rps";
-import { ACTIVATED_POWER_TYPES, type SelectionStep } from "@/domain/effects";
+import { ACTIVATED_POWER_TYPES, canPlayTrainerCard, declineBorrowedTrainer, type SelectionStep } from "@/domain/effects";
 import { isPowerActive } from "@/domain/powers";
 import { drawLuckyDuel, initializeLuckyDuelGame, isLuckyDuel } from "@/domain/lucky-duel";
 import { cardIdentities, checkInvariants, ownedCardIds, type CardIdentity } from "./invariants";
 import { GameRules } from "./rules";
 import { flipCoin, withRandom, type Rng } from "./rng";
-import type { Policy, ViewAction } from "./policies";
+import { trainerAction, UnanswerableStepError, type Policy, type ViewAction } from "./policies";
 
 export type SideId = "A" | "B";
 
@@ -313,6 +313,25 @@ class GameRunner {
       const { step, powerName } = view.pendingPowerChoice;
       const chosen = this.answer(actor, step);
       this.apply(actor, { label: `powerChoice ${powerName}`, run: (v) => resolvePowerChoice(v, chosen) });
+      return true;
+    }
+    if (view.pendingBorrowedTrainer) {
+      // Sabrina's Psychic Control's heads: the acting side plays the chosen Trainer now (its steps
+      // answered by its policy), or gives it up when it can't be played / answered
+      const { cardId, cardName } = view.pendingBorrowedTrainer;
+      const play = trainerAction(cardId, cardName, rng, (step) => this.policy(actor).answer(step, rng));
+      this.apply(actor, {
+        label: `borrowed ${cardName}`,
+        run: (v) => {
+          if (canPlayTrainerCard(v, cardId) !== null) return declineBorrowedTrainer(v);
+          try {
+            return play.run(v);
+          } catch (error) {
+            if (error instanceof UnanswerableStepError) return declineBorrowedTrainer(v);
+            throw error;
+          }
+        },
+      });
       return true;
     }
     if (view.pendingBenchTrim) {

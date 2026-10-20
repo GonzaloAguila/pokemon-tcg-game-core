@@ -55,9 +55,11 @@ export type SelectionStep = {
    * `cards` is the opponent's whole hand (Rocket's Sneak Attack, Psyscan); "opponentCards" =
    * `cards` are other hidden cards of the opponent (Surprise: a random card of their hand; False
    * Charity: the top card of their deck). In multiplayer the server must build this step from the
-   * real (unmasked) state and never send `cards` to the other player.
+   * real (unmasked) state and never send `cards` to the other player. "ownPrizes" = `cards` are
+   * face-down Prize cards of the chooser itself (Misty's Wish: "look at 1 of your Prizes"): the
+   * server builds it from the real state too (the client only has placeholders for its own Prizes).
    */
-  reveals?: "opponentHand" | "opponentCards";
+  reveals?: "opponentHand" | "opponentCards" | "ownPrizes";
   /**
    * The answer given for a player who doesn't answer in time (the multiplayer server's answer
    * clock): always a valid selection for this step (checkSelection accepts it) and harmless to
@@ -90,6 +92,11 @@ export type CardEffectContext = {
    * so the end-of-turn log is written for the right side (like executeAttack's skipEndTurn).
    */
   skipEndTurn?: boolean;
+  /**
+   * playTrainerCard only: the card is the Trainer Sabrina's Psychic Control lets the player use
+   * from the opponent's discard pile (`state.pendingBorrowedTrainer`); throws otherwise.
+   */
+  borrowedFromOpponentDiscard?: boolean;
 };
 
 /**

@@ -317,6 +317,8 @@ export {
   UNSUPPORTED_TRAINERS,
   ACTIVATED_POWER_TYPES,
   isPlayedAsBasic,
+  staysInPlay,
+  declineBorrowedTrainer,
   canPlayTrainerCard,
   getTrainerSteps,
   getTrainerCoinFlips,
@@ -425,6 +427,8 @@ export {
   pokedexHeight,
   heightInInches,
   quizLengthOptions,
+  // Blaine's Quiz #3's names
+  quizCardNameOptions,
 } from "./domain/catalog";
 export type { CardSetId, CardSetInfo, CardImageInput } from "./domain/catalog";
 

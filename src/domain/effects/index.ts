@@ -24,7 +24,7 @@
  */
 
 import type { GameState, PokemonInPlay } from "@/lib/gameState";
-import { checkKnockouts } from "@/lib/gameState";
+import { checkKnockouts, createGameEvent } from "@/lib/gameState";
 import { TrainerType, type CoinFlipResult } from "@/domain/constants";
 import { isPokemonCard } from "@/domain/cards";
 import { canUsePower } from "@/domain/powers";
@@ -32,7 +32,7 @@ import { findInPlay, getTrainerBlocker, getTurnActionBlocker } from "@/domain/bo
 import { IllegalActionError, assertLegal } from "@/shared/errors";
 import type { CardEffectContext, CardEffectDef, CoinFlipper, CoinFlipRequirement, SelectionStep } from "./types";
 import { checkCoins, checkSelections, coinRequirement } from "./validate";
-import { TRAINER_EFFECTS } from "./trainers";
+import { TRAINER_EFFECTS, discardPlayed, staysInPlay } from "./trainers";
 import { POWER_EFFECTS } from "./powers";
 import { playStadium, STADIUM_ACTIONS, withHandDiscardCost } from "./stadiums";
 import { stadiumExtraTrainerDiscards } from "@/domain/stadiums/rules";
@@ -46,7 +46,7 @@ export type {
   CoinFlipRequirement,
   CoinFlipper,
 } from "./types";
-export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames, isPlayedAsBasic } from "./trainers";
+export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames, isPlayedAsBasic, staysInPlay } from "./trainers";
 export { POWER_EFFECTS, ACTIVATED_POWER_TYPES } from "./powers";
 export { playStadium, STADIUM_EFFECTS, STADIUM_ACTIONS, withHandDiscardCost } from "./stadiums";
 export { checkSelection, minSelectionsOf, stepForAnswerer } from "./validate";
@@ -77,6 +77,25 @@ function runEffect(
 // Trainers (sourceId = card id in the hand)
 // ============================================================================
 
+/**
+ * Sabrina's Psychic Control: the Trainer it lets the player use (`pendingBorrowedTrainer`, in the
+ * opponent's discard pile) is played "as if it were in your hand": every Trainer entry point runs
+ * on a view with a copy of it in the hand and the mark cleared. Any other card: the state as is.
+ */
+function trainerView(state: GameState, cardId: string): { view: GameState; borrowed: boolean } {
+  const mark = state.pendingBorrowedTrainer;
+  if (!mark || mark.cardId !== cardId || state.playerHand.some((c) => c.id === cardId)) return { view: state, borrowed: false };
+  const card = state.opponentDiscard.find((c) => c.id === cardId);
+  if (!card) return { view: state, borrowed: false };
+  return { view: { ...state, playerHand: [...state.playerHand, card], pendingBorrowedTrainer: undefined }, borrowed: true };
+}
+
+/** After a borrowed Trainer resolved: its copy leaves the player's piles (the card itself never left the opponent's discard pile). */
+function returnBorrowedCard(state: GameState, cardId: string): GameState {
+  const without = (cards: GameState["playerHand"]) => (cards.some((c) => c.id === cardId) ? cards.filter((c) => c.id !== cardId) : cards);
+  return { ...state, playerHand: without(state.playerHand), playerDiscard: without(state.playerDiscard), playerDeck: without(state.playerDeck) };
+}
+
 function trainerDef(state: GameState, cardId: string): { def?: CardEffectDef; reason: string | null } {
   const card = state.playerHand.find((c) => c.id === cardId);
   if (!card) return { reason: "La carta no está en tu mano" };
@@ -92,6 +111,7 @@ function trainerDef(state: GameState, cardId: string): { def?: CardEffectDef; re
 
 /** null when the Trainer in the hand can be played now, else the Spanish reason. */
 export function canPlayTrainerCard(state: GameState, cardId: string): string | null {
+  state = trainerView(state, cardId).view;
   const blocker = getTurnActionBlocker(state);
   if (blocker) return blocker;
   const trainersBlocked = getTrainerBlocker(state);
@@ -111,8 +131,9 @@ export function getTrainerSteps(
   selections: string[][],
   coinResults?: CoinFlipResult[]
 ): SelectionStep | null {
-  const { def } = trainerDef(state, cardId);
-  return def ? def.getSteps(state, cardId, selections, coinResults) : null;
+  const { view } = trainerView(state, cardId);
+  const { def } = trainerDef(view, cardId);
+  return def ? def.getSteps(view, cardId, selections, coinResults) : null;
 }
 
 /**
@@ -121,8 +142,9 @@ export function getTrainerSteps(
  * (Blaine's Gamble: the player chooses the discards without knowing the coin).
  */
 export function getTrainerCoinFlips(state: GameState, cardId: string, selections: string[][] = []): CoinFlipRequirement {
-  const { def } = trainerDef(state, cardId);
-  return def ? coinRequirement(def, state, cardId, selections) : 0;
+  const { view } = trainerView(state, cardId);
+  const { def } = trainerDef(view, cardId);
+  return def ? coinRequirement(def, view, cardId, selections) : 0;
 }
 
 /** Who flipped each of `count` coins of an effect (default: its player). */
@@ -136,19 +158,102 @@ function flippersOf(def: CardEffectDef | undefined, count: number): CoinFlipper[
  * "self"…; every other Trainer is "self". For captions only (the caller still flips them all).
  */
 export function getTrainerCoinFlippers(state: GameState, cardId: string, count: number): CoinFlipper[] {
-  return flippersOf(trainerDef(state, cardId).def, count);
+  return flippersOf(trainerDef(trainerView(state, cardId).view, cardId).def, count);
 }
 
-/** Play a Trainer from the hand with the answers to its steps and the coins it requested. */
+/**
+ * Play a Trainer from the hand with the answers to its steps and the coins it requested. With
+ * `borrowedFromOpponentDiscard`: the Trainer of the opponent's discard pile Sabrina's Psychic
+ * Control lets the player use (`state.pendingBorrowedTrainer`); it stays in that discard pile.
+ */
 export function playTrainerCard(
   state: GameState,
   cardId: string,
   selections: string[][] = [],
   context: CardEffectContext = {}
 ): GameState {
+  const { view, borrowed } = trainerView(state, cardId);
+  if (context.borrowedFromOpponentDiscard && !borrowed) {
+    throw new IllegalActionError("Esa carta no es la que elegiste con Sabrina's Psychic Control");
+  }
   assertLegal(canPlayTrainerCard(state, cardId));
-  return runEffect(trainerDef(state, cardId).def!, state, cardId, selections, context);
+  const { borrowedFromOpponentDiscard: _borrowed, ...effectContext } = context;
+  const next = runEffect(trainerDef(view, cardId).def!, view, cardId, selections, effectContext);
+  return borrowed ? returnBorrowedCard(next, cardId) : next;
 }
+
+/** Sabrina's Psychic Control: the player gives up the Trainer it chose (`pendingBorrowedTrainer`); unchanged without one. */
+export function declineBorrowedTrainer(state: GameState): GameState {
+  const mark = state.pendingBorrowedTrainer;
+  if (!mark) return state;
+  return {
+    ...state,
+    pendingBorrowedTrainer: undefined,
+    events: [...state.events, createGameEvent(`Sabrina's Psychic Control: no se usó ${mark.cardName}`, "info")],
+  };
+}
+
+// ============================================================================
+// Sabrina's Psychic Control (needs canPlayTrainerCard: registered here, not in trainers.ts)
+// ============================================================================
+
+const PSYCHIC_CONTROL = "Sabrina's Psychic Control";
+
+/** The state right after Psychic Control resolved with `chosenId` (the card itself discarded). */
+function afterPsychicControl(state: GameState, cardId: string, chosen: { id: string; name: string }): GameState {
+  return {
+    ...state,
+    playerHand: state.playerHand.filter((c) => c.id !== cardId),
+    playerDiscard: [...state.playerDiscard, ...state.playerHand.filter((c) => c.id === cardId)],
+    pendingBorrowedTrainer: { cardId: chosen.id, cardName: chosen.name },
+  };
+}
+
+/**
+ * Trainers of the opponent's discard pile Psychic Control may choose, with why one can't be played
+ * now. Another Psychic Control counts as playable (it may always choose itself: checking it would
+ * never end).
+ */
+function borrowableTrainers(state: GameState, cardId: string): { id: string; name: string; reason: string | null }[] {
+  return state.opponentDiscard
+    .filter((c) => c.kind === "trainer" && !staysInPlay(c))
+    .map((c) => ({ id: c.id, name: c.name, reason: c.name === PSYCHIC_CONTROL ? null : canPlayTrainerCard(afterPsychicControl(state, cardId, c), c.id) }));
+}
+
+// "Flip a coin. If heads, look at your opponent's discard pile and choose a Trainer card that
+// doesn't stay in play… You may use that card as if it were in your hand, if you do everything
+// required to play it (such as discarding cards). The card stays in your opponent's discard pile."
+// Heads: one step choosing it; the card is then played with the generic flow (pendingBorrowedTrainer).
+TRAINER_EFFECTS[PSYCHIC_CONTROL] = {
+  canUse: (state, cardId) =>
+    borrowableTrainers(state, cardId).some((c) => c.reason === null)
+      ? null
+      : "No hay en la pila de descartes de tu rival una carta de Entrenador que puedas usar",
+  coinFlips: () => 1,
+  getSteps: (state, cardId, selections, coinResults) => {
+    if (coinResults?.[0] !== "heads" || selections.length > 0) return null;
+    const choices = borrowableTrainers(state, cardId);
+    return {
+      title: PSYCHIC_CONTROL,
+      description: "Elige una carta de Entrenador de la pila de descartes de tu rival: la usarás como si estuviera en tu mano",
+      options: choices.map((c) => ({ id: c.id, label: c.name, ...(c.reason && { disabled: true, sublabel: c.reason }) })),
+      cards: state.opponentDiscard.filter((c) => choices.some((choice) => choice.id === c.id)),
+      maxSelections: 1,
+      disableAutoSelect: true,
+    };
+  },
+  resolve: (state, cardId, selections, { coinResults }) => {
+    const heads = coinResults?.[0] === "heads";
+    const played = discardPlayed(state, cardId, `Jugaste ${PSYCHIC_CONTROL}`);
+    if (!heads) return { ...played, events: [...played.events, createGameEvent(`${PSYCHIC_CONTROL}: salió cruz, no pasa nada`, "info")] };
+    const chosen = state.opponentDiscard.find((c) => c.id === selections[0][0])!;
+    return {
+      ...played,
+      pendingBorrowedTrainer: { cardId: chosen.id, cardName: chosen.name },
+      events: [...played.events, createGameEvent(`${PSYCHIC_CONTROL}: quien lo jugó usará ${chosen.name} de la pila de descartes del otro jugador`, "action")],
+    };
+  },
+};
 
 // ============================================================================
 // Pokémon Powers (sourceId = id of the Pokémon in play using it)

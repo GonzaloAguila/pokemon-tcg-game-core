@@ -63,6 +63,9 @@ export function getTurnActionBlocker(state: GameState): string | null {
   if (state.pendingPowerChoice) return "Primero resuelve el Poder Pokémon pendiente";
   if (state.pendingBenchTrim) return "Primero hay que devolver Pokémon de la Banca a la mano";
   if (state.pendingDuel) return "Primero hay que terminar Misty's Duel";
+  if (state.pendingBorrowedTrainer) {
+    return `Primero juega ${state.pendingBorrowedTrainer.cardName} (Sabrina's Psychic Control) o renuncia a usarla`;
+  }
   if (state.playerNeedsToPromote || state.opponentNeedsToPromote) {
     return "Primero hay que elegir un nuevo Pokémon activo";
   }
