@@ -16,7 +16,7 @@
  * | Item Finder | [[handCardId, handCardId], [discardTrainerId]] |
  * | Pokémon Breeder | [[stage2CardId], [basicPokemonId]] |
  * | Pokémon Trader | [[handPokemonId], [deckPokemonId]] |
- * | Poké Ball | 1 coin; heads: [[deckPokemonId]] |
+ * | Poké Ball | 1 coin; heads: [[deckPokemonId]] or [[]] (you may take none) |
  * | Pokédex | [[new order of the top cards as "0".."n-1"]] |
  * | Revive | [[discardBasicId]] · Pokémon Flute: [[opponentDiscardBasicId]] |
  * | Bill, Professor Oak, Imposter Professor Oak, Lass, PlusPower, Full Heal, Pokémon Center | [] |
@@ -698,6 +698,8 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
         description: "Selecciona un Pokémon de tu mazo",
         ...wholeDeckChoice(state.playerDeck, isPokemon),
         maxSelections: 1,
+        // "you may search": the player can take nothing (the card is discarded all the same)
+        minSelections: 0,
       };
     },
     resolve: (state, cardId, selections, { coinResults }) =>

@@ -244,6 +244,17 @@ describe("generic trainer entry points", () => {
     const next = playTrainerCard(state, ball.id, [[onix.id]], { coinResults: ["heads"] });
     expect(next.playerHand.some((c) => c.id === onix.id)).toBe(true);
   });
+
+  it("Poké Ball: on heads the search is optional (\"you may\"): nothing taken, the card is still discarded", () => {
+    const ball = gameCard("Poké Ball");
+    const onix = gameCard("Onix");
+    const state = makeState({ player: { active: inPlay("Machop"), hand: [ball], deck: [onix, energy(Fire)] } });
+    expect(getTrainerSteps(state, ball.id, [], ["heads"])?.minSelections).toBe(0);
+    const next = playTrainerCard(state, ball.id, [[]], { coinResults: ["heads"] });
+    expect(names(next.playerDiscard)).toEqual(["Poké Ball"]);
+    expect(next.playerDeck.some((c) => c.id === onix.id)).toBe(true);
+    expect(next.playerHand.some((c) => c.id === onix.id)).toBe(false);
+  });
 });
 
 describe("generic power entry points", () => {
