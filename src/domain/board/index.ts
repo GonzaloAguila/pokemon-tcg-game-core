@@ -17,6 +17,7 @@ import {
   getEnergyTypeInSpanish,
 } from "@/lib/gameState";
 import { cardsLeavingPlay, isEnergyCard, isPlayableAsBasic, isPokemonCard, isTrainerInPlay, toInPlayCard } from "@/domain/cards";
+import { isFaceDown, revealFaceDown, withOwnerEnergy } from "@/domain/trainers/secret-plan";
 import { GamePhase, PokemonStage, type CoinFlipResult } from "@/domain/constants";
 import { attachEnergyWithRainDance, canAutoAttachEnergy, getEvolutionBlockingPokemon, getTrainerBlockingPokemon, healOnEnergyAttach } from "@/domain/powers";
 import { assertLegal, IllegalActionError } from "@/shared/errors";
@@ -267,6 +268,28 @@ export function discardFromPlay(state: GameState, pokemonId: string): GameState 
   };
 }
 
+/**
+ * Lt. Surge's Secret Plan: why the player can't flip `pokemonId` now, or null. Only its owner,
+ * during their own turn (any normal action moment), and only a face-down card of their Bench.
+ */
+export function canFlipFaceDown(state: GameState, pokemonId: string): string | null {
+  const blocker = getTurnActionBlocker(state);
+  if (blocker) return blocker;
+  const found = findInPlay(state, "player", pokemonId);
+  if (!found || !isFaceDown(found.pokemon)) return "Esa carta no está boca abajo en tu Banca";
+  return null;
+}
+
+/**
+ * Flip one of the player's face-down cards ("Dar la vuelta"): a Basic Pokémon card stays on the
+ * Bench as that Pokémon, anything else is discarded with its cards (no Prize). See
+ * domain/trainers/secret-plan.ts.
+ */
+export function flipFaceDown(state: GameState, pokemonId: string): GameState {
+  assertLegal(canFlipFaceDown(state, pokemonId));
+  return checkKnockouts(revealFaceDown(state, "player", pokemonId));
+}
+
 // ============================================================================
 // ATTACH ENERGY
 // ============================================================================
@@ -314,7 +337,8 @@ export function attachEnergyCard(state: GameState, energyCardId: string, targetP
   if (powerAttachment(state, card, target.pokemon)) {
     next = attachEnergyWithRainDance(state, "player", energyCardId, targetPokemonId);
   } else {
-    const updated: PokemonInPlay = { ...target.pokemon, attachedEnergy: [...target.pokemon.attachedEnergy, card] };
+    // A face-down card (Secret Plan) remembers its owner's Energy: attaching it doesn't flip it
+    const updated: PokemonInPlay = withOwnerEnergy({ ...target.pokemon, attachedEnergy: [...target.pokemon.attachedEnergy, card] });
     const energyName = isEnergyCard(card) ? getEnergyTypeInSpanish(card.energyType) : card.name;
     next = {
       ...state,

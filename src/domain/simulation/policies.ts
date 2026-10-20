@@ -35,6 +35,8 @@ import {
   canAttachEnergy,
   canDiscardFromPlay,
   discardFromPlay,
+  canFlipFaceDown,
+  flipFaceDown,
   canPlayBasicPokemon,
   getEvolutionTargets,
   getTurnActionBlocker,
@@ -345,6 +347,10 @@ export function legalActions(view: GameState, rng: Rng, answer: (step: Selection
     if (pokemon && canUsePokemonPower(view, pokemon.pokemon.id) === null) add("power", powerAction(pokemon, rng, answer));
     if (pokemon && canDiscardFromPlay(view, pokemon.pokemon.id) === null) {
       add("discardFromPlay", { label: `discardFromPlay ${pokemon.pokemon.name}`, run: (v) => discardFromPlay(v, pokemon.pokemon.id) });
+    }
+    // Lt. Surge's Secret Plan: the owner may flip a face-down card any time during the turn
+    if (pokemon && canFlipFaceDown(view, pokemon.pokemon.id) === null) {
+      add("flipFaceDown", { label: "flipFaceDown", run: (v) => flipFaceDown(v, pokemon.pokemon.id) });
     }
   }
   if (canUseStadiumAction(view) === null) add("stadium", stadiumAction(view, rng, answer));

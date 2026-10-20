@@ -43,8 +43,14 @@ export function isTrainerInPlay(card: Card): card is PokemonCard & { trainerCard
   return card.kind === CardKind.Pokemon && !!card.trainerCard;
 }
 
-/** The card as it is outside play (the Trainer again for a Mysterious Fossil). */
+/** Is this in-play card the placeholder of a face-down card (Lt. Surge's Secret Plan)? */
+export function isFaceDownCard(card: Card): card is PokemonCard & { faceDownCard: Card } {
+  return card.kind === CardKind.Pokemon && !!card.faceDownCard;
+}
+
+/** The card as it is outside play (the Trainer again for a Mysterious Fossil, the real card for a face-down one). */
 export function cardOutOfPlay<T extends Card>(card: T): T {
+  if (isFaceDownCard(card)) return card.faceDownCard as T;
   return isTrainerInPlay(card) ? ({ ...card.trainerCard, id: card.id } as unknown as T) : card;
 }
 
@@ -68,5 +74,5 @@ export function cardsLeavingPlay<T extends Card>(pokemon: {
  * doesn't count as a Knocked Out Pokémon").
  */
 export function givesPrizeWhenKnockedOut(pokemon: { pokemon: Card }): boolean {
-  return !isTrainerInPlay(pokemon.pokemon);
+  return !isTrainerInPlay(pokemon.pokemon) && !isFaceDownCard(pokemon.pokemon);
 }

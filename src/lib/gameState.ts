@@ -9,6 +9,7 @@ import {
   cardOutOfPlay,
   givesPrizeWhenKnockedOut,
 } from "@/domain/cards";
+import { isFaceDown, revealFaceDownCards } from "@/domain/trainers/secret-plan";
 import {
   StatusCondition,
   GamePhase,
@@ -434,6 +435,11 @@ export type GameState = {
    * with playTrainerCard (playStadium). Kept in sync with domain/match/types.ts (re-export).
    */
   stadium?: StadiumInPlay | null;
+  /**
+   * Lt. Surge's Secret Plan: how many cards were put face down so far (the next placeholder id is
+   * `face-down-<count + 1>`; ids never say what the card is). See domain/trainers/secret-plan.ts.
+   */
+  faceDownCount?: number;
   /**
    * A Stadium lowered the Bench limit below a Bench's size: each listed player, in order (the opponent of
    * whoever played it first), returns Benched Pokémon with all their cards to the hand until
@@ -1992,10 +1998,11 @@ export function checkKnockouts(state: GameState): GameState {
   // Shapeshift: a statused Ninetales loses its Evolution card first (its HP is its own again)
   // Scram: a Primeape with exactly 10 HP left goes into the deck before any Knock Out
   // Koga's Ninja Trick: discarded once its Pokémon is on the Bench
-  let next = processBenchKnockouts(shuffleScrammingPokemon(discardBrokenShapeshiftCards(discardBenchedNinjaTricks(state))));
+  // Lt. Surge's Secret Plan: face-down cards that became the Active or were affected flip first
+  let next = processBenchKnockouts(shuffleScrammingPokemon(discardBrokenShapeshiftCards(discardBenchedNinjaTricks(revealFaceDownCards(state)))));
   // Actives use their current HP (a transformed Ditto's copy changes with the other Active)
   const isOut = (p: PokemonInPlay | null): boolean =>
-    !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= getEffectiveHp(next, p) &&
+    !!p && p.pokemon.kind === CardKind.Pokemon && !isFaceDown(p) && (p.currentDamage ?? 0) >= getEffectiveHp(next, p) &&
     !isAwaitingTransformTarget(next, p);
   if (next.gameResult === null && isOut(next.opponentActivePokemon)) next = knockOutOpponentActive(next);
   if (next.gameResult === null && isOut(next.playerActivePokemon)) next = knockOutPlayerActive(next);
@@ -2140,8 +2147,9 @@ export function endGameIfNoPokemonLeft(state: GameState): GameState {
  */
 export function processBenchKnockouts(state: GameState): GameState {
   // Live HP (Gaseous Form, Shapeshift; a Benched Ditto is not a copy)
+  // A face-down card (Secret Plan, hp 0) is never Knocked Out: it flips first (checkKnockouts)
   const isKnockedOut = (p: PokemonInPlay | null | undefined): p is PokemonInPlay =>
-    !!p && p.pokemon.kind === CardKind.Pokemon && (p.currentDamage ?? 0) >= getEffectiveHp(state, p);
+    !!p && p.pokemon.kind === CardKind.Pokemon && !isFaceDown(p) && (p.currentDamage ?? 0) >= getEffectiveHp(state, p);
 
   const playerKOs = state.playerBench.filter(isKnockedOut);
   const opponentKOs = state.opponentBench.filter(isKnockedOut);

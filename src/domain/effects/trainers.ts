@@ -77,6 +77,7 @@ import { setAsideHand, TICKLING_MACHINE } from "@/domain/trainers/set-aside";
 import { MISTYS_DUEL, startDuel } from "@/domain/duel/rps";
 import { CardKind, EnergyType, GamePhase, PokemonStage, StatusCondition, TrainerType } from "@/domain/constants";
 import { isBenchFull, maxBenchSize, findInPlay, getEvolutionBlocker, newPokemonInPlay } from "@/domain/board";
+import { SECRET_PLAN, putFaceDownOnBench } from "@/domain/trainers/secret-plan";
 import {
   playBill,
   playSwitch,
@@ -713,10 +714,24 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
  */
 export const UNSUPPORTED_TRAINERS: readonly string[] = [
   // Gym Challenge (catalog only, 2026-10-19): each name leaves this list when its plan task
-  // implements it (docs/superpowers/plans/2026-10-19-gym-challenge.md). Its 7 Stadiums need no
-  // entry here: they fall back to playStadium (in play, no rule yet).
-  "Lt. Surge's Secret Plan",
+  // implements it (docs/superpowers/plans/2026-10-19-gym-challenge.md).
 ];
+
+// Lt. Surge's Secret Plan: [[hand card id]] goes face down onto the Bench (domain/trainers/secret-plan.ts)
+TRAINER_EFFECTS[SECRET_PLAN] = singleStep(
+  (state, cardId) => ({
+    title: SECRET_PLAN,
+    description: "Elige 1 carta de tu mano para ponerla boca abajo en tu Banca",
+    options: otherHandCards(state, cardId).map(cardOption),
+    maxSelections: 1,
+    source: "hand",
+  }),
+  (state, cardId) => {
+    if (isBenchFull(state, "player")) return "Tu Banca está llena";
+    return otherHandCards(state, cardId).length === 0 ? "Necesitas otra carta en tu mano" : null;
+  },
+  (state, cardId, [hiddenId]) => putFaceDownOnBench(state, cardId, hiddenId)
+);
 
 // ============================================================================
 // Fossil

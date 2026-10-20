@@ -96,6 +96,7 @@ export {
   // Trainers played as Basics (Mysterious Fossil, Clefairy Doll): in-play form and exits
   toInPlayCard,
   isTrainerInPlay,
+  isFaceDownCard,
   cardOutOfPlay,
   cardsLeavingPlay,
   givesPrizeWhenKnockedOut,
@@ -128,6 +129,8 @@ export {
   getEvolutionTargets,
   canDiscardFromPlay,
   discardFromPlay,
+  canFlipFaceDown,
+  flipFaceDown,
   getEvolutionBlocker,
   getTrainerBlocker,
   evolvePokemonInPlay,
@@ -172,6 +175,15 @@ export {
 // Tickling Machine: hands set aside face down (state.setAsideHands; consumers mask them for BOTH players)
 export { setAsideCards, swapSetAsideHands } from "./domain/trainers/set-aside";
 export { isTrainerLocked, isBenchProtected, swapSideTurns } from "./domain/trainers/side-marks";
+// Lt. Surge's Secret Plan: face-down Bench cards (placeholder `pokemon.faceDownCard`; consumers send
+// each player maskFaceDownFor(state, viewer); the owner flips with canFlipFaceDown / flipFaceDown)
+export {
+  isFaceDown,
+  maskFaceDownFor,
+  revealFaceDown,
+  FACE_DOWN_NAME,
+  HIDDEN_FACE_DOWN_NAME,
+} from "./domain/trainers/secret-plan";
 
 // Misty's Duel: Rock-Paper-Scissors (state.pendingDuel; see domain/duel/rps.ts for the SP / MP contract)
 export {

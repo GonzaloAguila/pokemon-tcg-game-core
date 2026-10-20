@@ -117,7 +117,7 @@ import type { AIAction } from "./types";
  * AI created). Digger: either Active may take the damage. Here Comes Team Rocket!: no gain.
  * Charity (Gym Heroes): its only effect is a damage reduction the AI never wants.
  */
-export const AI_NEVER_PLAYS: ReadonlySet<string> = new Set(["Challenge!", "Digger", "Here Comes Team Rocket!", "Charity"]);
+export const AI_NEVER_PLAYS: ReadonlySet<string> = new Set(["Challenge!", "Digger", "Here Comes Team Rocket!", "Charity", "Lt. Surge's Secret Plan"]);
 
 /**
  * Trainers whose steps the other player answers (Gym Heroes: Erika, Lt. Surge's Treaty, Blaine's

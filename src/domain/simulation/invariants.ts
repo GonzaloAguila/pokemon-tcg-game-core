@@ -7,7 +7,7 @@ import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
 import { maxBenchSize } from "@/domain/board";
 import { modifierHoldsCard } from "@/lib/modifiers";
 import { GamePhase, PokemonStage, StatusCondition } from "@/domain/constants";
-import { isPokemonCard, isTrainerInPlay } from "@/domain/cards";
+import { cardOutOfPlay, isFaceDownCard, isPokemonCard, isTrainerInPlay } from "@/domain/cards";
 import { getEffectiveHp, isAwaitingTransformTarget } from "@/domain/powers";
 import { setAsideCards } from "@/domain/trainers/set-aside";
 import { isLuckyDuel } from "@/domain/lucky-duel/mode";
@@ -18,7 +18,8 @@ export function ownedCardIds(state: GameState, side: "player" | "opponent"): str
   const addCard = (card: GameCard) => ids.push(card.buzzapSourceId ?? card.id);
   const addInPlay = (p: PokemonInPlay | null | undefined) => {
     if (!p) return;
-    addCard(p.pokemon);
+    // A face-down card (Secret Plan) is its real card
+    addCard(cardOutOfPlay(p.pokemon));
     p.attachedEnergy.forEach(addCard);
     (p.attachedTrainers ?? []).forEach(addCard);
     (p.previousEvolutions ?? []).forEach(addCard);
@@ -110,6 +111,10 @@ export function checkInvariants(state: GameState, context: InvariantContext): st
     if (damage < 0 || damage % 10 !== 0) problems.push(`${where} ${p.pokemon.name} has damage ${damage}`);
     if (!isPokemonCard(p.pokemon)) {
       problems.push(`${where} is not a Pokémon card (${p.pokemon.name})`);
+    } else if (isFaceDownCard(p.pokemon)) {
+      // Lt. Surge's Secret Plan: never the Active, never touched (it would have flipped)
+      if (where.endsWith("active") && state.gameResult === null) problems.push(`${where} is a face-down card`);
+      if (damage > 0 || (p.statusConditions?.length ?? 0) > 0) problems.push(`${where} face-down card has damage / conditions`);
     } else if (damage >= getEffectiveHp(state, p) && state.gamePhase !== GamePhase.GameOver && !isAwaitingTransformTarget(state, p)) {
       problems.push(`${where} ${p.pokemon.name} has ${damage} damage >= ${getEffectiveHp(state, p)} HP and is still in play`);
     }

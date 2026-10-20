@@ -286,6 +286,15 @@ export type PokemonCard = CardBase & {
    */
   trainerCard?: TrainerCard;
   /**
+   * Lt. Surge's Secret Plan (Gym Challenge): set on the in-play placeholder of a card put face
+   * down on the Bench (domain/trainers/secret-plan.ts). The real card (any kind), which is what
+   * the card is again as soon as it leaves play (cardOutOfPlay). Masked for the other player
+   * (maskFaceDownFor).
+   */
+  faceDownCard?: Card;
+  /** Secret Plan placeholder only: the ids of the Energy its owner attached (anything else changing them flips it). */
+  faceDownEnergyIds?: string[];
+  /**
    * Only on a derived "effective card" (never stored in the state): the Pokémon's own printed
    * card when it is treated as the Evolution card attached by Shapeshift (Brock's Ninetales).
    */

@@ -52,7 +52,7 @@
  */
 
 import type { AttackEffect } from "@/domain/cards";
-import { cardOutOfPlay, cardsLeavingPlay, isEnergyCard, isPokemonCard, type DeckCardFilter } from "@/domain/cards";
+import { cardOutOfPlay, cardsLeavingPlay, isEnergyCard, isFaceDownCard, isPokemonCard, type DeckCardFilter } from "@/domain/cards";
 import type { SelectionStep } from "@/domain/effects/types";
 import { checkCoins, checkSelection } from "@/domain/effects/validate";
 import { AttackEffectType, AttackTarget, CardKind, GamePhase, PokemonPowerType, PokemonStage, StatusCondition, type CoinFlipResult } from "@/domain/constants";
@@ -1357,7 +1357,7 @@ export function dealChosenTargetDamage(
   };
   if (damage > 0) events.push(createGameEvent(`${name}: ${target.pokemon.name} recibió ${damage} de daño`, "action"));
   if (benchGuarded) events.push(createGameEvent(`${benchGuarded.powerName}: ${benchGuarded.guardName} recibió ${benchGuarded.amount} del daño de ${target.pokemon.name}`, "action"));
-  const knockedOut = (hit.currentDamage ?? 0) >= getEffectiveHp(state, hit);
+  const knockedOut = !isFaceDownCard(hit.pokemon) && (hit.currentDamage ?? 0) >= getEffectiveHp(state, hit);
 
   // Stare: the chosen Pokémon's power stops until the end of the opponent's next turn
   let powersSuppressed = state.powersSuppressed;
