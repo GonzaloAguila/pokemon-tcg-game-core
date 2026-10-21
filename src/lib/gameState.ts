@@ -444,6 +444,8 @@ export type GameState = {
    * with playTrainerCard (playStadium). Kept in sync with domain/match/types.ts (re-export).
    */
   stadium?: StadiumInPlay | null;
+  /** The side whose turn it is already played a Stadium this turn (one per turn); cleared when the turn passes. */
+  stadiumPlayedThisTurn?: boolean;
   /**
    * Lt. Surge's Secret Plan: how many cards were put face down so far (the next placeholder id is
    * `face-down-<count + 1>`; ids never say what the card is). See domain/trainers/secret-plan.ts.
@@ -3180,6 +3182,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     turnNumber: newTurnNumber,
     energyAttachedThisTurn: false,
     retreatedThisTurn: false,
+    stadiumPlayedThisTurn: false,
     playerCanTakePrize,
     opponentCanTakePrize,
     usedPowersThisTurn: [], // Clear used powers for new turn

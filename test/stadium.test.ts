@@ -14,6 +14,7 @@ import {
   getStadium,
   stadiumNamed,
   executeAIAction,
+  endTurn,
   type GameCard,
   type GameState,
 } from "@/index";
@@ -82,6 +83,26 @@ describe("playing a Stadium", () => {
       expect(() => playTrainerCard(state, same.id)).toThrow(IllegalActionError);
       expect(() => playTrainerCard(state, same.id)).toThrow("Ya hay un Estadio con ese nombre en juego");
     }
+  });
+
+  it("only one Stadium per turn: a second one waits until the next turn", () => {
+    const first = stadium("Pewter City Gym");
+    const second = stadium("Cerulean City Gym");
+    const state = deepFreeze(makeState({
+      player: { active: inPlay("Machop"), hand: [first, second], deck: [gameCard("Fighting Energy")] },
+      opponent: { active: inPlay("Abra"), deck: [gameCard("Psychic Energy")] },
+    }));
+    const played = playTrainerCard(state, first.id);
+    expect(played.stadiumPlayedThisTurn).toBe(true);
+    expect(canPlayTrainerCard(played, second.id)).toBe("Solo puedes jugar un Estadio por turno");
+    expect(() => playTrainerCard(played, second.id)).toThrow("Solo puedes jugar un Estadio por turno");
+
+    // The opponent's turn: the flag is cleared, so the opponent may play one
+    const opponentTurn = endTurn(played);
+    expect(opponentTurn.stadiumPlayedThisTurn).toBe(false);
+    const gym = stadium("Narrow Gym");
+    const opponentView = swapSides({ ...opponentTurn, opponentHand: [...opponentTurn.opponentHand, gym] });
+    expect(canPlayTrainerCard(opponentView, gym.id)).toBeNull();
   });
 
   it("respects the Trainer blockers (Headache) and the turn", () => {
