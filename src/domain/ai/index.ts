@@ -50,6 +50,8 @@ export { evaluateBoard } from "./evaluate";
 // Executor (apply actions to state)
 export { executeAIAction, finishAIAttackAfterReaction, answerOpponentTrainerStep, answerChaosGymOfferForAI, attackCoinFlippers } from "./executor";
 export type { AIExecutionOptions, AICoinRecord, AICoinPurpose } from "./executor";
+export { nextAIStep, applyAIStep, aiStepActionType, MAX_AI_PLANS_PER_TURN, MAX_AI_MULLIGANS } from "./driver";
+export type { AIStep, AIStepKind, AIPlanState, AIStepOptions } from "./driver";
 export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice, chooseBenchTrim, resolveBenchTrimForAI } from "./pending";
 
 // Actions (low-level state transformations)

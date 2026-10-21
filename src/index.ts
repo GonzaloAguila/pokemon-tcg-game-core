@@ -394,7 +394,7 @@ export * from "./domain/status";
 // AI (for single-player mode)
 // =============================================================================
 
-export type { AIAction, DecideOpponentTurnOptions, AIExecutionOptions, AICoinRecord, AICoinPurpose } from "./domain/ai";
+export type { AIAction, DecideOpponentTurnOptions, AIExecutionOptions, AICoinRecord, AICoinPurpose, AIStep, AIStepKind, AIPlanState, AIStepOptions } from "./domain/ai";
 export {
   decideOpponentTurn,
   decideOpponentSetup,
@@ -406,6 +406,12 @@ export {
   answerAttackChoiceForAI,
   answerChaosGymOfferForAI,
   attackCoinFlippers,
+  // Headless AI driver (server-run AI seats: adventure rooms)
+  nextAIStep,
+  applyAIStep,
+  aiStepActionType,
+  MAX_AI_PLANS_PER_TURN,
+  MAX_AI_MULLIGANS,
 } from "./domain/ai";
 export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice, chooseBenchTrim, resolveBenchTrimForAI } from "./domain/ai/pending";
 
