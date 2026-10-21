@@ -61,6 +61,18 @@ export type SelectionStep = {
    */
   reveals?: "opponentHand" | "opponentCards" | "ownPrizes";
   /**
+   * The step shows the chooser's own hidden cards — a search of its deck (every `wholeDeckChoice`
+   * step: searching shows the deck, and so tells the Prizes by elimination) or the top cards of
+   * its deck (Pokédex, Misty's Wrath, Master Ball). What was seen can't be unseen: from this step
+   * on the effect can't be dropped (the card stays played, the power used, costs paid). A step
+   * that may be answered with nothing (`minSelections` 0: "you may", "up to") is closed by
+   * answering it with nothing — the effect still resolves (Trainer discarded, deck shuffled as
+   * the card says); a required one must be answered. Unlike `reveals`, the chooser's own view
+   * already holds these cards, so the step is answered as usual (no server-built step in
+   * multiplayer). Ask `stepCommitsEffect(step)`, which covers `reveals` steps too.
+   */
+  commitsOnShow?: true;
+  /**
    * The answer given for a player who doesn't answer in time (the multiplayer server's answer
    * clock): always a valid selection for this step (checkSelection accepts it) and harmless to
    * that absent player — "don't use / no change" for an optional power or Trainer question

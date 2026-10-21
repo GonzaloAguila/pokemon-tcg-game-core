@@ -39,6 +39,17 @@ export function minSelectionsOf(step: SelectionStep): number {
 }
 
 /**
+ * Whether showing this step is a point of no return: it shows hidden cards — the chooser's own
+ * (`commitsOnShow`: a deck search, the top cards of the deck) or the other player's / its Prizes
+ * (`reveals`). From such a step on the effect can't be dropped: a step that may be answered with
+ * nothing (minSelectionsOf 0) is closed by answering it with nothing, a required one must be
+ * answered. The consumer's cancel rule (the engine never holds a half-answered effect).
+ */
+export function stepCommitsEffect(step: SelectionStep): boolean {
+  return step.commitsOnShow === true || step.reveals !== undefined;
+}
+
+/**
  * The step as the player who answers it reads it: on a `chooser: "opponent"` step, its
  * `answererTitle` / `answererDescription` replace `title` / `description`. Any other step is
  * returned as is (same object).

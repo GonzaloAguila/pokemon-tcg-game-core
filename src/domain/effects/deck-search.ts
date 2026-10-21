@@ -15,17 +15,19 @@ export const deckCardOption = (card: GameCard): SelectionOption => ({ id: card.i
 
 /**
  * The `options` and `cards` of a deck search step over the whole `deck`: `canTake` decides which
- * cards are choosable; `option` labels each card (default `deckCardOption`).
+ * cards are choosable; `option` labels each card (default `deckCardOption`). The step shows the
+ * deck, so it is a point of no return (`commitsOnShow`).
  */
 export function wholeDeckChoice(
   deck: readonly GameCard[],
   canTake: (card: GameCard) => boolean,
   option: (card: GameCard) => SelectionOption = deckCardOption
-): { options: SelectionOption[]; cards: GameCard[] } {
+): { options: SelectionOption[]; cards: GameCard[]; commitsOnShow: true } {
   const takeable = deck.filter(canTake);
   const rest = deck.filter((card) => !canTake(card)).sort((a, b) => a.name.localeCompare(b.name));
   return {
     cards: [...takeable, ...rest],
     options: [...takeable.map(option), ...rest.map((card) => ({ ...option(card), disabled: true }))],
+    commitsOnShow: true,
   };
 }

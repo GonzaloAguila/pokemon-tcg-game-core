@@ -408,6 +408,7 @@ export const TRAINER_EFFECTS: Record<string, CardEffectDef> = {
         options: top.map((c, i) => ({ id: String(i), label: c.name })),
         maxSelections: top.length,
         orderingCards: top,
+        commitsOnShow: true,
       };
     },
     (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
@@ -1552,6 +1553,7 @@ Object.assign(TRAINER_EFFECTS, {
         options: top.map(cardOption),
         maxSelections: Math.min(2, top.length),
         cards: top,
+        commitsOnShow: true,
       };
     },
     (state) => (state.playerDeck.length === 0 ? "Tu mazo está vacío" : null),
@@ -2144,8 +2146,10 @@ Object.assign(TRAINER_EFFECTS, {
           : "Las 7 cartas superiores de tu mazo: no hay cartas de Pokémon",
         options: top.map((c) => ({ ...cardOption(c), disabled: !isPokemonCard(c) })),
         maxSelections: anyPokemon ? 1 : 0,
+        // "You may choose": taking nothing still discards Master Ball and shuffles the deck
         minSelections: 0,
         cards: top,
+        commitsOnShow: true,
         disableAutoSelect: true,
       };
     },
@@ -2393,9 +2397,8 @@ Object.assign(TRAINER_EFFECTS, {
       return {
         title: "Rocket's Secret Experiment",
         description: "Elige cualquier carta de tu mazo para ponerla en tu mano",
-        options: state.playerDeck.map(cardOption),
+        ...wholeDeckChoice(state.playerDeck, () => true, cardOption),
         maxSelections: 1,
-        cards: state.playerDeck,
       };
     },
     resolve: (state, cardId, selections, context) => {

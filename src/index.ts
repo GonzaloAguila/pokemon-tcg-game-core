@@ -370,6 +370,7 @@ export {
   useStadiumAction,
   checkSelection,
   minSelectionsOf,
+  stepCommitsEffect,
   stepForAnswerer,
 } from "./domain/effects";
 

@@ -57,7 +57,7 @@ export type {
 export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames, isPlayedAsBasic, staysInPlay } from "./trainers";
 export { POWER_EFFECTS, ACTIVATED_POWER_TYPES } from "./powers";
 export { playStadium, STADIUM_EFFECTS, STADIUM_ACTIONS, withHandDiscardCost } from "./stadiums";
-export { checkSelection, minSelectionsOf, stepForAnswerer } from "./validate";
+export { checkSelection, minSelectionsOf, stepCommitsEffect, stepForAnswerer } from "./validate";
 
 // ============================================================================
 // Shared runner
