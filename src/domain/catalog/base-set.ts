@@ -173,12 +173,12 @@ export const baseSetCards: Card[] = [
           name: "Giro Fuego",
           cost: [EnergyType.Fire, EnergyType.Fire, EnergyType.Fire, EnergyType.Fire],
           damage: 100,
-          text: "Descarta 2 cartas de Energía Fuego unidas a Charizard para poder usar este ataque.",
+          text: "Descarta 2 cartas de Energía unidas a Charizard para poder usar este ataque.",
           effects: [
             {
               type: AttackEffectType.Discard,
               target: AttackTarget.Self,
-              discardCostRequirement: [EnergyType.Fire, EnergyType.Fire],
+              discardCostRequirement: [EnergyType.Colorless, EnergyType.Colorless],
             },
           ],
         },

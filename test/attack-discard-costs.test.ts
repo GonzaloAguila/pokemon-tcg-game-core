@@ -79,6 +79,19 @@ describe("Gym Heroes Blaine's Charmander — Kindle (the reported card): \"disca
   });
 });
 
+describe("Base Set Charizard — Fire Spin: the printed card says \"Discard 2 Energy cards\" (any type)", () => {
+  const charizard = ALL_CARDS.find((c) => c.id === "base-set-004-charizard") as PokemonCard;
+
+  it("costs 2 Energy cards of any type, not 2 Fire Energy", () => {
+    const [f1, f2] = cardsOf(Fire, 2);
+    const water = energy(Water);
+    const state = vs(attacker(charizard, [f1, f2, water, dce()]));
+    expect(getAttackDiscardRequirement(state.playerActivePokemon!, 0, state)).toEqual([Colorless, Colorless]);
+    expect(checkDiscardSelection(state.playerActivePokemon!, [Colorless, Colorless], [f1.id, water.id], state)).toBeNull();
+    expect(checkDiscardSelection(state.playerActivePokemon!, [Colorless, Colorless], [f1.id], state)).not.toBeNull();
+  });
+});
+
 describe("Gym Challenge Blaine's Charmander — Fire Tail (the card named in the report): the engine discards a Fire Energy on tails", () => {
   const charmander = ALL_CARDS.find((c) => c.id === "gym-challenge-060-blaines-charmander") as PokemonCard;
   it("tails: 1 Fire Energy card is discarded (never the Water); heads: none", () => {
