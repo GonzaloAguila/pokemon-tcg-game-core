@@ -56,7 +56,8 @@ import {
 } from "@/domain/powers";
 import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
 import { isLuckyDuel, type GameMode } from "@/domain/lucky-duel/mode";
-import type { SidePair } from "@/domain/adventure/types";
+import type { BattlePassives, SidePair } from "@/domain/adventure/types";
+import { applySetupRules } from "@/domain/adventure/passives";
 import { getLuckyDuelAttackBlocker } from "@/domain/lucky-duel/rules";
 import { resistanceAmount, stadiumIgnoresResistance, stadiumIgnoresWeakness, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
 import type { SelectionStep } from "@/domain/effects/types";
@@ -467,6 +468,11 @@ export type GameState = {
    * 7 when absent). Relative: swapped by swapSides.
    */
   openingHandSize?: SidePair;
+  /**
+   * Adventure mode: each side's run passives that act in battle and the lucky coins already used
+   * (domain/adventure/passives.ts). Relative: swapped by swapSides.
+   */
+  passives?: BattlePassives;
   /**
    * Table type (absent = "standard"). "lucky-duel" (domain/lucky-duel): random Basic and deck,
    * Benches locked (maxBenchSize 0), no Prizes, a Knock Out of an Active ends the game and both
@@ -2559,6 +2565,8 @@ export function setPlayerReady(gameState: GameState, isPlayer: boolean): GameSta
  */
 export function startPlayingPhase(gameState: GameState, coinFlipResult: "heads" | "tails"): GameState {
   const startingPlayer = coinFlipResult === "heads" ? "player" : "opponent";
+  // Adventure mode: the rules applied once both players are ready (start_attached_energy...), before the first draw
+  gameState = applySetupRules(gameState);
 
   // Classic rule: every turn starts with a draw, the starting player's first turn included
   // (endTurn draws for every later turn). The decks are never empty here (60 - 7 - 6).

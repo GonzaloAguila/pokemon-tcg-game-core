@@ -9,6 +9,22 @@ import { swapBenchTrim } from "./bench";
 import { swapSetAsideHands } from "@/domain/trainers/set-aside";
 import { swapLastDuel, swapPendingDuel } from "@/domain/duel/rps";
 import { swapSideTurns } from "@/domain/trainers/side-marks";
+import type { BattlePassives } from "@/domain/adventure/types";
+
+/** The adventure passives seen from the other side (each side's list and lucky coin mark). */
+function swapPassives(passives: BattlePassives): BattlePassives {
+  const { player, opponent, luckyCoinUsed } = passives;
+  return {
+    ...(opponent !== undefined && { player: opponent }),
+    ...(player !== undefined && { opponent: player }),
+    ...(luckyCoinUsed !== undefined && {
+      luckyCoinUsed: {
+        ...(luckyCoinUsed.opponent !== undefined && { player: luckyCoinUsed.opponent }),
+        ...(luckyCoinUsed.player !== undefined && { opponent: luckyCoinUsed.player }),
+      },
+    }),
+  };
+}
 
 /**
  * Swap the "player"/"opponent" sides of a state: zones, ready/prize/promotion flags, turn
@@ -53,6 +69,7 @@ export function swapSides(state: GameState): GameState {
     ...(state.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(state.pendingDuel) }),
     ...(state.lastDuel !== undefined && { lastDuel: swapLastDuel(state.lastDuel) }),
     ...(state.openingHandSize !== undefined && { openingHandSize: { player: state.openingHandSize.opponent, opponent: state.openingHandSize.player } }),
+    ...(state.passives !== undefined && { passives: swapPassives(state.passives) }),
     ...(state.trainerLockUntilTurn !== undefined && { trainerLockUntilTurn: swapSideTurns(state.trainerLockUntilTurn) }),
     ...(state.benchProtectedUntilTurn !== undefined && { benchProtectedUntilTurn: swapSideTurns(state.benchProtectedUntilTurn) }),
     ...(state.pendingChaosOffer !== undefined && {
