@@ -394,7 +394,7 @@ export * from "./domain/status";
 // AI (for single-player mode)
 // =============================================================================
 
-export type { AIAction, DecideOpponentTurnOptions } from "./domain/ai";
+export type { AIAction, DecideOpponentTurnOptions, AIExecutionOptions, AICoinRecord, AICoinPurpose } from "./domain/ai";
 export {
   decideOpponentTurn,
   decideOpponentSetup,
@@ -405,6 +405,7 @@ export {
   answerOpponentTrainerStepForAI,
   answerAttackChoiceForAI,
   answerChaosGymOfferForAI,
+  attackCoinFlippers,
 } from "./domain/ai";
 export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice, chooseBenchTrim, resolveBenchTrimForAI } from "./domain/ai/pending";
 
@@ -412,7 +413,7 @@ export { answerStepForAI, resolveOwnAttackPendings, resolveOwnPowerChoice, choos
 // Simulation (headless bot games; used by scripts/simulate.ts and tests)
 // =============================================================================
 
-export type { GameOptions, GameOutcome, SideId, Policy, ViewAction, Rng, PolicyName, PolicyPair, BatchResult, BatchFailure } from "./domain/simulation";
+export type { GameOptions, GameOutcome, SideId, Policy, ViewAction, Rng, SeededRng, PolicyName, PolicyPair, BatchResult, BatchFailure } from "./domain/simulation";
 export {
   playAIGame,
   runBatch,
@@ -423,6 +424,10 @@ export {
   buildRandomDeck,
   checkInvariants,
   mulberry32,
+  // Seeded randomness for server-run games (adventure rooms): withRandom swaps Math.random synchronously
+  withRandom,
+  createSeededRng,
+  hashSeed,
 } from "./domain/simulation";
 
 // =============================================================================

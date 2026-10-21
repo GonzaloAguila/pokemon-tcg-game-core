@@ -17,8 +17,8 @@ export type { Policy, ViewAction } from "./policies";
 export { buildRandomDeck, buildMixDeck, buildThemeDeck, DECK_SIZE, allSetIds } from "./decks";
 export { ExploreMemory, createExplorePolicy, exploreKeys, cardRarity } from "./explore";
 export { checkInvariants, ownedCardIds } from "./invariants";
-export { mulberry32, withRandom } from "./rng";
-export type { Rng } from "./rng";
+export { mulberry32, withRandom, createSeededRng, hashSeed } from "./rng";
+export type { Rng, SeededRng } from "./rng";
 export { swapSides } from "@/domain/board";
 
 /** greedy = smart = the single-player AI; legacy = the greedy script it replaced (baseline) */

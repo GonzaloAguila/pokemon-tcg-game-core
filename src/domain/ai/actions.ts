@@ -29,8 +29,10 @@ import {
   canEvolve,
   evolvePokemonCard,
   getEvolutionTargets,
+  getPlayBasicCoinFlips,
   swapSides,
 } from "@/domain/board";
+import type { CoinFlipResult } from "@/domain/constants";
 import type { Side } from "./types";
 import { resolveOwnPowerChoice } from "./pending";
 import { getEffectivePokemonCard } from "@/domain/powers";
@@ -136,13 +138,16 @@ export function playBasicToBench(
   state: GameState,
   side: Side,
   cardId: string,
-  _benchIndex?: number
+  _benchIndex?: number,
+  /** The coin getPlayBasicCoinFlips asks for (Minefield / Chaos Gym), flipped by the caller; omitted: the engine flips */
+  flipPlayCoins?: (count: number) => CoinFlipResult[]
 ): GameState {
   return actAs(
     state,
     side,
     (s) => canPlayBasicPokemon(s, cardId, "bench"),
-    (s) => playBasicPokemon(s, cardId, "bench")
+    (s) =>
+      playBasicPokemon(s, cardId, "bench", flipPlayCoins ? { coinResults: flipPlayCoins(getPlayBasicCoinFlips(s, cardId, "bench")) } : {})
   );
 }
 

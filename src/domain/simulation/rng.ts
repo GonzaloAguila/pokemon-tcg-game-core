@@ -18,6 +18,42 @@ export function mulberry32(seed: number): Rng {
   };
 }
 
+/** A mulberry32 generator whose 32-bit state can be read and restored (persist it between steps). */
+export type SeededRng = {
+  /** The next float in [0, 1) */
+  next: Rng;
+  /** The internal state now: `createSeededRng(seed, state)` continues the same sequence */
+  state(): number;
+};
+
+/**
+ * mulberry32 with readable state (the same sequence as `mulberry32(seed)`). `state`: a value read
+ * from `state()` to resume where that generator was (the seed is then ignored).
+ */
+export function createSeededRng(seed: number, state?: number): SeededRng {
+  let a = (state ?? seed) >>> 0;
+  return {
+    next: () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    },
+    state: () => a,
+  };
+}
+
+/** A 32-bit seed from a text (FNV-1a over the UTF-16 code units): `hashSeed(runSeed + ":" + battle + ":" + attempt)`. */
+export function hashSeed(text: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash >>> 0;
+}
+
 /** Run `fn` with Math.random replaced by `rng` (restored even if fn throws). */
 export function withRandom<T>(rng: Rng, fn: () => T): T {
   const original = Math.random;

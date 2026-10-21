@@ -31,6 +31,8 @@ import {
   canUseStadiumAction,
   getStadiumActionCoinFlips,
   getStadiumActionSteps,
+  getTrainerCoinFlippers,
+  getPowerCoinFlippers,
   useStadiumAction,
   declineBorrowedTrainer,
   declineChaosGymOffer,
@@ -48,6 +50,71 @@ import { choosePromotion } from "./choices";
 import { knowledgeView } from "./knowledge";
 import { resolveBenchTrimForAI, resolveOwnAttackPendings } from "./pending";
 import { IllegalActionError } from "@/shared/errors";
+import type { CoinFlipper } from "@/domain/effects/types";
+import type { AttackCoinPlan } from "@/lib/gameState";
+
+/** Why the AI executor flipped coins (consumers caption them / show them to the other player). */
+export type AICoinPurpose = "attack" | "confusion" | "trainer" | "power" | "retreat" | "stadium" | "playBasic";
+
+/**
+ * Coins the AI executor flipped in one go: `label` names the attack / Trainer / power / Stadium
+ * ("Confusión", "Retirada"); `flippedBy[i]` says who flipped coin i, relative to the AI ("self" =
+ * the AI's side, "opponent" = the other player: Knock Down, a Defending Haunter's Transparency...).
+ */
+export type AICoinRecord = {
+  purpose: AICoinPurpose;
+  label: string;
+  results: CoinFlipResult[];
+  flippedBy: CoinFlipper[];
+};
+
+/**
+ * Where the AI executor's coins come from. `flip`: every coin it flips (default Math.random — the
+ * frontend); a server passes its own coin source. `onCoins`: called once per batch of coins it
+ * flipped (never for an empty batch), so the server can show them (`showCoinFlip`).
+ */
+export type AIExecutionOptions = {
+  flip?: () => CoinFlipResult;
+  onCoins?: (record: AICoinRecord) => void;
+};
+
+/** The executor's coin source for one call. */
+type Coins = {
+  flip: () => CoinFlipResult;
+  /** Flip `requirement` coins (a number, or a run until tails capped at 64) and report them */
+  flipMany: (requirement: CoinFlipRequirement, purpose: AICoinPurpose, label: string, flippedBy?: (results: CoinFlipResult[]) => CoinFlipper[]) => CoinFlipResult[];
+  report: (purpose: AICoinPurpose, label: string, results: CoinFlipResult[], flippedBy: CoinFlipper[]) => void;
+};
+
+const randomCoin = (): CoinFlipResult => (Math.random() < 0.5 ? "heads" : "tails");
+
+function coinSource(options: AIExecutionOptions = {}): Coins {
+  const flip = options.flip ?? randomCoin;
+  const report: Coins["report"] = (purpose, label, results, flippedBy) => {
+    if (results.length > 0) options.onCoins?.({ purpose, label, results: [...results], flippedBy });
+  };
+  return {
+    flip,
+    report,
+    flipMany: (requirement, purpose, label, flippedBy) => {
+      const results = flipCoins(requirement, flip);
+      report(purpose, label, results, flippedBy ? flippedBy(results) : results.map(() => "self"));
+      return results;
+    },
+  };
+}
+
+/** Who flips each coin of an attack's coin list (relative to the attacker), following the plan's layout. */
+export function attackCoinFlippers(plan: AttackCoinPlan, results: CoinFlipResult[]): CoinFlipper[] {
+  const fixed = plan.smokescreen + (plan.power ?? 0) + (plan.stadium ?? 0) + plan.defender;
+  const attackCount = plan.attack === "untilTails" ? Math.max(0, results.length - fixed) : plan.attack;
+  return [
+    ...Array.from({ length: plan.smokescreen + (plan.power ?? 0) }, (): CoinFlipper => "self"),
+    ...Array.from({ length: attackCount }, (): CoinFlipper => (plan.attackFlipper === "opponent" ? "opponent" : "self")),
+    ...Array.from({ length: plan.stadium ?? 0 }, (): CoinFlipper => "self"),
+    ...Array.from({ length: plan.defender }, (): CoinFlipper => (plan.defenderFlipper === "attacker" ? "self" : "opponent")),
+  ];
+}
 
 
 /**
@@ -90,15 +157,19 @@ function swapSides(state: GameState): GameState {
 }
 
 /**
- * Ejecuta una sola acción de la IA y retorna el nuevo estado
+ * Ejecuta una sola acción de la IA y retorna el nuevo estado. Every coin it flips comes from
+ * `options.flip` (default Math.random) and is reported to `options.onCoins`.
  */
-export function executeAIAction(state: GameState, action: AIAction): GameState {
+export function executeAIAction(state: GameState, action: AIAction, options: AIExecutionOptions = {}): GameState {
+  const coins = coinSource(options);
   switch (action.type) {
     case "playBasicToActive":
       return playBasicToActive(state, "opponent", action.cardId);
 
-    case "playBasicToBench":
-      return playBasicToBench(state, "opponent", action.cardId, action.benchIndex);
+    case "playBasicToBench": {
+      const stadiumName = state.stadium?.card.name ?? "Estadio";
+      return playBasicToBench(state, "opponent", action.cardId, action.benchIndex, (count) => coins.flipMany(count, "playBasic", stadiumName));
+    }
 
     case "attachEnergy":
       return attachEnergy(
@@ -114,24 +185,24 @@ export function executeAIAction(state: GameState, action: AIAction): GameState {
       return evolve(state, "opponent", action.evolutionCardId, action.targetIndex);
 
     case "attack":
-      return executeOpponentAttack(state, action);
+      return executeOpponentAttack(state, action, coins);
 
     case "playTrainer": {
       // A Stadium that shrank the Benches: the AI returns its own Benched Pokémon when it is first to answer
-      const played = resolveBenchTrimForAI(executeTrainer(state, action));
+      const played = resolveBenchTrimForAI(executeTrainer(state, action, coins));
       // A Trainer that ended the AI's turn (Minion of Team Rocket's tails): ended here, after the
       // swap back, so the end-of-turn log reads right for the human
       return played.attackedThisTurn && !state.attackedThisTurn && !played.isPlayerTurn && played.gameResult === null ? endTurn(played) : played;
     }
 
     case "usePower":
-      return executePower(state, action);
+      return executePower(state, action, coins);
 
     case "useStadium":
-      return executeStadiumAction(state, action);
+      return executeStadiumAction(state, action, coins);
 
     case "retreat":
-      return executeOpponentRetreat(state, action.energyIdsToDiscard, action.benchIndex);
+      return executeOpponentRetreat(state, action.energyIdsToDiscard, action.benchIndex, coins);
 
     case "discardFromPlay":
       return actAs(
@@ -159,7 +230,7 @@ export function executeAIAction(state: GameState, action: AIAction): GameState {
  * IMPORTANTE: Usamos skipEndTurn=true para que endTurn se llame DESPUÉS del swap,
  * así los mensajes tienen la perspectiva correcta.
  */
-function executeOpponentAttack(state: GameState, action: AttackAction): GameState {
+function executeOpponentAttack(state: GameState, action: AttackAction, coins: Coins): GameState {
   const { attackIndex } = action;
   const attacker = state.opponentActivePokemon;
   const defender = state.playerActivePokemon;
@@ -191,7 +262,9 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
   // so run it from the AI's perspective and swap back.
   const isConfused = attacker.statusConditions?.includes("confused") ?? false;
   if (isConfused) {
-    const heads = Math.random() < 0.5;
+    const confusionCoin = coins.flip();
+    coins.report("confusion", "Confusión", [confusionCoin], ["self"]);
+    const heads = confusionCoin === "heads";
     const eventsBefore = state.events.length;
     const resolved = resolveConfusionFlip(swapSides(state), heads, true);
     let afterFlip = swapSides(resolved.state);
@@ -235,15 +308,14 @@ function executeOpponentAttack(state: GameState, action: AttackAction): GameStat
   // skipDefenderPromotion: the human chooses which Pokémon to promote.
   // Vermilion City Gym: the coin it planned, if the Stadium still offers it
   const vermilionCoin = !copied && !!action.vermilionCoin && canUseVermilionCoin(swappedState, attackIndex) === null;
-  const coinResults = flipAttackCoins(
-    getAttackCoinPlan(swappedState, copied ?? attackIndex, { vermilionCoin }),
-    () => (Math.random() < 0.5 ? "heads" : "tails")
-  );
+  const plan = getAttackCoinPlan(swappedState, copied ?? attackIndex, { vermilionCoin });
+  const coinResults = flipAttackCoins(plan, coins.flip);
+  coins.report("attack", copied?.name ?? attack.name, coinResults, attackCoinFlippers(plan, coinResults));
   const options = { coinResults, skipEndTurn: true, skipDefenderPromotion: true, ...(vermilionCoin && { vermilionCoin }) };
   const attacked = copied
     ? executeMetronome(swappedState, copied, options)
     : executeAttack(swappedState, attackIndex, { ...options, ...(action.chosenType && { chosenType: action.chosenType }) });
-  return completeAIAttack(attacked, state.events.length);
+  return completeAIAttack(attacked, state.events.length, coins, copied?.name ?? attack.name);
 }
 
 /**
@@ -301,7 +373,7 @@ const DEFENDER_CHOOSES = /: el defensor debe elegir$/;
  * unless a Prize, a promotion or another answer of the human is pending. Returns `state` unchanged
  * when it isn't the AI's turn or the human still has to answer.
  */
-export function finishAIAttackAfterReaction(state: GameState, eventsBefore?: number): GameState {
+export function finishAIAttackAfterReaction(state: GameState, eventsBefore?: number, options: AIExecutionOptions = {}): GameState {
   if (state.isPlayerTurn || state.gameResult !== null) return state;
   if (state.pendingAttackChoice?.step.chooser === "opponent") return state;
   let start = eventsBefore;
@@ -313,7 +385,7 @@ export function finishAIAttackAfterReaction(state: GameState, eventsBefore?: num
     start = marker === -1 ? state.events.length : marker + 1;
   }
   // The same swap as the AI's attack (completeAIAttack swaps exactly those fields back)
-  return completeAIAttack(toAIAttackView(state), start);
+  return completeAIAttack(toAIAttackView(state), start, coinSource(options), "Ataque");
 }
 
 /**
@@ -324,10 +396,18 @@ export function finishAIAttackAfterReaction(state: GameState, eventsBefore?: num
  * unless a Prize, a promotion or a choice of the human is pending. Shared by the AI's attack and
  * finishAIAttackAfterReaction.
  */
-function completeAIAttack(attacked: GameState, eventsBefore: number): GameState {
+function completeAIAttack(attacked: GameState, eventsBefore: number, coins: Coins, attackName: string): GameState {
   // The AI answers its own attack's choices (switch, deck search, bench damage) in its view;
-  // it flips the coins an answer needs (Sabrina's ESP's re-flip)
-  const resultState = resolveOwnAttackPendings(attacked, { flip: () => (Math.random() < 0.5 ? "heads" : "tails") });
+  // it flips the coins an answer needs (Sabrina's ESP's re-flip, an ESP copy's coins)
+  const answerCoins: CoinFlipResult[] = [];
+  const resultState = resolveOwnAttackPendings(attacked, {
+    flip: () => {
+      const coin = coins.flip();
+      answerCoins.push(coin);
+      return coin;
+    },
+  });
+  coins.report("attack", attackName, answerCoins, answerCoins.map(() => "self"));
 
   // Swap de vuelta
   // En resultState, "opponent" = jugador real. Si opponentActivePokemon es null y hay bench,
@@ -488,8 +568,7 @@ function completeAIAttack(attacked: GameState, eventsBefore: number): GameState 
 }
 
 /** The AI flips the coins an effect asks for (like its attack coins). */
-function flipCoins(requirement: CoinFlipRequirement): CoinFlipResult[] {
-  const flip = (): CoinFlipResult => (Math.random() < 0.5 ? "heads" : "tails");
+function flipCoins(requirement: CoinFlipRequirement, flip: () => CoinFlipResult): CoinFlipResult[] {
   if (requirement === "untilTails") {
     const coins: CoinFlipResult[] = [];
     // Capped like the API's until-tails runs; the last coin is then tails
@@ -519,7 +598,7 @@ function tryEffect(view: GameState, run: () => GameState): GameState {
  * answers the steps now (cardEffects.answerTrainerStepForAI; the other player's steps with
  * answerOpponentTrainerStepForAI — planned only when that player is an AI too).
  */
-function executeTrainer(state: GameState, action: PlayTrainerAction): GameState {
+function executeTrainer(state: GameState, action: PlayTrainerAction, coins: Coins): GameState {
   const { cardId, trainerName } = action;
   return actAs(
     state,
@@ -528,15 +607,22 @@ function executeTrainer(state: GameState, action: PlayTrainerAction): GameState 
     (s) =>
       tryEffect(s, () => {
         // Chaos Gym: its coin first; tails ends here (the other player may be offered the card)
-        const chaos = passChaosGym(s, cardId, false);
+        const chaos = passChaosGym(s, cardId, false, coins);
         if (!chaos.heads) return chaos.state;
         s = chaos.state;
-        const coins = flipCoins(getTrainerCoinFlips(s, cardId));
+        const flipped = flipTrainerCoins(s, cardId, trainerName, coins);
         const played = !action.answerAtPlay
-          ? finishTrainer(s, cardId, action.selections, coins)
-          : answerAndPlayTrainer(s, cardId, trainerName, [], coins, !!action.waitsForOtherPlayer);
-        return played.pendingBorrowedTrainer ? playBorrowedTrainer(played) : played;
+          ? finishTrainer(s, cardId, trainerName, action.selections, flipped, coins)
+          : answerAndPlayTrainer(s, cardId, trainerName, [], flipped, !!action.waitsForOtherPlayer, coins);
+        return played.pendingBorrowedTrainer ? playBorrowedTrainer(played, coins) : played;
       })
+  );
+}
+
+/** The coins of the Trainer `cardId` (view: its player = "player"), flipped and reported with who flips each. */
+function flipTrainerCoins(view: GameState, cardId: string, trainerName: string, coins: Coins, selections?: string[][]): CoinFlipResult[] {
+  return coins.flipMany(getTrainerCoinFlips(view, cardId, selections), "trainer", trainerName, (results) =>
+    getTrainerCoinFlippers(view, cardId, results.length)
   );
 }
 
@@ -544,20 +630,20 @@ function executeTrainer(state: GameState, action: PlayTrainerAction): GameState 
  * Sabrina's Psychic Control came up heads (AI view): the AI plays the Trainer it chose from the
  * other side's discard pile right away, answering its steps; one it can't (or won't) play is given up.
  */
-function playBorrowedTrainer(view: GameState): GameState {
+function playBorrowedTrainer(view: GameState, coins: Coins): GameState {
   const { cardId, cardName } = view.pendingBorrowedTrainer!;
   if (neverBorrowed(cardName) || canPlayTrainerCard(view, cardId) !== null) return declineBorrowedTrainer(view);
   // Chaos Gym flips for the borrowed card too
   let chaos: { state: GameState; heads: boolean };
   try {
-    chaos = passChaosGym(view, cardId, true);
+    chaos = passChaosGym(view, cardId, true, coins);
   } catch (error) {
     if (error instanceof IllegalActionError) return declineBorrowedTrainer(view);
     throw error;
   }
   if (!chaos.heads) return chaos.state;
   const passed = chaos.state;
-  const played = tryEffect(passed, () => answerAndPlayTrainer(passed, cardId, cardName, [], flipCoins(getTrainerCoinFlips(passed, cardId)), false));
+  const played = tryEffect(passed, () => answerAndPlayTrainer(passed, cardId, cardName, [], flipTrainerCoins(passed, cardId, cardName, coins), false, coins));
   return played === passed ? forfeitChaosGymPlay(declineBorrowedTrainer(passed)) : played;
 }
 
@@ -565,9 +651,10 @@ function playBorrowedTrainer(view: GameState): GameState {
  * Chaos Gym's coin for the AI's Trainer `cardId` (when it is in play): `heads` false = the card
  * did nothing (`state` may offer it to the other player); else `state` is where it is played normally.
  */
-function passChaosGym(view: GameState, cardId: string, borrowed: boolean): { state: GameState; heads: boolean } {
+function passChaosGym(view: GameState, cardId: string, borrowed: boolean, coins: Coins): { state: GameState; heads: boolean } {
   if (!isChaosGymCoinPending(view, cardId)) return { state: view, heads: true };
-  const flipped = playTrainerCard(view, cardId, [], { coinResults: flipCoins(1), ...(borrowed && { borrowedFromOpponentDiscard: true }) });
+  const coinResults = coins.flipMany(1, "stadium", view.stadium?.card.name ?? "Chaos Gym");
+  const flipped = playTrainerCard(view, cardId, [], { coinResults, ...(borrowed && { borrowedFromOpponentDiscard: true }) });
   return { state: flipped, heads: !!flipped.pendingChaosGymPlay };
 }
 
@@ -578,7 +665,8 @@ function passChaosGym(view: GameState, cardId: string, borrowed: boolean): { sta
  * (its coins and answers, like its own Trainers; the result has no offer left), else declines.
  * A play the engine refuses ends as a declined offer. Unchanged without an offer to answer.
  */
-export function answerChaosGymOfferForAI(state: GameState): GameState {
+export function answerChaosGymOfferForAI(state: GameState, options: AIExecutionOptions = {}): GameState {
+  const coins = coinSource(options);
   const offer = state.pendingChaosOffer;
   if (!offer || offer.offeredTo !== "opponent" || offer.accepted) return state;
   if (!wantsChaosGymOffer(boardSwapSides(state))) return answerChaosGymOffer(state, ["decline"]);
@@ -593,7 +681,7 @@ export function answerChaosGymOfferForAI(state: GameState): GameState {
     accepted,
     "opponent",
     (s) => canPlayTrainerCard(s, offer.cardId),
-    (s) => tryEffect(s, () => answerAndPlayTrainer(s, offer.cardId, offer.cardName, [], flipCoins(getTrainerCoinFlips(s, offer.cardId)), false))
+    (s) => tryEffect(s, () => answerAndPlayTrainer(s, offer.cardId, offer.cardName, [], flipTrainerCoins(s, offer.cardId, offer.cardName, coins), false, coins))
   );
   return played.pendingChaosOffer ? declineChaosGymOffer(played) : played;
 }
@@ -611,6 +699,7 @@ function answerAndPlayTrainer(
   answered: string[][],
   coins: CoinFlipResult[],
   waitsForOtherPlayer: boolean,
+  source: Coins,
 ): GameState {
   const coinsForSteps = coins.length > 0 ? coins : undefined;
   const selections = [...answered];
@@ -626,12 +715,12 @@ function answerAndPlayTrainer(
         : answerTrainerStepForAI(view, cardId, trainerName, step)
     );
   }
-  return finishTrainer(view, cardId, selections, coins);
+  return finishTrainer(view, cardId, trainerName, selections, coins, source);
 }
 
-function finishTrainer(view: GameState, cardId: string, selections: string[][], coins: CoinFlipResult[]): GameState {
+function finishTrainer(view: GameState, cardId: string, trainerName: string, selections: string[][], coins: CoinFlipResult[], source: Coins): GameState {
   // A coin flipped after the choices (Blaine's Gamble)
-  const coinResults = coins.length > 0 ? coins : flipCoins(getTrainerCoinFlips(view, cardId, selections));
+  const coinResults = coins.length > 0 ? coins : flipTrainerCoins(view, cardId, trainerName, source, selections);
   // skipEndTurn: a Trainer that ends the turn leaves it to the caller (after the swap back)
   return playTrainerCard(view, cardId, selections, { coinResults, skipEndTurn: true });
 }
@@ -642,7 +731,8 @@ function finishTrainer(view: GameState, cardId: string, selections: string[][], 
  * the rest and plays the Trainer; another step for the human waits again. An answer the step
  * doesn't allow leaves the state unchanged.
  */
-export function answerOpponentTrainerStep(state: GameState, selection: string[]): GameState {
+export function answerOpponentTrainerStep(state: GameState, selection: string[], options: AIExecutionOptions = {}): GameState {
+  const coins = coinSource(options);
   const pending = state.pendingOpponentTrainerStep;
   if (!pending || state.isPlayerTurn) return state;
   const { cardId, trainerName, selections, coinResults } = pending;
@@ -653,7 +743,7 @@ export function answerOpponentTrainerStep(state: GameState, selection: string[])
     (s) => canPlayTrainerCard(s, cardId),
     (s) => {
       try {
-        return answerAndPlayTrainer(s, cardId, trainerName, [...selections, selection], coinResults, true);
+        return answerAndPlayTrainer(s, cardId, trainerName, [...selections, selection], coinResults, true, coins);
       } catch (error) {
         // A rejected answer: keep asking
         if (error instanceof IllegalActionError) return { ...s, pendingOpponentTrainerStep: pending };
@@ -668,14 +758,14 @@ export function answerOpponentTrainerStep(state: GameState, selection: string[])
  * Saffron City Gym; Fuchsia City Gym's pick only when its coin asks for it: the planned answers
  * are kept for the steps the coins open). Its Active shuffled away (Fuchsia): the AI promotes.
  */
-function executeStadiumAction(state: GameState, action: UseStadiumAction): GameState {
+function executeStadiumAction(state: GameState, action: UseStadiumAction, coins: Coins): GameState {
   return actAs(
     state,
     "opponent",
     (s) => canUseStadiumAction(s),
     (s) =>
       tryEffect(s, () => {
-        const coinResults = flipCoins(getStadiumActionCoinFlips(s));
+        const coinResults = coins.flipMany(getStadiumActionCoinFlips(s), "stadium", action.stadiumName);
         const coinsForSteps = coinResults.length > 0 ? coinResults : undefined;
         const selections: string[][] = [];
         for (const planned of action.selections) {
@@ -689,7 +779,7 @@ function executeStadiumAction(state: GameState, action: UseStadiumAction): GameS
 }
 
 /** Usa el Poder Pokémon activado de un Pokémon de la IA (monedas y respuestas al ejecutarlo). */
-function executePower(state: GameState, action: UsePowerAction): GameState {
+function executePower(state: GameState, action: UsePowerAction, source: Coins): GameState {
   const { pokemonId, powerName } = action;
   return actAs(
     state,
@@ -697,7 +787,7 @@ function executePower(state: GameState, action: UsePowerAction): GameState {
     (s) => canUsePokemonPower(s, pokemonId),
     (s) =>
       tryEffect(s, () => {
-        const coins = flipCoins(getPowerCoinFlips(s, pokemonId));
+        const coins = source.flipMany(getPowerCoinFlips(s, pokemonId), "power", powerName, (results) => getPowerCoinFlippers(s, pokemonId, results.length));
         const coinsForSteps = coins.length > 0 ? coins : undefined;
         const selections =
           action.selections ??
@@ -728,14 +818,15 @@ function retreatBlocker(view: GameState, energyIds: string[], benchIndex: number
 function executeOpponentRetreat(
   state: GameState,
   energyIdsToDiscard: string[],
-  benchIndex: number
+  benchIndex: number,
+  source: Coins
 ): GameState {
   return actAs(
     state,
     "opponent",
     (view) => retreatBlocker(view, energyIdsToDiscard, benchIndex),
     (view) => {
-      const coins = Array.from({ length: getRetreatCoinFlips(view) }, (): CoinFlipResult => (Math.random() < 0.5 ? "heads" : "tails"));
+      const coins = source.flipMany(getRetreatCoinFlips(view), "retreat", "Retirada");
       return executeRetreat(view, energyIdsToDiscard, benchIndex, { coinResults: coins });
     }
   );
