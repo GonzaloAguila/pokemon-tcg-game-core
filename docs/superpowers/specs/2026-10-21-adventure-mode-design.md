@@ -1,6 +1,6 @@
 # Modo Aventura — design
 
-**Date:** 2026-10-21 · **Status:** design + plan, nothing implemented · **Source:** the owner's Claude Doc "Modo Aventura — Spec v1" (https://claude.ai/artifact/2c4U2tybHiuyBak5oNxSfT), flattened in `docs/adventure/source-spec-v1.txt` (prose and tables) and `docs/adventure/source-spec-v1-code.txt` (adventure JSON example, Run, AdventureProgress, GameConfig). Plan: `docs/superpowers/plans/2026-10-21-adventure-mode.md`.
+**Date:** 2026-10-21 · **Status:** design + plan, nothing implemented; updated the same day with the owner's rulings (no copy limit, battle modifiers in v1: §3.5–3.6) · **Source:** the owner's Claude Doc "Modo Aventura — Spec v1" (https://claude.ai/artifact/2c4U2tybHiuyBak5oNxSfT), flattened in `docs/adventure/source-spec-v1.txt` (prose and tables) and `docs/adventure/source-spec-v1-code.txt` (adventure JSON example, Run, AdventureProgress, GameConfig). Plan: `docs/superpowers/plans/2026-10-21-adventure-mode.md`.
 
 This document maps the owner's spec onto what the three repos already have. Where it says "spec" it means the owner's v1; where it deviates, the reason is given. Everything the spec leaves to "the agent" (where the engine runs, existing AI, persistence, accounts, card ids) is answered from the code below.
 
@@ -17,6 +17,7 @@ This document maps the owner's spec onto what the three repos already have. Wher
 | D7 | **Achievements go into the existing claim-based system** (`UserAchievement`, `achievements.service.ts` `RAW_DEFS` + a new checker type `adventure`), not into `AdventureProgress.achievements`. The run service only records facts; `checkAndUpdateProgress` derives progress from them, the player claims in the profile like every other achievement. | One achievements system; the same pattern Lucky Duel uses (achievements derived from `Match` rows, `luckyDuelWinWhere`). |
 | D8 | **Unique rewards** are granted once with the existing idempotency table (`economy/claims.ts` `claimOnce(tx, userId, "adventure", "<adventureId>:<difficulty>")`, new `ClaimKind`) in the same transaction as the battle-10 result. The card back uses the usual upsert of `UserCardBack`. | Existing pattern (tutorial reward, set milestones). |
 | D9 | **The battle screen is the multiplayer page** (`MultiplayerGamePage.tsx`) with an adventure context, not the single-player `GamePage`. | The state arrives masked, the opponent's moves arrive as `gameState` pushes, server coins are animated from `showCoinFlip`, rejoin works; the board actions already talk to a `PlayerActionExecutor` (`useSocketActionExecutor`). What it hard-wires (chat, turn timer, kick, room chip, exits to `/lobby`) becomes a prop (plan Task 19). |
+| D11 | **Battle modifiers ("reglas de jefe") are in v1** (owner ruling 2026-10-21): `battle.modifiers` in the JSON is a small closed vocabulary, each entry an engine hook (§3.5), never an ad-hoc `if` keyed by battle. | Content stays data; a new boss rule is one vocabulary entry + one hook + tests. |
 | D10 | **RNG per battle** = mulberry32 seeded from `hash(run.seed + ":" + battleIndex + ":" + attempt)`, its 32-bit state persisted with the battle snapshot. Every engine/AI call of an adventure room runs inside `withRandom(room.rng)` (shuffles, ids, Sleep checkup) and the room's coin source draws from the same generator. `run.seed` is a server secret (128 random bits), never sent to the client. | Spec: deterministic AI "para poder reproducir bugs" — seed + the logged human actions replay a battle exactly. Unpredictable to the player because the seed is secret. |
 
 ## 2. Run flow (spec, unchanged) and phases
@@ -31,7 +32,7 @@ game-core already has half of the spec's `GameConfig`: `startGame(state, { prize
 
 - **Per-side Prize count**: `prizeCount: number | { player: number; opponent: number }`. Every win check is `prizes.length === 0` (`takePrize` ~l.7143, bench KOs ~l.2209, attack self-KO ~l.6762, `checkKnockouts` ~l.1913/1990), so dealing fewer Prizes to one side needs no other change.
 - **Opening hand**: `openingHand: number | { player; opponent }` (default 7). Today 7 is hard-coded in `startGame` (`slice(0, 7)`) and `doMulligan` (~l.2475); store `state.openingHandSize` per side for the mulligan; `swapSides` swaps it.
-- **Deck sizes 20–40**: the engine has no deck-size rule (only consumers: API `checkDeckPlayable`, frontend `MAX_DECK_SIZE = 60`); a 20-card deck deals 7 + 3 and plays. game-core adds `validateDeckEntries(entries, { minSize, maxSize, maxCopies })` (copies by **name** across sets, basic Energy unlimited: `isLimitedInDeck`) so the API and the frontend share one rule.
+- **Deck sizes 20–40**: the engine has no deck-size rule (only consumers: API `checkDeckPlayable`, frontend `MAX_DECK_SIZE = 60`); a 20-card deck deals 7 + 3 and plays. game-core adds `validateDeckEntries(entries, { minSize, maxSize, maxCopies })` (copies by **name** across sets, basic Energy unlimited: `isLimitedInDeck`; `maxCopies: null` = no limit) so the API and the frontend share one rule. **Adventure mode has no copy limit** (owner ruling 2026-10-21: `rules.maxCopies = null`).
 - **Decks from card ids**: `buildDeckFromEntries` takes `{ cardNumber, set }`; the adventure needs `{ cardId, qty }` → `deckFromCardEntries(entries)` through `findCardById` (throws on an unknown id).
 - `createAdventureGame(config)`: `initializeMultiplayerGame` + `startGame` with the options above, `state.gameMode` untouched (standard rules), passives set on the state.
 
@@ -43,7 +44,7 @@ game-core already has half of the spec's `GameConfig`: `startGame(state, { prize
 |---|---|---|
 | `opening_hand_plus_1` | setup | `createAdventureGame`: that side's `openingHand + 1`; `doMulligan` reads `openingHandSize`. |
 | `prize_minus_one` | win condition | `createAdventureGame`: that side gets `prizeCount − 1` Prizes (default of owner question Q1). |
-| `start_attached_energy` | end of setup | `startPlayingPhase` (the both-ready transition, ~l.2533) calls `applySetupPassives(state)`: for a side with it, the first basic Energy card in deck order that the Active can use (its type appears in the cost of one of its attacks, or any basic Energy if it has only Colorless costs) is attached to the Active, the deck is shuffled, a perspective-free log line. No such card: nothing. Applies before the first draw. |
+| `start_attached_energy` | end of setup | `startPlayingPhase` (the both-ready transition, ~l.2533) calls `applySetupRules(state)` (passives and the §3.5 setup modifiers): for a side with it, the first basic Energy card in deck order that the Active can use (its type appears in the cost of one of its attacks, or any basic Energy if it has only Colorless costs) is attached to the Active, the deck is shuffled, a perspective-free log line. No such card: nothing. Applies before the first draw. |
 | `lucky_coin` | coin flip | Coins are always flipped by the caller (game-core CLAUDE.md "Coins are flipped by the caller"), so the hook is a pure helper the room's coin source calls: `takeLuckyCoin(state, side) → { state, coin: "heads" } \| null` (marks `luckyCoinUsed[side]`). The API calls it for the first coin of the human's own action in the battle (default of Q2). |
 | `extra_heart` | run level | API only (`hearts += 1`, `maxHearts += 1` when chosen). The engine ignores it. |
 
@@ -56,6 +57,34 @@ game-core already has half of the spec's `GameConfig`: `startGame(state, { prize
 ### 3.4 Content checks the engine offers
 
 `isAdventureCardAllowed(card)`: in the catalog, set not `inDevelopment`, Trainer not in `UNSUPPORTED_TRAINERS` — used by the API's content validator. Simulator: `npm run simulate -- --adventure <path-to-json>` plays every starter deck against every rival deck with the adventure rules (prizes, hands, passives off) and prints win rates per battle — the spec's H3 test ("IA vs IA termina siempre sin errores en 100 partidas con seeds fijos") and the H7 balance tool.
+
+### 3.5 Battle modifiers (v1 vocabulary)
+
+`battle.modifiers: BattleModifier[]` in the JSON; the API passes them in `AdventureGameConfig.modifiers` and `createAdventureGame` applies them. Sides are relative: `"player"` = the human, `"opponent"` = the rival.
+
+| Modifier (JSON) | Engine hook | Notes |
+|---|---|---|
+| `{ "type": "prizeCount", "player": 1, "opponent": 1 }` | `startGame` per-side Prize count (§3.1) | Applied before `prize_minus_one` (which still subtracts 1, minimum 1). |
+| `{ "type": "openingHand", "player": 7, "opponent": 9 }` | `startGame` per-side hand (§3.1) | Free once §3.1 exists. |
+| `{ "type": "noPrizeFor", "side": "opponent", "names": ["Metapod"] }` | `GameState.tableRules.noPrizeFor { player?: string[]; opponent?: string[] }` (swapped by `swapSides`); `givesPrizeWhenKnockedOut(pokemon, state, owner)` becomes state-aware (today `domain/cards/in-play.ts` l.76 takes only the Pokémon: Mysterious Fossil / Clefairy Doll / face-down cards) and every Prize site calls it: `lib/gameState.ts` ~l.1908, 1974, 2189, 2738, 2765, 5167, `powers/index.ts` Buzzap ~l.1724/1733 (ungated today), `ai/evaluate.ts` l.80 (so the AI knows its Metapods are free to lose). | Matched on the effective name (`getEffectivePokemonCard`). A Knock Out without a Prize is logged ("Metapod no da premio en esta mesa"). A side left with no Pokémon still loses. |
+| `{ "type": "bonusCards", "side": "player", "cards": [{ "cardId": "base-set-086-pokemon-flute", "qty": 1 }], "to": "hand" }` | `GameState.setupRules.bonusCards`, consumed by `applySetupRules` at the both-ready transition (the same hook as `start_attached_energy`) | Battle-only cards: new instances put in the hand **after** mulligans and setup (a mulligan shuffles the hand into the deck, so earlier would lose them), never written to the run deck, not counted by deck rules. In the hand rather than the deck because it guarantees the solution is reachable whatever the shuffle (a card in the deck can be prized or drawn too late, turning a puzzle into a deck-out the player couldn't avoid). |
+| `{ "type": "opponentSetup", "active": ["base-set-045-caterpie", "base-set-054-metapod"], "bench": [["base-set-045-caterpie", "base-set-054-metapod"]] }` | `createAdventureGame`: takes those cards out of the rival's deck and puts them in play before the deal, each list an evolution chain (Basic first; `previousEvolutions` filled like `evolvePokemonInPlay`, `playedOnTurn` 0); the AI's setup only adds to the Bench | Lets a boss start already evolved (no turn-1 window on the Basic). The validator checks every chain evolves by name and its cards are in the rival deck. |
+| `{ "type": "opponentPassives", "passives": ["start_attached_energy"] }` | the §3.2 passives on the rival side | Free once §3.2 exists. |
+
+Each modifier also has a Spanish line for the UI (`describeModifier`, API) shown before the battle and in the run bar.
+
+Ideas that fit the engine cheaply, **not in v1** (list only): `benchSize` per side (the `maxBenchSize(state, side)` hook of Lucky Duel / Narrow Gym exists); `stadium` in play from the start (`state.stadium`; needs Gym Heroes / Gym Challenge cards in an adventure); `surviveTurns: N` (the player wins after surviving N rival turns — a new end condition in `endTurn`); `aiHint: "stall"` (an evaluation weight favouring Protection / healing / Energy Removal over damage — only if the simulator shows the plain AI isn't stall-y enough, §3.6).
+
+### 3.6 The Metapod battle (battle 7, replaces "Cazabichos Teo")
+
+**Bosque Verde · Cazabichos Teo, "el muro de Metapod"** — the owner's example made concrete.
+
+- Rival deck (40 cards; rival decks become 20–40 in `rules`): 3 Caterpie + 3 Metapod (all in play from the start via `opponentSetup`: an Active and 2 Benched Metapod, each over its Caterpie), 4 Potion, 3 Super Potion, 2 Defender, 2 Energy Removal, 1 Switch, 22 Grass Energy. No other Basic Pokémon: a Benched Caterpie would be an easy Prize.
+- Modifiers: `prizeCount { player: 1, opponent: 1 }`, `noPrizeFor { side: "opponent", names: ["Metapod"] }`, `opponentSetup` as above, `bonusCards { side: "player", cards: [Pokémon Flute ×1, Gust of Wind ×1, PlusPower ×1], to: "hand" }`.
+- **Intended solution**: Knock Out a Metapod (no Prize; its Caterpie goes to the discard pile with it — `cardsLeavingPlay` includes `previousEvolutions`) → then, in one turn, **Pokémon Flute** (Base Set #86, `base-set-086-pokemon-flute`, implemented: `TRAINER_EFFECTS["Pokémon Flute"]` puts a Basic from the opponent's discard pile onto their Bench, refused when that Bench is full — the rival has 2 Benched, room left) → **Gust of Wind** the Caterpie (40 HP, Weakness Fire) into the Active spot → Knock it Out → the only Prize → victory. Same turn, because on its next turn the AI evolves the Flute's Caterpie again. Reachability per starter: Charmander's Ember 30 ×2 Weakness = 60; Wartortle's Bite 40; Ivysaur's Vine Whip 30 + the bonus PlusPower = 40. The slow way also wins: Knock Out all 3 Metapod (no Prizes) and the rival has no Pokémon left.
+- **Pressure**: the rival heals (Potion / Super Potion), blocks (Defender, Stiffen's coin), paralyzes (Stun Spore, String Shot) and strips Energy (Energy Removal); its 40-card deck outlasts the player's (24–30 cards: about 16–22 draws vs the rival's ≈ 26 after the preset board, hand and Prize), so a stalled player decks out first — "que busque deckear al jugador". With 1 Prize each, a single Knock Out by the rival also loses the battle: the player must keep Benched backups and heal.
+- **AI**: the shipped AI picks the attack with the best evaluation and plays Potion / Super Potion / Defender / Energy Removal by its own rules; it doesn't stall on purpose, but this deck has nothing else to do, and once `noPrizeFor` reaches `evaluate.ts` it knows Knock Outs of its Metapods cost nothing. **No AI profile in v1**: the simulator measures the battle (win rate, turns, deck-outs per starter) and `aiHint: "stall"` is added only if the numbers say so.
+- **Puzzle check** (engine test, plan Task 4b): from the battle's real config, a scripted line per starter reaches the victory; Flute is refused while the rival's discard pile has no Basic; the Flute's Caterpie evolves on the AI's next turn if left alone; a Metapod Knock Out gives no Prize; the Caterpie Knock Out gives the only Prize and ends the game.
 
 ## 4. Data model (API, Prisma)
 
@@ -141,11 +170,11 @@ Differences from the spec's models: `attempt`, `offTypeUsed`, `battle` (snapshot
 | Method | Route | Does | Errors |
 |---|---|---|---|
 | GET | `/adventures` | adventures + the user's progress (clears, cleared starters, rewards claimed via `hasClaim`, achievements by id) | |
-| GET | `/adventures/:id` | name, rules, starters (with decks), battle list (index, location, rival name/class, lead Pokémon for the map) — rival decks only for battles already beaten in the user's active run, treasures (names, kinds, contents), rewards | 404 |
+| GET | `/adventures/:id` | name, rules, starters (with decks), battle list (index, location, rival name/class, lead Pokémon for the map) — rival decks only for battles already beaten in the user's active run, the battle rules (`modifiers` as Spanish lines from `describeModifier`) for beaten battles and the current one, treasures (names, kinds, contents), rewards | 404 |
 | POST | `/adventure/runs` | `{ adventureId, difficulty, starterId }` → run | 409 active run exists; 404 unknown ids; 403 locked starter |
 | GET | `/adventure/runs/active` | the active run or 404 | |
 | GET | `/adventure/runs/:id` | the run (own runs only; `seed` and `battle.state` stripped; `battle.roomId` kept) | 404 |
-| PATCH | `/adventure/runs/:id/deck` | `{ remove: CardEntry[], energies: CardEntry[] }` — removals of cards in the deck, basic Energy set to the given counts; result within min/max and copy limits | 409 not `pre_battle`; 422 rule broken |
+| PATCH | `/adventure/runs/:id/deck` | `{ remove: CardEntry[], energies: CardEntry[] }` — removals of cards in the deck, basic Energy set to the given counts; result within min/max (no copy limit in adventure mode) | 409 not `pre_battle`; 422 rule broken |
 | POST | `/adventure/runs/:id/battle` | creates (or returns the live) adventure room for `currentBattle` → `{ roomId }`; phase `in_battle` | 409 wrong phase |
 | POST | `/adventure/runs/:id/treasure` | `{ treasureId }` or `{ skip: true }` | 409 wrong phase; 422 not in `pendingOffer` |
 | POST | `/adventure/runs/:id/abandon` | status `abandoned` | 409 `in_battle` (surrender first) |
@@ -163,15 +192,15 @@ All mutations run in one `$transaction` after `lockUsers` (users `xp.service.ts`
 
 ### 5.3 Run logic (pure, `src/modules/adventure/run-logic.ts`)
 
-- Offer: pool by battle (tier1 after 1–4, major after 5, tier2 after 6–9, none after 10); RNG `hashSeed(seed + ":" + battleIndex)`; exclude passives already owned, card treasures that would break the copy limit (by name) or the max deck size; up to 3 distinct; stored in `pendingOffer` (refresh-proof twice over).
+- Offer: pool by battle (tier1 after 1–4, major after 5, tier2 after 6–9, none after 10); RNG `hashSeed(seed + ":" + battleIndex)`; exclude passives already owned and card treasures that would break the max deck size (no copy limit: owner ruling); up to 3 distinct; stored in `pendingOffer` (refresh-proof twice over).
 - Treasure: `starter.basic|stage1|stage2` tokens resolved with the starter's `line`; cards added to `deck`; passives appended; `extra_heart` raises hearts and maxHearts.
-- Deck edit: removed cards are gone for the run; only basic Energy may be added; Double Colorless Energy only by treasure; min 20 / max 40 / 4 copies by name except basic Energy (game-core `validateDeckEntries`).
+- Deck edit: removed cards are gone for the run; only basic Energy may be added; Double Colorless Energy only by treasure; min 20 / max 40, no copy limit (game-core `validateDeckEntries` with `maxCopies: null`).
 - Result: victory 1–9 → offer + `choosing_treasure`; 10 → `won` + reward + progress; defeat → hearts − 1, `heartsLost` + 1, `pre_battle` (attempt + 1) or `lost`.
 - Monotype: at every battle start, if the deck has a Pokémon whose type isn't the starter's (Colorless allowed) or a basic Energy of another type (DCE counts as Colorless), `offTypeUsed = true`.
 
 ### 5.4 Content (`content/adventures/pueblo-paleta-bosque-verde.json`)
 
-The spec's JSON shape with D5 ids, validated by a zod schema at startup (server refuses to boot on an invalid file) and by a vitest test: 10 battles indexed 1–10; rival decks 20–24 and every hard-mode starter covered; pools reference existing treasures; starter decks within `rules`; every card allowed by `isAdventureCardAllowed`; copy limits; `modifiers` must be `[]` in v1.
+The spec's JSON shape with D5 ids, validated by a zod schema at startup (server refuses to boot on an invalid file) and by a vitest test: 10 battles indexed 1–10; rival decks 20–40 and every hard-mode starter covered; pools reference existing treasures; starter decks within `rules` (`maxCopies` may be `null`); every card allowed by `isAdventureCardAllowed`; `modifiers` only from the §3.5 vocabulary, with their own checks (`opponentSetup` chains evolve by name and their cards are in the rival deck; `bonusCards` ids exist; counts ≥ 1).
 
 ## 6. Achievements and rewards
 
@@ -196,9 +225,9 @@ Rewards: normal → card back `cardback-bosque-verde` (API catalog entry next to
 | Entry | `/play` | one `GAME_MODES` entry in `src/features/play/ui/PlayModeSelection.tsx` ("Aventura", pixel icon); `/adventure` in `PRIVATE_PATHS` (`src/domain/seo/site.ts`) and `ProtectRoute`. |
 | Adventure select | `/adventure` | `Slab` + `LabelBand` card, achievements and rewards from `GET /adventures`; "Continuar" when a run is active. |
 | New run | `/adventure/new` | the 3 starters with their decks (card tiles, no sleeves), normal/difficult toggle (`TabStrip`), Empezar. |
-| Map | `/adventure/run` | new `AdventureMap` (10 nodes on a path by zone, Game Boy Color look: PokeAPI pixel sprites of each rival's lead Pokémon as the node, silhouette for future nodes, pulsing current node), `RunBar` (hearts, Batalla N/10, passives) — Q12; actions Editar mazo, Ver rival (only for beaten nodes and the current one's name), Batallar, Abandonar (confirm). |
+| Map | `/adventure/run` | new `AdventureMap` (10 nodes on a path by zone, Game Boy Color look: PokeAPI pixel sprites of each rival's lead Pokémon as the node, silhouette for future nodes, pulsing current node), `RunBar` (hearts, Batalla N/10, passives, and a "Reglas de la mesa" chip when the battle has modifiers) — Q12; a pre-battle panel for the current node listing its rules (`describeModifier` lines, e.g. "Mesa a 1 premio", "Metapod no da premios", "Empiezas con Pokémon Flute, Gust of Wind y PlusPower en la mano"); actions Editar mazo, Ver rival (only for beaten nodes and the current one's name), Batallar, Abandonar (confirm). |
 | Deck editor | `/adventure/run/deck` | `src/features/draft/model/deck-layout.ts` `groupDeckCards` columns + `DraftCardTile` (− only) + the draft builder's basic Energy steppers + min/max chip (draft `DeckBuilder.tsx` l.396–413, 568–609) in a new `RunDeckEditor` (no timer, no sideboard: removed cards are lost). |
-| Battle | `/adventure/battle/[roomId]` | `MultiplayerGamePage` with `context={{ kind: "adventure", runId }}`: no chat / turn timer / kick / room chip, `RunBar` through `GameLayoutProps.headerExtra` (`GameHeader` `headerExtra` l.66), exits to `/adventure/run`, `adventureBattleResult` instead of `matchSettled`. |
+| Battle | `/adventure/battle/[roomId]` | `MultiplayerGamePage` with `context={{ kind: "adventure", runId }}`: no chat / turn timer / kick / room chip, `RunBar` (with the battle's rules chip, tap → rules popover) through `GameLayoutProps.headerExtra` (`GameHeader` `headerExtra` l.66), exits to `/adventure/run`, `adventureBattleResult` instead of `matchSettled`. |
 | Battle result | modal over the board | victory → treasure screen; defeat → heart-break animation (Motion) + "Te quedan N corazones" → map. |
 | Treasure choice | `/adventure/run/treasure` | 3 large tiles (cards: card art; passives: PokeAPI item sprites), the major ones with the `HoloSparkle` overlay (`src/ui/cards/overlays/`); Elegir / Saltar. |
 | End of run | `/adventure/run/end` | won/lost, battles won, treasures, newly claimable achievements (link to the profile tab), the reward; Volver / Nueva run. |
@@ -254,20 +283,21 @@ Every card exists, is Base Set and is implemented (`UNSUPPORTED_TRAINERS` is emp
 | base1-93 | `base-set-093-gust-of-wind` | Gust of Wind | |
 | base1-94 | `base-set-094-potion` | Potion | |
 | base1-95 | `base-set-095-switch` | Switch | |
-| base1-96 | `base-set-096-double-colorless-energy` | Double Colorless Energy | limited to 4 |
+| base1-86 | `base-set-086-pokemon-flute` | Pokémon Flute | battle 7 bonus card (§3.6) |
+| base1-96 | `base-set-096-double-colorless-energy` | Double Colorless Energy | only by treasure (not a free Energy) |
 | base1-97 | `base-set-097-fighting-energy` | Fighting Energy | |
 | base1-98 | `base-set-098-fire-energy` | Fire Energy | |
 | base1-99 | `base-set-099-grass-energy` | Grass Energy | |
 | base1-100 | `base-set-100-lightning-energy` | Lightning Energy | |
 | base1-102 | `base-set-102-water-energy` | Water Energy | |
 
-Other printings with the same name (Team Rocket Charmander/Squirtle/Rattata/Magikarp/Voltorb/Magnemite/Diglett/Machop, Jungle Pikachu) never enter a run (no free additions), but the copy limit counts by name, as in the deck builder.
+Other printings with the same name (Team Rocket Charmander/Squirtle/Rattata/Magikarp/Voltorb/Magnemite/Diglett/Machop, Jungle Pikachu) never enter a run (no free additions); there is no copy limit in adventure mode.
 
-Deck sums checked: starters 24, battles 1–9 20 each, battle 10 normal 24, hard ×3 24 each.
+Deck sums checked: starters 24, battles 1–6 and 8–9 20 each (battle 7 is now the 40-card Metapod deck of §3.6), battle 10 normal 24, hard ×3 24 each.
 
 ## 9. Spec problems found
 
-1. **Pack de evolución is never offered with an untouched starter deck**: the starter has 4 copies of the Basic, `t1-evolucion` adds a 5th, and the spec excludes treasures that break the 4-copy limit. Default (Q3): starters with 3 Basics and 3 Rattata (still 24).
+1. ~~Pack de evolución never offered because of the 4-copy limit~~ — **resolved by the owner (2026-10-21): no copy limit in adventure mode**; the spec's starter decks (4 Basics, 2 Rattata) stay and the exclusion rule is dropped.
 2. **Beedrill's catalog data** looks wrong (W Water instead of Fire) — engine task to verify every adventure card against the printed card (`docs/card-verification` style) before content is final.
 3. **`prize_minus_one` "se apartan 3, gana al tomar 2"** would need a prize target separate from the Prize pile in 5+ win checks; dealing 2 Prizes is equivalent except that one more card stays in the deck (Q1).
 4. **Deck-out pressure**: 24 cards − 7 − 3 = 14 draws; Bill (+2) and especially Professor Oak (discard the hand, draw 7; `t2-oak`, `m-profesor`) can deck the player out. The spec already flags it for H7; the simulator task measures it.
@@ -289,7 +319,7 @@ Deck sums checked: starters 24, battles 1–9 20 each, battle 10 normal 24, hard
 
 1. `prize_minus_one`: **deal 2 Prizes** (one more card in the deck) vs deal 3 and win at 2.
 2. `lucky_coin` scope: **the first coin of the player's own action in each battle (attack incl. Confusion, Trainer, power, retreat)**; not the opening "who starts" coin, not the between-turns Sleep flip, not coins flipped for the AI's attacks.
-3. Starter deck vs `t1-evolucion`: **3 Basics + 3 Rattata** (24 cards) vs keep 4 Basics and drop the Basic from the treasure.
+3. ~~Starter deck vs `t1-evolucion`~~ — withdrawn (owner: no copy limit).
 4. Per-battle economy: **no coins / XP / missions / stats / Match rows for adventure battles**; only the unique reward and achievements.
 5. Achievement tiers as in §6 (**Bronze, Gold, Silver, Silver, Platinum, Gold, Silver**) with the standard tier coins; **exclude adventure achievements from the Legend "meta" count** so existing players' target doesn't move.
 6. "Bosque Verde" card back art: **owner supplies it**; a placeholder crop of `public/bg/bg-field.png` until then.
@@ -300,3 +330,5 @@ Deck sums checked: starters 24, battles 1–9 20 each, battle 10 normal 24, hard
 11. Verified email: **anyone can play; claiming achievements already needs a verified email; the card back is granted regardless**.
 12. Map art: **PokeAPI pixel sprites** (each rival's lead Pokémon, items for hearts/passives: e.g. heart-scale, amulet-coin, quick-claw, exp-share, escape-rope) — no trainer-class sprites exist today.
 13. Idle runs and battles: **never expire**.
+14. Metapod battle Prizes: **1 / 1** as the owner said, vs `{ player: 1, opponent: 2 }` if playtests show a single Stun Spore Knock Out ends it too often.
+15. Metapod battle bonus cards: **Pokémon Flute + Gust of Wind + PlusPower in the hand** (PlusPower only so Ivysaur reaches 40) vs Flute alone (harder: the player needs their own Gust of Wind).

@@ -4,7 +4,7 @@
 
 **Goal:** Ship Adventure 1 "De Pueblo Paleta al Bosque Verde": a single-player dungeon run (3 starters, 10 battles vs the AI, 3 hearts, treasures, 2 difficulties, unique rewards, achievements) whose battles are **server-authoritative** (owner decision, option A).
 
-**Architecture:** game-core adds the engine config (per-side Prizes and opening hands, deck rules, decks from card ids), the 5 passives as hooks, a seeded RNG + coin source for the AI executor, and a headless AI driver. The API owns the content (JSON + zod), the run state (Prisma), the run endpoints and **adventure rooms**: Socket.io game rooms where seat `player2` is the game-core AI driven by the server. The frontend adds the adventure screens and plays battles on the multiplayer page with an adventure context.
+**Architecture:** game-core adds the engine config (per-side Prizes and opening hands, deck rules, decks from card ids), the 5 passives and the battle modifiers ("reglas de jefe": per-side Prizes, no-Prize Pokémon, battle-only bonus cards, preset rival board) as hooks, a seeded RNG + coin source for the AI executor, and a headless AI driver. The API owns the content (JSON + zod), the run state (Prisma), the run endpoints and **adventure rooms**: Socket.io game rooms where seat `player2` is the game-core AI driven by the server. The frontend adds the adventure screens and plays battles on the multiplayer page with an adventure context.
 
 **Tech Stack:** TypeScript, vitest (all three repos), Prisma/Express/Socket.io/zod (API), Next.js 16 + React 19 + Motion (frontend).
 
@@ -31,18 +31,18 @@
 3. No `await` inside `withRandom` in the adventure room; the AI loop yields between steps (Task 12 review).
 4. Phase guards: deck edit, battle start, treasure choice and abandon only in their phase (409), one active run per user (partial unique index + `lockUsers`), the unique reward once per difficulty (`claimOnce`) (Tasks 10–11).
 5. Masking: the rival's hand/deck/Prizes stay hidden in adventure rooms exactly as in MP; the AI plans on `knowledgeView` only (Task 12).
-6. Passives: `swapSides` swaps `passives`/`openingHandSize`; `start_attached_energy` happens once, at the both-ready transition; lucky coin only on the first coin of the human's own action (Tasks 2–3, 12).
+6. Passives and modifiers: `swapSides` swaps `passives`/`openingHandSize`/`tableRules`/`setupRules`; every Prize site goes through the state-aware `givesPrizeWhenKnockedOut` (no ungated `CanTakePrize: true` left); bonus cards never reach the run deck; `start_attached_energy` happens once, at the both-ready transition; lucky coin only on the first coin of the human's own action (Tasks 2–3b, 4b, 12).
 
 ---
 
 ## Stage 1 — game-core (`D:/Proyectos/pokemon-tcg-game-core-wt-adventure`)
 
-Tasks 1 and 2 can run in parallel (different files: executor/rng vs gameState setup). 3 needs 2; 4 needs 2–3; 5 needs 1; 6 needs 4–5; 7 last.
+Tasks 1 and 2 can run in parallel (different files: executor/rng vs gameState setup). 3 needs 2; 3b needs 3; 4 needs 3b; 4b needs 4; 5 needs 1 (parallel with 2–4b); 6 needs 4b–5; 7 last.
 
 ### Task 0: Owner answers (controller, no subagent)
 
 - [ ] **Step 1:** Read the owner's answers to spec §11; record each changed default in `.superpowers/sdd/2026-10-21-adventure-mode/progress.md` (gitignored ledger, Gym Challenge format).
-- [ ] **Step 2:** Patch the affected task briefs (Q1 changes Task 3, Q2 Task 12, Q3 Task 8, Q4 Task 12, Q5 Task 13, Q7 Tasks 11/13).
+- [ ] **Step 2:** Patch the affected task briefs (Q1 changes Task 3, Q2 Task 12, Q4 Task 12, Q5 Task 13, Q7 Tasks 11/13, Q14–15 Task 8's battle 7). Already ruled by the owner on 2026-10-21: no copy limit in adventure mode (`rules.maxCopies = null`, Q3 withdrawn) and battle modifiers in v1 (spec §3.5–3.6).
 
 ### Task 1: Seeded RNG with state and a coin source for the AI executor
 
@@ -70,10 +70,10 @@ Tasks 1 and 2 can run in parallel (different files: executor/rng vs gameState se
 **Interfaces:**
 - `startGame(state, { prizeCount: 3, openingHand: { player: 8, opponent: 7 } })` → hands 8/7, Prizes 3/3; `{ prizeCount: { player: 2, opponent: 3 } }` → 2/3, win at the last Prize as always; defaults unchanged (7, 6).
 - `deckFromCardEntries(entries: CardEntry[]): GameCard[]` (instance ids like `buildDeckFromEntries`; throws `IllegalActionError` "Carta desconocida: <id>").
-- `validateDeckEntries(entries, { minSize, maxSize, maxCopies }): string | null` — Spanish reason or null; copies by name across sets; basic Energy unlimited (`isLimitedInDeck`).
+- `validateDeckEntries(entries, { minSize, maxSize, maxCopies: number | null }): string | null` — Spanish reason or null; copies by name across sets; basic Energy unlimited (`isLimitedInDeck`); `maxCopies: null` = no limit (adventure mode).
 - `isAdventureCardAllowed(card): boolean` — in `ALL_CARDS`, set not in development, not in `UNSUPPORTED_TRAINERS`.
 
-- [ ] **Step 1:** Failing tests: the hand/Prize sizes above; a 20-card deck deals 7 + 3 and 10 remain; `doMulligan` with `openingHandSize.player = 8` draws 8; `swapSides` swaps `openingHandSize`; a side with 2 Prizes wins after its 2nd Prize through `takePrize`, through a bench KO (`processBenchKnockouts`) and through `checkKnockouts`; `validateDeckEntries` rejects 19 / 41 cards, 5 Charmander (counting `team-rocket-050-charmander` with `base-set-046-charmander`), 5 DCE, accepts 30 Fire Energy; `deckFromCardEntries` on an unknown id throws.
+- [ ] **Step 1:** Failing tests: the hand/Prize sizes above; a 20-card deck deals 7 + 3 and 10 remain; `doMulligan` with `openingHandSize.player = 8` draws 8; `swapSides` swaps `openingHandSize`; a side with 2 Prizes wins after its 2nd Prize through `takePrize`, through a bench KO (`processBenchKnockouts`) and through `checkKnockouts`; `validateDeckEntries` rejects 19 / 41 cards, and with `maxCopies: 4` rejects 5 Charmander (counting `team-rocket-050-charmander` with `base-set-046-charmander`) and 5 DCE, accepts 30 Fire Energy; with `maxCopies: null` accepts 8 Charmander; `deckFromCardEntries` on an unknown id throws.
 - [ ] **Step 2:** Run — fails.
 - [ ] **Step 3:** Implement (keep `state.prizeCount` = the larger count; nothing in the engine reads it).
 - [ ] **Step 4:** Tests + `test/immutability.test.ts`, `npx tsc --noEmit`, simulate.
@@ -82,20 +82,36 @@ Tasks 1 and 2 can run in parallel (different files: executor/rng vs gameState se
 ### Task 3: Passives as engine hooks
 
 **Files:**
-- Create: `src/domain/adventure/passives.ts` (`AdventurePassive`, `ADVENTURE_PASSIVES`, `applySetupPassives`, `takeLuckyCoin`, `setupOptionsForPassives`)
-- Modify: `src/lib/gameState.ts` (`GameState.passives?`, `startPlayingPhase` calls `applySetupPassives` first), `src/domain/board/index.ts` (`swapSides` swaps `passives`), `src/index.ts`
+- Create: `src/domain/adventure/passives.ts` (`AdventurePassive`, `ADVENTURE_PASSIVES`, `applySetupRules`, `takeLuckyCoin`, `setupOptionsForPassives`)
+- Modify: `src/lib/gameState.ts` (`GameState.passives?`, `startPlayingPhase` calls `applySetupRules` first), `src/domain/board/index.ts` (`swapSides` swaps `passives`), `src/index.ts`
 - Test: `test/adventure-passives.test.ts`
 
 **Interfaces:**
 - `GameState.passives?: { player?: AdventurePassive[]; opponent?: AdventurePassive[]; luckyCoinUsed?: { player?: boolean; opponent?: boolean } }`.
 - `setupOptionsForPassives({ prizeCount, openingHand, playerPassives }): StartGameOptions` — `opening_hand_plus_1` → player hand + 1; `prize_minus_one` → player Prizes − 1 (owner Q1 default).
-- `applySetupPassives(state): GameState` — `start_attached_energy`: first basic Energy card in deck order whose type is in the cost of one of the Active's attacks (`getAvailableAttacks`; only Colorless costs → any basic Energy), attached to the Active, deck shuffled, log `"Arranque rápido: <Pokémon> recibe <Energía>"`; none → unchanged; once (it runs only at the both-ready transition).
+- `applySetupRules(state): GameState` — `start_attached_energy`: first basic Energy card in deck order whose type is in the cost of one of the Active's attacks (`getAvailableAttacks`; only Colorless costs → any basic Energy), attached to the Active, deck shuffled, log `"Arranque rápido: <Pokémon> recibe <Energía>"`; none → unchanged; once (it runs only at the both-ready transition).
 - `takeLuckyCoin(state, side): { state: GameState; coin: "heads" } | null` — side has `lucky_coin` and hasn't used it.
 
 - [ ] **Step 1:** Failing tests: each behaviour above, incl. Charmander with Grass and Fire Energy in the deck gets the Fire; a Rattata Active (Colorless cost) gets the first basic Energy; no basic Energy → unchanged; an AI-side passive works on a swapped view; `takeLuckyCoin` returns heads once then null; `extra_heart` is accepted and ignored by the engine.
 - [ ] **Step 2–3:** Run — fails; implement.
 - [ ] **Step 4:** Tests, `npx tsc --noEmit`, simulate.
 - [ ] **Step 5: Commit** `feat: adventure passives as engine hooks`.
+
+### Task 3b: Battle modifiers (spec §3.5)
+
+**Files:**
+- Create: `src/domain/adventure/modifiers.ts` (`BattleModifier` union, `ADVENTURE_MODIFIER_TYPES`, `applyBattleModifiersToOptions`, `placeOpponentSetup`)
+- Modify: `src/domain/cards/in-play.ts` (`givesPrizeWhenKnockedOut(pokemon, state?, owner?)`: also false when the effective name is in `state.tableRules.noPrizeFor[owner]`), every Prize site (`src/lib/gameState.ts` ~l.1908, 1974, 2189, 2738, 2765, 5167; `src/domain/powers/index.ts` Buzzap ~l.1724/1733), `src/domain/ai/evaluate.ts` l.80, `src/lib/gameState.ts` (`GameState.tableRules?`, `GameState.setupRules?: { bonusCards?: { player?: CardEntry[]; opponent?: CardEntry[] } }`), `src/domain/adventure/passives.ts` (`applySetupRules` also deals `bonusCards` to the hand), `src/domain/board/index.ts` (`swapSides` swaps `tableRules` / `setupRules`)
+- Test: `test/adventure-modifiers.test.ts`
+
+**Interfaces:**
+- `BattleModifier = { type: "prizeCount"; player?: number; opponent?: number } | { type: "openingHand"; player?: number; opponent?: number } | { type: "noPrizeFor"; side: Side; names: string[] } | { type: "bonusCards"; side: Side; cards: CardEntry[]; to: "hand" } | { type: "opponentSetup"; active: string[]; bench: string[][] } | { type: "opponentPassives"; passives: AdventurePassive[] }`.
+- `placeOpponentSetup(state, setup)`: removes the chain cards from the rival's deck and puts them in play (Basic first, `previousEvolutions`, `playedOnTurn` 0) before the deal; throws `IllegalActionError` if a card is missing or a chain doesn't evolve by name.
+
+- [ ] **Step 1:** Failing tests: a Metapod Knock Out (attack, bench damage, poison checkup, Buzzap-style self KO paths) gives no Prize under `noPrizeFor { opponent: ["Metapod"] }` and logs it, a Caterpie Knock Out does; the rule follows `swapSides`; Knocking Out the last rival Pokémon (all Metapod) still wins; `bonusCards` arrive in the hand at the both-ready transition, not before a mulligan, and never in the deck; `opponentSetup` puts an evolved Metapod Active (Caterpie under it) and 2 Benched ones, the rival's deck shrinks by 6, the AI's `decideOpponentSetup` adds nothing illegal; `prizeCount { player: 1, opponent: 1 }` + `prize_minus_one` → still 1; AI `evaluateBoard` values a Metapod Knock Out at 0 Prizes.
+- [ ] **Step 2–3:** Run — fails; implement.
+- [ ] **Step 4:** Tests + `test/immutability.test.ts`, `test/event-perspective.test.ts`, `npx tsc --noEmit`, simulate.
+- [ ] **Step 5: Commit** `feat: adventure battle modifiers as engine hooks`.
 
 ### Task 4: `createAdventureGame` and card verification
 
@@ -105,12 +121,22 @@ Tasks 1 and 2 can run in parallel (different files: executor/rng vs gameState se
 - Test: `test/adventure-game.test.ts`, `test/adventure-cards.test.ts`
 
 **Interfaces:**
-- `AdventureGameConfig = { playerDeck: CardEntry[]; opponentDeck: CardEntry[]; prizeCount: number; openingHand: number; playerPassives: AdventurePassive[] }` → `createAdventureGame(config): GameState` (MULLIGAN phase, perspective: human = `player`; call it inside the caller's `withRandom`).
+- `AdventureGameConfig = { playerDeck: CardEntry[]; opponentDeck: CardEntry[]; prizeCount: number; openingHand: number; playerPassives: AdventurePassive[]; modifiers: BattleModifier[] }` → `createAdventureGame(config): GameState` (MULLIGAN phase, perspective: human = `player`; call it inside the caller's `withRandom`). Order: decks → `opponentSetup` → `startGame` with prize / hand options from the rules, then the `prizeCount` / `openingHand` modifiers, then the passives → `tableRules` / `setupRules` / `passives` on the state.
 
-- [ ] **Step 1:** Failing tests: a game from the Charmander starter vs battle 1 deck (lists in the spec §8 / source spec) has the right sizes and passives; with `prize_minus_one` the player has 2 Prizes; `adventure-cards.test.ts` asserts, for each of the 49 cards of spec §8, name, number, stage, HP, types, weakness and resistance against the printed card (source: api.pokemontcg.io `base1`, fetched once into the test as literals) — **Beedrill's weakness must be Fire**.
+- [ ] **Step 1:** Failing tests: a game from the Charmander starter vs battle 1 deck (lists in the spec §8 / source spec) has the right sizes and passives; with `prize_minus_one` the player has 2 Prizes; the battle 7 config (spec §3.6) starts with the preset board, 1 Prize each and the 3 bonus cards arriving at the both-ready transition; `adventure-cards.test.ts` asserts, for each of the 49 cards of spec §8, name, number, stage, HP, types, weakness and resistance against the printed card (source: api.pokemontcg.io `base1`, fetched once into the test as literals) — **Beedrill's weakness must be Fire**.
 - [ ] **Step 2–3:** Run — fails; implement; fix catalog data the test exposes (only data the printed card proves).
 - [ ] **Step 4:** Tests, `npx tsc --noEmit`, simulate.
 - [ ] **Step 5: Commit** `feat: createAdventureGame; verify the adventure's Base Set cards`.
+
+### Task 4b: The Metapod battle is solvable (spec §3.6)
+
+**Files:**
+- Create: `test/adventure-metapod-battle.test.ts` (the battle 7 config as a literal: rival 40 cards, modifiers; one player deck per starter)
+
+- [ ] **Step 1:** Write the tests (engine only, `makeState`-style setup from `createAdventureGame` plus deterministic hands): per starter, a scripted line — Knock Out the Active Metapod (no Prize, Caterpie and Metapod in the rival's discard pile) → Pokémon Flute (Caterpie to the rival's Bench) → Gust of Wind → Ember / Bite / Vine Whip + PlusPower Knocks Out the Caterpie → `gameResult === "victory"`; Pokémon Flute refused (`canPlayTrainerCard` reason) while the rival's discard pile has no Basic; left alone, the Flute's Caterpie is evolved by `decideOpponentTurn` on the AI's next turn; Knocking Out the 3 Metapod without the Flute wins by "no Pokémon".
+- [ ] **Step 2:** Run. Any failure is an engine bug or a content problem: fix the engine in this task, or report the content change to the controller (deck list / modifiers live in the API's JSON, Task 8).
+- [ ] **Step 3:** `npx tsc --noEmit`, simulate.
+- [ ] **Step 4: Commit** `test: the Metapod battle is solvable with every starter`.
 
 ### Task 5: Headless AI driver
 
@@ -133,7 +159,7 @@ Tasks 1 and 2 can run in parallel (different files: executor/rng vs gameState se
 ### Task 6: Simulator `--adventure`
 
 **Files:**
-- Modify: `src/domain/simulation/game.ts` (`playAIGame(deckA, deckB, options)` accepts `startOptions` and card-entry decks via `createAdventureGame`), `scripts/simulate.ts` (`--adventure <json path>`: for each starter × each battle (hard: per starter), N games, the starter side = greedy policy, the rival = greedy; prints win rate, average turns, deck-out rate per battle)
+- Modify: `src/domain/simulation/game.ts` (`playAIGame(deckA, deckB, options)` accepts `startOptions` and card-entry decks via `createAdventureGame`), `scripts/simulate.ts` (`--adventure <json path>`: for each starter × each battle (hard: per starter), N games, the starter side = greedy policy, the rival = greedy; prints win rate, average turns, deck-out rate per battle; battles with `modifiers` are played with them — the Metapod battle's numbers decide whether an `aiHint: "stall"` is needed, spec §3.6)
 - Test: `test/simulation-adventure.test.ts` (an inline 2-battle fixture)
 
 - [ ] **Step 1:** Failing test: the fixture runs 10 games per pairing with 0 failures and reports per-battle stats.
@@ -143,25 +169,25 @@ Tasks 1 and 2 can run in parallel (different files: executor/rng vs gameState se
 
 ### Task 7: Docs, exports, version
 
-**Files:** `CLAUDE.md` (Layout: `domain/adventure/`, `ai/driver.ts`; Model: per-side Prizes / hands, `passives`, coin source of the AI executor, seeded RNG; Commands: `--adventure`), `src/index.ts`, `package.json` version → **0.10.0** (do NOT publish).
+**Files:** `CLAUDE.md` (Layout: `domain/adventure/`, `ai/driver.ts`; Model: per-side Prizes / hands, `passives`, battle modifiers (`tableRules`, `setupRules`, state-aware `givesPrizeWhenKnockedOut` — "How to add… a battle modifier"), coin source of the AI executor, seeded RNG; Commands: `--adventure`), `src/index.ts`, `package.json` version → **0.10.0** (do NOT publish).
 
 - [ ] **Step 1:** `npm test`, `npm run simulate -- --games 1000 --seed 7 --policy all --decks random-mix`, `npm run build`, `npm pack` → copy the `.tgz` to `D:/Proyectos/pokemon-tcg-packs/`.
 - [ ] **Step 2: Commit** `docs: adventure mode engine notes; 0.10.0`.
 
 ## Stage 2a — API (`D:/Proyectos/pokemon-tcg-api-wt-adventure`)
 
-Tasks 8, 9 and 10 need only the published 0.9.0 (`findCardById`, `isLimitedInDeck`) and can start **in parallel with Stage 1**; switch to the packed 0.10.0 when Task 7 lands (Tasks 10's deck rule moves to `validateDeckEntries`). Task 11 needs 9–10; 12 needs Stage 1 + 11; 13 needs 11.
+Tasks 8, 9 and 10 need only the published 0.9.0 (`findCardById`, `isLimitedInDeck`) and can start **in parallel with Stage 1**; switch to the packed 0.10.0 when Task 7 lands (Task 10's deck rule moves to `validateDeckEntries`; until then Task 10 declares local copies of `AdventureGameConfig` / `BattleModifier` and swaps them for the engine's types). Task 11 needs 9–10; 12 needs Stage 1 + 11; 13 needs 11.
 
 ### Task 8: Adventure content + zod schema + startup validation
 
 **Files:**
-- Create: `content/adventures/pueblo-paleta-bosque-verde.json` (the full spec content with catalog ids, spec §8; starters per owner Q3: 3 Basics + 3 Rattata), `src/modules/adventure/content/schema.ts` (zod), `src/modules/adventure/content/load.ts` (`loadAdventures(): ReadonlyMap<string, Adventure>`, reads `content/adventures/*.json` once, throws with every problem listed), `src/modules/adventure/content/types.ts`
+- Create: `content/adventures/pueblo-paleta-bosque-verde.json` (the full spec content with catalog ids, spec §8; `rules.maxCopies: null`; the spec's starter decks (4 Basics, 2 Rattata); battle 7 = the Metapod battle of spec §3.6 with its `modifiers`), `src/modules/adventure/content/modifiers.ts` (`describeModifier(modifier): string` — Spanish line per §3.5 type, e.g. "Mesa a 1 premio por jugador", "Los Metapod del rival no dan premios", "Empiezas con Pokémon Flute, Gust of Wind y PlusPower en la mano", "El rival empieza con Metapod en juego"), `src/modules/adventure/content/schema.ts` (zod), `src/modules/adventure/content/load.ts` (`loadAdventures(): ReadonlyMap<string, Adventure>`, reads `content/adventures/*.json` once, throws with every problem listed), `src/modules/adventure/content/types.ts`
 - Modify: `src/index.ts` (load at boot, before listening), `package.json` `files`/build so `content/` ships (or import the JSON with `resolveJsonModule`)
 - Test: `test/adventure-content.test.ts`
 
-Validator checks (beyond zod shape): 10 battles with indices 1–10; rival decks 20–24 and a `hard.byStarter` entry for every starter; starter decks within `rules` (`minDeckSize`…`maxCopies`); every card id exists and `isAdventureCardAllowed`; copy limits by name; pools reference existing treasures; `starter.*` tokens only in treasures; `modifiers` empty; reward types `cosmetic | starter_unlock | card`; achievement conditions known.
+Validator checks (beyond zod shape): 10 battles with indices 1–10; rival decks 20–40 and a `hard.byStarter` entry for every starter; starter decks within `rules` (`minDeckSize`, `maxDeckSize`, `maxCopies` — a number or `null`); every card id exists and `isAdventureCardAllowed`; pools reference existing treasures; `starter.*` tokens only in treasures; `modifiers` only of the spec §3.5 types (zod discriminated union), `opponentSetup` chains evolve by name and their cards are in that battle's rival deck, `bonusCards` ids exist, counts ≥ 1; reward types `cosmetic | starter_unlock | card`; achievement conditions known.
 
-- [ ] **Step 1:** Failing tests: the real file validates; broken fixtures (9 battles, a 19-card rival deck, an unknown card id, a pool with a missing treasure, a hard deck missing a starter) each fail with a specific message.
+- [ ] **Step 1:** Failing tests: the real file validates; broken fixtures (9 battles, a 19-card rival deck, an unknown card id, a pool with a missing treasure, a hard deck missing a starter, an unknown modifier type, an `opponentSetup` Metapod over a Weedle, an `opponentSetup` card missing from the rival deck) each fail with a specific message; `describeModifier` gives a Spanish line for every modifier type.
 - [ ] **Step 2–3:** Run — fails; implement.
 - [ ] **Step 4:** `npx vitest run test/adventure-content.test.ts`, `npx tsc --noEmit`.
 - [ ] **Step 5: Commit** `feat: Adventure 1 content and validator`.
@@ -180,9 +206,9 @@ Validator checks (beyond zod shape): 10 battles with indices 1–10; rival decks
 - Create: `src/modules/adventure/run-logic.ts`, `src/modules/adventure/run-logic.types.ts`
 - Test: `test/adventure-run-logic.test.ts`
 
-**Interfaces (pure, no DB):** `newRun(adventure, { difficulty, starterId, seed })`, `editDeck(run, adventure, { remove, energies })`, `generateOffer(run, adventure, battleIndex)`, `chooseTreasure(run, adventure, choice)`, `applyBattleResult(run, adventure, { victory })` → `{ run, events: RunEvent[] }` (`offer`, `heartLost`, `runWon`, `runLost`), `battleDeck(run, adventure)` (rival deck for `currentBattle`, hard by starter), `markOffType(run, adventure)`, `achievementFacts(run)`. Throws `RunPhaseError` (→ 409) / `RunRuleError` (→ 422).
+**Interfaces (pure, no DB):** `newRun(adventure, { difficulty, starterId, seed })`, `editDeck(run, adventure, { remove, energies })`, `generateOffer(run, adventure, battleIndex)`, `chooseTreasure(run, adventure, choice)`, `applyBattleResult(run, adventure, { victory })` → `{ run, events: RunEvent[] }` (`offer`, `heartLost`, `runWon`, `runLost`), `battleConfig(run, adventure)` → game-core `AdventureGameConfig` (run deck, rival deck for `currentBattle` — hard by starter —, rules, passives, the battle's `modifiers`), `markOffType(run, adventure)`, `achievementFacts(run)`. Throws `RunPhaseError` (→ 409) / `RunRuleError` (→ 422).
 
-- [ ] **Step 1:** Failing tests — the spec's key tests: same seed + battle → same offer; defeat −1 heart and same battle, 0 → `lost`; actions outside their phase throw `RunPhaseError`; the deck never < 20 or > 40, no non-Energy > 4 copies, DCE can't be added by edit; `starter.*` tokens resolve per starter; hard battle 10 gives the right deck per starter; offers exclude owned passives and copy-limit breakers and the major pool after battle 5; `extra_heart` raises both counters; monotype flag set by a Lightning Energy added before a battle.
+- [ ] **Step 1:** Failing tests — the spec's key tests: same seed + battle → same offer; defeat −1 heart and same battle, 0 → `lost`; actions outside their phase throw `RunPhaseError`; the deck never < 20 or > 40, a 5th and 6th Charmander are fine (no copy limit), DCE can't be added by edit; `starter.*` tokens resolve per starter; `t1-evolucion` is offerable with the untouched starter deck; hard battle 10 gives the right deck per starter; `battleConfig(run, adventure)` carries the battle's `modifiers`; offers exclude owned passives and treasures that would pass 40 cards, and use the major pool after battle 5; `extra_heart` raises both counters; monotype flag set by a Lightning Energy added before a battle.
 - [ ] **Step 2–3:** Run — fails; implement.
 - [ ] **Step 4:** Tests, `npx tsc --noEmit`.
 - [ ] **Step 5: Commit** `feat: adventure run logic`.
@@ -194,7 +220,7 @@ Validator checks (beyond zod shape): 10 battles with indices 1–10; rival decks
 - Modify: `src/index.ts` (mount under `/api`, mutating paths in the economy rate-limit list)
 - Test: `test/adventure-http.test.ts` (`startHttpApp`, `createUser`)
 
-Endpoints and errors as in spec §5.1. Every mutation: `$transaction` + `lockUsers`. `seed` and `battle.state` never serialized. `applyBattleResult(runId, result)` is a service function (no route), used by Task 12: writes `AdventureBattleResult`, updates the run; on battle 10 victory updates `AdventureProgress`, grants the reward with `claimOnce(tx, userId, "adventure", "<adventureId>:<difficulty>")` (card back upsert / `UserStarterUnlock`), then `checkAndUpdateProgress(userId)` after the commit.
+Endpoints and errors as in spec §5.1; `GET /adventures/:id` and the run payload include the current battle's rules as `describeModifier` lines (beaten battles too, future ones never). Every mutation: `$transaction` + `lockUsers`. `seed` and `battle.state` never serialized. `applyBattleResult(runId, result)` is a service function (no route), used by Task 12: writes `AdventureBattleResult`, updates the run; on battle 10 victory updates `AdventureProgress`, grants the reward with `claimOnce(tx, userId, "adventure", "<adventureId>:<difficulty>")` (card back upsert / `UserStarterUnlock`), then `checkAndUpdateProgress(userId)` after the commit.
 
 - [ ] **Step 1:** Failing tests: create run (409 second active; 404 unknown starter); `GET /adventure/runs/:id` has no `seed`; deck edit 409 outside `pre_battle`, 422 under 20; treasure 422 for an id not offered; abandon; `applyBattleResult` battle 10 twice for the same difficulty grants the card back once; another user's run → 404.
 - [ ] **Step 2–3:** Run — fails; implement.
@@ -204,13 +230,13 @@ Endpoints and errors as in spec §5.1. Every mutation: `$transaction` + `lockUse
 ### Task 12: Adventure battle rooms (server-run AI seat)
 
 **Files:**
-- Create: `src/socket/adventure-room.ts` (`createAdventureRoom(run)`, AI loop, snapshot / restore, end → `applyBattleResult`)
+- Create: `src/socket/adventure-room.ts` (`createAdventureRoom(run)` from `battleConfig` — modifiers included —, AI loop, snapshot / restore, end → `applyBattleResult`)
 - Modify: `src/socket/rooms.ts` (room kind `config.mode: "adventure"` + `aiSeat`; per-room coin source hook; after-action hook; skip turn timer / answer clock / kick / forfeit and cleanup timers / `openRoomMatch` / `settleRoomResult` for adventure rooms; restore on `joinRoom` of a missing adventure room), `src/socket/handlers.ts` (`gameStart` carries `adventure` info and the rival's `opponentInfo`; `adventureBattleResult` event), `src/socket/state-masking.ts` (unchanged rules; check `passives` passes through), `src/modules/adventure/adventure.service.ts` (`POST …/battle` creates the room)
 - Test: `test/adventure-room.test.ts` (`new GameRoomManager(...)` with a scripted seed, `startSocketServer` for the end-to-end case)
 
 Behaviour: human = `player1`. All engine and AI calls of the room inside `withRandom(room.rng)`, synchronous; coin source = `room.rng`, with `takeLuckyCoin` for the first coin of a human-initiated action (attack incl. Confusion, Trainer/power `requestCoinFlip`, retreat) when the run has `lucky_coin`. After each applied action: loop `nextAIStep` / `applyAIStep` (flip = room coins, `onCoins` → `showCoinFlip` with `flippedBy` per viewer), broadcast `gameState` per step, `setTimeout(step.delay)` between steps (never inside `withRandom`). Snapshot `AdventureRun.battle = { roomId, state (events trimmed to the last 200), rngState, aiPlan, humanActions }` after every human action and AI step (debounced ≤ 1 s, flushed at the end). Event neutralization labels player2 with the rival's name. Game over or surrender → `applyBattleResult` once (`room.resultSettled`) → `adventureBattleResult` → room closes after `FINISHED_ROOM_TTL_MS`. Coins/results/seeds from the client are rejected by the existing schemas (`coinResults: z.undefined`).
 
-- [ ] **Step 1:** Failing tests: a scripted battle (human plays a fixed line, seed fixed) produces the same final state twice; the AI acts within the room without any socket for player2 and never while the human must answer; the human's first attack coin is heads with `lucky_coin` (and the second isn't forced); the opponent's hand is masked in `gameState`; killing the manager mid-battle and rebuilding from the snapshot continues to the same result; game over applies the result exactly once and sends `adventureBattleResult`; a `surrender` costs a heart; no `Match` row is created; a second socket of another user can't join the room.
+- [ ] **Step 1:** Failing tests: a scripted battle (human plays a fixed line, seed fixed) produces the same final state twice; the AI acts within the room without any socket for player2 and never while the human must answer; the human's first attack coin is heads with `lucky_coin` (and the second isn't forced); the opponent's hand is masked in `gameState`; the Metapod battle's room starts with the preset board and the 3 bonus cards reach the player's hand after setup; a Metapod Knock Out in the room gives no Prize; killing the manager mid-battle and rebuilding from the snapshot continues to the same result; game over applies the result exactly once and sends `adventureBattleResult`; a `surrender` costs a heart; no `Match` row is created; a second socket of another user can't join the room.
 - [ ] **Step 2–3:** Run — fails; implement.
 - [ ] **Step 4:** `npm test`, `npx tsc --noEmit`.
 - [ ] **Step 5: Commit** `feat: server-run adventure battle rooms`.
@@ -249,10 +275,10 @@ Tasks 14–18 and 20 need only the API contract (spec §5) and can run **in para
 
 ### Task 16: Map and run bar
 
-**Files:** `app/adventure/run/page.tsx`, `src/features/adventure/ui/AdventureMap.tsx` (10 nodes by zone, beaten / current (pulsing) / future (silhouette) states, `[image-rendering:pixelated]` sprites of each rival's lead Pokémon), `src/features/adventure/ui/RunBar.tsx` (hearts, "Batalla N/10", passive icons with tooltips; compact variant for the phone header), actions Editar mazo / Ver rival / Batallar / Abandonar (confirm `ModalFrame`), `public/sprites/adventure/*` (only the PokeAPI files used; credits in `public/sprites/CREDITS.txt`)
+**Files:** `app/adventure/run/page.tsx`, `src/features/adventure/ui/AdventureMap.tsx` (10 nodes by zone, beaten / current (pulsing) / future (silhouette) states, `[image-rendering:pixelated]` sprites of each rival's lead Pokémon), `src/features/adventure/ui/RunBar.tsx` (hearts, "Batalla N/10", passive icons with tooltips, a "Reglas de la mesa" chip when the battle has modifiers (tap → popover with the `describeModifier` lines); compact variant for the phone header), `src/features/adventure/ui/BattleRulesPanel.tsx` (pre-battle panel on the current node: rival, location and the battle's rules), actions Editar mazo / Ver rival / Batallar / Abandonar (confirm `ModalFrame`), `public/sprites/adventure/*` (only the PokeAPI files used; credits in `public/sprites/CREDITS.txt`)
 - Test: `src/features/adventure/ui/AdventureMap.test.tsx`
 
-- [ ] **Step 1–3:** Failing tests (node states from the run; Batallar calls `startBattle` and navigates to `/adventure/battle/<roomId>`), implement.
+- [ ] **Step 1–3:** Failing tests (node states from the run; the rules panel lists the Metapod battle's 4 rules and is absent for a battle without modifiers; Batallar calls `startBattle` and navigates to `/adventure/battle/<roomId>`), implement.
 - [ ] **Step 4:** Tests, `npx tsc --noEmit`; screenshot desktop + 390 px phone for the owner (`scripts/screenshots.mjs`).
 - [ ] **Step 5: Commit** `feat: adventure map and run bar`.
 
@@ -261,7 +287,7 @@ Tasks 14–18 and 20 need only the API contract (spec §5) and can run **in para
 **Files:** `app/adventure/run/deck/page.tsx`, `src/features/adventure/ui/RunDeckEditor.tsx` (columns from `src/features/draft/model/deck-layout.ts` `groupDeckCards`, `DraftCardTile` with remove only, basic Energy steppers, min/max chip "Faltan N / Sobran N", Guardar → `PATCH …/deck`; validation mirrored with game-core `validateDeckEntries`)
 - Test: `src/features/adventure/ui/RunDeckEditor.test.tsx`
 
-- [ ] **Step 1–3:** Failing tests (can't go under 20 or over 40, can't add DCE, removal is final after save), implement.
+- [ ] **Step 1–3:** Failing tests (can't go under 20 or over 40, no copy limit (a 5th Charmander from a treasure is shown fine), can't add DCE, removal is final after save), implement.
 - [ ] **Step 4:** Tests, `npx tsc --noEmit`.
 - [ ] **Step 5: Commit** `feat: adventure deck editor`.
 
@@ -276,10 +302,10 @@ Tasks 14–18 and 20 need only the API contract (spec §5) and can run **in para
 
 ### Task 19: Battle on the multiplayer page
 
-**Files:** `app/adventure/battle/[roomId]/page.tsx`, `src/features/game/ui/MultiplayerGamePage.tsx` (prop `context?: { kind: "adventure"; runId: string }`: no `ChatPanel`, no `TurnTimer`, no kick, no "Sala" chip, no spectator count; `headerExtra` = `RunBar` from `gameStart.adventure`; exits (leave, `gameClosed`, `ROOM_NOT_FOUND`, GameOver `onExit`) go to `/adventure/run`; `adventureBattleResult` → `HeartLostModal` or the treasure route), install the packed engine 0.10.0
+**Files:** `app/adventure/battle/[roomId]/page.tsx`, `src/features/game/ui/MultiplayerGamePage.tsx` (prop `context?: { kind: "adventure"; runId: string }`: no `ChatPanel`, no `TurnTimer`, no kick, no "Sala" chip, no spectator count; `headerExtra` = `RunBar` (with the rules chip) from `gameStart.adventure` (which carries the battle's `describeModifier` lines); exits (leave, `gameClosed`, `ROOM_NOT_FOUND`, GameOver `onExit`) go to `/adventure/run`; `adventureBattleResult` → `HeartLostModal` or the treasure route), install the packed engine 0.10.0
 - Test: `src/features/game/ui/MultiplayerGamePage.adventure.test.tsx`
 
-- [ ] **Step 1:** Failing tests: with the adventure context the chat/timer/kick are absent and the run bar is present; a defeat result shows the heart modal; the default (no context) render is unchanged.
+- [ ] **Step 1:** Failing tests: with the adventure context the chat/timer/kick are absent and the run bar with its rules chip is present; a defeat result shows the heart modal; the default (no context) render is unchanged.
 - [ ] **Step 2–3:** Run — fails; implement.
 - [ ] **Step 4:** Tests, `npx tsc --noEmit`, `npm run build` (PowerShell if Git Bash crashes with 0xc0000142).
 - [ ] **Step 5: Commit** `feat: adventure battles on the multiplayer board`.
