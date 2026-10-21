@@ -10,8 +10,9 @@
 import { EnergyType } from "@/domain/constants";
 import { isBasicEnergy, isPokemonCard } from "@/domain/cards";
 import type { GameState, StartGameOptions } from "@/lib/gameState";
-import { createGameEvent, energyCardLabel, getAvailableAttacks, shuffle } from "@/lib/gameState";
-import type { AdventurePassive, SidePair, TableSide } from "./types";
+import { createGameEvent, energyCardLabel, getAvailableAttacks, shuffle, toLogCards } from "@/lib/gameState";
+import { deckFromCardEntries } from "./deck";
+import type { AdventurePassive, CardEntry, SidePair, TableSide } from "./types";
 
 export type { AdventurePassive } from "./types";
 
@@ -80,13 +81,42 @@ function attachStartingEnergy(state: GameState, side: TableSide): GameState {
 }
 
 /**
+ * `bonusCards` modifier: battle-only cards (new instances, ids `bonus-<side>-<n>`) into that side's
+ * hand. Never in the deck: a mulligan already happened, and the run deck never sees them.
+ */
+function dealBonusCards(state: GameState, side: TableSide, entries: readonly CardEntry[]): GameState {
+  const cards = deckFromCardEntries(entries, `bonus-${side}`);
+  if (cards.length === 0) return state;
+  const owner = (side === "player" ? state.playerActivePokemon : state.opponentActivePokemon)?.pokemon.name;
+  const event = createGameEvent(
+    `Reglas de la mesa: ${cards.map((c) => c.name).join(", ")} a la mano${owner ? ` del dueño de ${owner}` : ""}`,
+    "info",
+    toLogCards(cards)
+  );
+  return side === "player"
+    ? { ...state, playerHand: [...state.playerHand, ...cards], events: [...state.events, event] }
+    : { ...state, opponentHand: [...state.opponentHand, ...cards], events: [...state.events, event] };
+}
+
+/**
  * The adventure rules applied once both players are ready, before the first draw (startPlayingPhase
- * calls it): `start_attached_energy` for each side that has it. Returns the same state when nothing applies.
+ * calls it): `start_attached_energy` for each side that has it, then the `bonusCards` of
+ * `state.setupRules` into the hands (consumed: `setupRules` is dropped). Returns the same state when
+ * nothing applies.
  */
 export function applySetupRules(state: GameState): GameState {
   let next = state;
   for (const side of ["player", "opponent"] as const) {
     if (state.passives?.[side]?.includes("start_attached_energy")) next = attachStartingEnergy(next, side);
+  }
+  const bonus = state.setupRules?.bonusCards;
+  if (bonus) {
+    for (const side of ["player", "opponent"] as const) {
+      const entries = bonus[side];
+      if (entries && entries.length > 0) next = dealBonusCards(next, side, entries);
+    }
+    const { setupRules: _consumed, ...rest } = next;
+    next = rest;
   }
   return next;
 }

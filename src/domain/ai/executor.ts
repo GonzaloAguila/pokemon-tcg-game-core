@@ -43,7 +43,7 @@ import {
 } from "@/domain/effects";
 import type { CoinFlipResult } from "@/domain/constants";
 import { answerOpponentTrainerStepForAI, answerPowerStepForAI, answerTrainerStepForAI, collectAnswers, neverBorrowed, wantsChaosGymOffer } from "./cardEffects";
-import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapBenchTrim, swapStadium, swapSides as boardSwapSides } from "@/domain/board";
+import { canDiscardFromPlay, discardFromPlay, getTurnActionBlocker, swapBenchTrim, swapSideRules, swapStadium, swapSides as boardSwapSides } from "@/domain/board";
 import { swapSetAsideHands } from "@/domain/trainers/set-aside";
 import { swapLastDuel, swapPendingDuel } from "@/domain/duel/rps";
 import { choosePromotion } from "./choices";
@@ -147,6 +147,7 @@ function swapSides(state: GameState): GameState {
       playerId: m.playerId === "player" ? "opponent" as const : "player" as const,
     })),
     gameResult: state.gameResult === "victory" ? "defeat" : state.gameResult === "defeat" ? "victory" : state.gameResult,
+    ...swapSideRules(state),
     ...(state.stadium !== undefined && { stadium: swapStadium(state.stadium) }),
     ...(state.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(state.setAsideHands) }),
     ...(state.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(state.pendingDuel) }),
@@ -351,6 +352,7 @@ function toAIAttackView(state: GameState): GameState {
     playerNeedsToPromote: false, // Reset en el estado swapped
     opponentNeedsToPromote: false,
     activeModifiers: swappedModifiers,
+    ...swapSideRules(state),
     ...(state.stadium !== undefined && { stadium: swapStadium(state.stadium) }),
     ...(state.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(state.setAsideHands) }),
     ...(state.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(state.pendingDuel) }),
@@ -492,6 +494,7 @@ function completeAIAttack(attacked: GameState, eventsBefore: number, coins: Coin
     playerNeedsToPromote,
     opponentNeedsToPromote: false,
     activeModifiers: finalModifiers,
+    ...swapSideRules(resultState),
     ...(resultState.stadium !== undefined && { stadium: swapStadium(resultState.stadium) }),
     ...(resultState.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(resultState.setAsideHands) }),
     ...(resultState.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(resultState.pendingDuel) }),

@@ -483,5 +483,19 @@ export { DEFAULT_OPENING_HAND, openingHandSizeOf } from "./lib/gameState";
 // Adventure mode (Modo Aventura): decks from card ids, deck rules
 // =============================================================================
 
-export type { CardEntry, SidePair, TableSide, DeckRules, AdventurePassive, BattlePassives } from "./domain/adventure";
-export { deckFromCardEntries, validateDeckEntries, isAdventureCardAllowed, ADVENTURE_PASSIVES, setupOptionsForPassives, applySetupRules, takeLuckyCoin } from "./domain/adventure";
+export type { CardEntry, SidePair, TableSide, DeckRules, AdventurePassive, BattlePassives, TableRules, SetupRules, BattleModifier, BattleModifierType } from "./domain/adventure";
+export {
+  deckFromCardEntries,
+  validateDeckEntries,
+  isAdventureCardAllowed,
+  ADVENTURE_PASSIVES,
+  setupOptionsForPassives,
+  applySetupRules,
+  takeLuckyCoin,
+  ADVENTURE_MODIFIER_TYPES,
+  applyBattleModifiersToOptions,
+  opponentPassivesFromModifiers,
+  tableRulesFromModifiers,
+  setupRulesFromModifiers,
+  placeOpponentSetup,
+} from "./domain/adventure";

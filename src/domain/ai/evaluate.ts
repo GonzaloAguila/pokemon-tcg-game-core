@@ -75,9 +75,9 @@ export function energyUnits(p: PokemonInPlay): number {
   return p.attachedEnergy.reduce((sum, e) => sum + getEnergyValue(e), 0);
 }
 
-/** Prize cards the other player takes when this Pokémon is Knocked Out. */
-export function prizesFor(p: PokemonInPlay): number {
-  return givesPrizeWhenKnockedOut(p) ? 1 : 0;
+/** Prize cards the other player takes when this Pokémon is Knocked Out (`v`: the table's noPrizeFor rule too). */
+export function prizesFor(p: PokemonInPlay, v?: GameState): number {
+  return givesPrizeWhenKnockedOut(p, v) ? 1 : 0;
 }
 
 // ============================================================================
@@ -433,7 +433,7 @@ const HP_PRIZE_SHARE = 0.6;
 function hpPointValue(v: GameState, p: PokemonInPlay): number {
   const maxHp = Math.max(10, getEffectiveHp(v, p));
   if (isLuckyDuel(v)) return LUCKY_DUEL_HP_VALUE / maxHp + 0.15;
-  return (PRIZE * prizesFor(p) * HP_PRIZE_SHARE) / maxHp + 0.15;
+  return (PRIZE * prizesFor(p, v) * HP_PRIZE_SHARE) / maxHp + 0.15;
 }
 
 /** Nominal strength of an attack (damage, + a bit for effects). */
@@ -518,7 +518,7 @@ export function damageValue(v: GameState, p: PokemonInPlay, damage: number): num
 export function knockOutValue(v: GameState, p: PokemonInPlay): number {
   // Lucky Duel: the Knock Out of an Active ends the game
   if (isLuckyDuel(v)) return GAME_WON / 20;
-  return PRIZE * prizesFor(p) + pokemonWorth(v, p);
+  return PRIZE * prizesFor(p, v) + pokemonWorth(v, p);
 }
 
 /**
@@ -646,7 +646,7 @@ export function evaluateBoard(v: GameState): number {
     const alt = bestThreat(v, "opponent", benched, mineAfterPoison, theirEnergy);
     if (alt.ko * 0.5 > threat.ko) threat = { attackIndex: alt.attackIndex, ko: alt.ko * 0.5, expected: Math.max(threat.expected, alt.expected * 0.5) };
   }
-  const losesGame = myBench === 0 || theirPrizesLeft <= prizesFor(mine);
+  const losesGame = myBench === 0 || theirPrizesLeft <= prizesFor(mine, v);
   score -= threat.ko * (losesGame ? GAME_WON / 20 : knockOutValue(v, mine)) * 0.9;
   score -= (1 - threat.ko) * damageValue(v, mine, threat.expected) * 0.8;
   score -= damageValue(v, mine, poison);
@@ -654,7 +654,7 @@ export function evaluateBoard(v: GameState): number {
   // --- My next turn: can my Active Knock Out theirs? (they move first, so weighted lower)
   const myReady = attackReadiness(mine, true);
   const myThreat = bestThreat(v, "player", mine, theirs, nextTurnExtra(v, "player"), myReady);
-  const winsGame = theirBench === 0 || myPrizesLeft <= prizesFor(theirs);
+  const winsGame = theirBench === 0 || myPrizesLeft <= prizesFor(theirs, v);
   score += myThreat.ko * (winsGame ? GAME_WON / 40 : knockOutValue(v, theirs)) * 0.35 * (1 - threat.ko * 0.7);
   score += damageValue(v, theirs, myThreat.expected) * 0.15;
 

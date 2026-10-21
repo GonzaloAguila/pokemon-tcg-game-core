@@ -33,7 +33,7 @@ export { maxBenchSize, isBenchFull, swapBenchTrim } from "./bench";
 export { requireBenchTrims, getBenchTrimStep, resolveBenchTrim } from "./bench-trim";
 export { getStadium, stadiumNamed, swapStadium } from "./stadium";
 export type { InPlayLocation } from "./locate";
-export { swapSides } from "./swap";
+export { swapSides, swapSideRules } from "./swap";
 
 export type BoardPosition = "active" | "bench";
 

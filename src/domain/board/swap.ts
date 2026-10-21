@@ -9,7 +9,40 @@ import { swapBenchTrim } from "./bench";
 import { swapSetAsideHands } from "@/domain/trainers/set-aside";
 import { swapLastDuel, swapPendingDuel } from "@/domain/duel/rps";
 import { swapSideTurns } from "@/domain/trainers/side-marks";
-import type { BattlePassives } from "@/domain/adventure/types";
+import type { BattlePassives, SetupRules, TableRules } from "@/domain/adventure/types";
+
+/** A pair of per-side values seen from the other side (absent sides stay absent). */
+function swapPair<T>(pair: { player?: T; opponent?: T }): { player?: T; opponent?: T } {
+  return {
+    ...(pair.opponent !== undefined && { player: pair.opponent }),
+    ...(pair.player !== undefined && { opponent: pair.player }),
+  };
+}
+
+/**
+ * The per-side rules of a state seen from the other side: adventure `openingHandSize`, `passives`,
+ * `tableRules`, `setupRules`, and the Gym Challenge side marks (`trainerLockUntilTurn`,
+ * `benchProtectedUntilTurn`). Spread into every perspective swap (swapSides, the AI executor's
+ * attack view and its swap back) so each side's rules follow it.
+ */
+export function swapSideRules(state: GameState): Partial<GameState> {
+  return {
+    ...(state.openingHandSize !== undefined && { openingHandSize: { player: state.openingHandSize.opponent, opponent: state.openingHandSize.player } }),
+    ...(state.passives !== undefined && { passives: swapPassives(state.passives) }),
+    ...(state.tableRules !== undefined && { tableRules: swapTableRules(state.tableRules) }),
+    ...(state.setupRules !== undefined && { setupRules: swapSetupRules(state.setupRules) }),
+    ...(state.trainerLockUntilTurn !== undefined && { trainerLockUntilTurn: swapSideTurns(state.trainerLockUntilTurn) }),
+    ...(state.benchProtectedUntilTurn !== undefined && { benchProtectedUntilTurn: swapSideTurns(state.benchProtectedUntilTurn) }),
+  };
+}
+
+function swapTableRules(rules: TableRules): TableRules {
+  return { ...rules, ...(rules.noPrizeFor !== undefined && { noPrizeFor: swapPair(rules.noPrizeFor) }) };
+}
+
+function swapSetupRules(rules: SetupRules): SetupRules {
+  return { ...rules, ...(rules.bonusCards !== undefined && { bonusCards: swapPair(rules.bonusCards) }) };
+}
 
 /** The adventure passives seen from the other side (each side's list and lucky coin mark). */
 function swapPassives(passives: BattlePassives): BattlePassives {
@@ -31,7 +64,7 @@ function swapPassives(passives: BattlePassives): BattlePassives {
  * ownership, PlusPower/Defender owner, starting player, who played the Stadium, whose Bench
  * must be trimmed (pendingBenchTrim), whose hand is set aside (setAsideHands), the Misty's Duel
  * picks (pendingDuel) and result (lastDuel), the Gym Challenge side marks (trainerLockUntilTurn,
- * benchProtectedUntilTurn), Chaos Gym's offer (pendingChaosOffer's owner / offeredTo), and the game result. Swapping twice
+ * benchProtectedUntilTurn), the adventure rules (swapSideRules), Chaos Gym's offer (pendingChaosOffer's owner / offeredTo), and the game result. Swapping twice
  * returns an equal state. Pending attack flags (pendingForceSwitch...) and power prompts are
  * NOT swapped: they belong to the acting side and must be resolved in that perspective.
  */
@@ -68,10 +101,7 @@ export function swapSides(state: GameState): GameState {
     ...(state.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(state.setAsideHands) }),
     ...(state.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(state.pendingDuel) }),
     ...(state.lastDuel !== undefined && { lastDuel: swapLastDuel(state.lastDuel) }),
-    ...(state.openingHandSize !== undefined && { openingHandSize: { player: state.openingHandSize.opponent, opponent: state.openingHandSize.player } }),
-    ...(state.passives !== undefined && { passives: swapPassives(state.passives) }),
-    ...(state.trainerLockUntilTurn !== undefined && { trainerLockUntilTurn: swapSideTurns(state.trainerLockUntilTurn) }),
-    ...(state.benchProtectedUntilTurn !== undefined && { benchProtectedUntilTurn: swapSideTurns(state.benchProtectedUntilTurn) }),
+    ...swapSideRules(state),
     ...(state.pendingChaosOffer !== undefined && {
       pendingChaosOffer: {
         ...state.pendingChaosOffer,

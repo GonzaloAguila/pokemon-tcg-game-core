@@ -15,7 +15,7 @@ import type { GameState, PokemonInPlay, GameCard } from "@/domain/match/types";
 import type { PokemonPower, EnergyType, PokemonCard } from "@/domain/cards/types";
 import { EnergyType as EnergyTypeEnum, PokemonPowerType, PokemonStage, StatusCondition } from "@/domain/constants";
 import { createGameEvent, energyProvidesType } from "@/lib/gameState";
-import { isPokemonCard, isEnergyCard, isTrainerInPlay, cardOutOfPlay } from "@/domain/cards";
+import { isPokemonCard, isEnergyCard, isTrainerInPlay, cardOutOfPlay, givesPrizeWhenKnockedOut } from "@/domain/cards";
 import { isBenchProtected } from "@/domain/trainers/side-marks";
 
 export * from "./types";
@@ -1721,7 +1721,8 @@ export function executeBuzzap(
       playerBench: cleanBench,
       playerDiscard: discard,
       playerNeedsToPromote: needsPromotion && cleanBench.length > 0,
-      opponentCanTakePrize: true, // Opponent takes a prize for the KO
+      // Opponent takes a prize for the KO (not for a Pokémon the table's noPrizeFor rule names)
+      opponentCanTakePrize: givesPrizeWhenKnockedOut(pokemon, state, side),
       events,
     };
   } else {
@@ -1730,7 +1731,8 @@ export function executeBuzzap(
       opponentActivePokemon: newActivePokemon,
       opponentBench: cleanBench,
       opponentDiscard: discard,
-      playerCanTakePrize: true, // Player takes a prize for the KO
+      // Player takes a prize for the KO (not for a Pokémon the table's noPrizeFor rule names)
+      playerCanTakePrize: givesPrizeWhenKnockedOut(pokemon, state, side),
       events,
     };
   }

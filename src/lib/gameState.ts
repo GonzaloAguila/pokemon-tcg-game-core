@@ -8,6 +8,7 @@ import {
   cardsLeavingPlay,
   cardOutOfPlay,
   givesPrizeWhenKnockedOut,
+  noPrizeByTableRule,
 } from "@/domain/cards";
 import { isFaceDown, revealFaceDownCards } from "@/domain/trainers/secret-plan";
 import {
@@ -56,7 +57,7 @@ import {
 } from "@/domain/powers";
 import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
 import { isLuckyDuel, type GameMode } from "@/domain/lucky-duel/mode";
-import type { BattlePassives, SidePair } from "@/domain/adventure/types";
+import type { BattlePassives, SetupRules, SidePair, TableRules } from "@/domain/adventure/types";
 import { applySetupRules } from "@/domain/adventure/passives";
 import { getLuckyDuelAttackBlocker } from "@/domain/lucky-duel/rules";
 import { resistanceAmount, stadiumIgnoresResistance, stadiumIgnoresWeakness, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
@@ -473,6 +474,10 @@ export type GameState = {
    * (domain/adventure/passives.ts). Relative: swapped by swapSides.
    */
   passives?: BattlePassives;
+  /** Adventure battle modifiers read during play (`noPrizeFor`; domain/adventure/modifiers.ts). Relative: swapped by swapSides. */
+  tableRules?: TableRules;
+  /** Adventure battle modifiers consumed by applySetupRules once both players are ready (`bonusCards`). Relative: swapped by swapSides. */
+  setupRules?: SetupRules;
   /**
    * Table type (absent = "standard"). "lucky-duel" (domain/lucky-duel): random Basic and deck,
    * Benches locked (maxBenchSize 0), no Prizes, a Knock Out of an Active ends the game and both
@@ -1867,6 +1872,20 @@ export function executeBenchDamage(
 }
 
 /**
+ * Does the Knock Out of `pokemon` (of `owner`) give a Prize? givesPrizeWhenKnockedOut with the
+ * table's rules; a Pokémon the adventure `noPrizeFor` rule names logs a perspective-free line into
+ * `events`. Every Prize site of the engine uses it.
+ */
+function knockOutGivesPrize(state: GameState | undefined, pokemon: PokemonInPlay, owner: "player" | "opponent", events: GameEvent[]): boolean {
+  if (!givesPrizeWhenKnockedOut(pokemon)) return false;
+  if (state && noPrizeByTableRule(pokemon, state, owner)) {
+    events.push(createGameEvent(`${pokemon.pokemon.name} no da premio en esta mesa`, "info"));
+    return false;
+  }
+  return true;
+}
+
+/**
  * The cards a Knocked Out Pokémon leaves: everything goes to its owner's discard pile, except
  * the card Rebirth (Rocket's Moltres, getRebirthPower) returns to the hand "after discarding
  * it" — its power must work at the moment of the Knock Out (`knockedOut` as it was then). The
@@ -1917,7 +1936,7 @@ function knockOutActingActive(
   let opponentHand = piles.opponentHand;
   let prizedOut = false;
   // A Knocked Out Mysterious Fossil / Clefairy Doll doesn't count: no Prize
-  if (opponentPrizes.length > 0 && givesPrizeWhenKnockedOut(knockedOut)) {
+  if (opponentPrizes.length > 0 && knockOutGivesPrize(state, knockedOut, "player", events)) {
     const prize = opponentPrizes[opponentPrizes.length - 1];
     opponentPrizes = opponentPrizes.slice(0, -1);
     opponentHand = [...opponentHand, prize];
@@ -1983,7 +2002,7 @@ export function knockOutOpponentActive(state: GameState): GameState {
   let playerPrizes = state.playerPrizes;
   let playerHand = state.playerHand;
   let tookPrize = false;
-  if (playerPrizes.length > 0 && givesPrizeWhenKnockedOut(active)) {
+  if (playerPrizes.length > 0 && knockOutGivesPrize(state, active, "opponent", events)) {
     playerHand = [playerPrizes[0], ...playerHand];
     playerPrizes = playerPrizes.slice(1);
     tookPrize = true;
@@ -2197,8 +2216,8 @@ export function processBenchKnockouts(state: GameState): GameState {
   const opponentLeaving = leavingOf(opponentKOs);
 
   // Takes one prize per KO for the given side (not for a Mysterious Fossil / Clefairy Doll)
-  const takePrizes = (prizes: GameCard[], hand: GameCard[], allKnockedOut: PokemonInPlay[]) => {
-    const knockedOut = allKnockedOut.filter(givesPrizeWhenKnockedOut);
+  const takePrizes = (prizes: GameCard[], hand: GameCard[], allKnockedOut: PokemonInPlay[], owner: "player" | "opponent") => {
+    const knockedOut = prizes.length > 0 ? allKnockedOut.filter((ko) => knockOutGivesPrize(state, ko, owner, events)) : [];
     const taken = prizes.slice(0, knockedOut.length);
     for (const ko of knockedOut.slice(0, taken.length)) {
       events.push(createGameEvent(`Se toma 1 premio por noquear a ${ko.pokemon.name}`, "action"));
@@ -2212,8 +2231,8 @@ export function processBenchKnockouts(state: GameState): GameState {
   events.push(...opponentLeaving.events, ...playerLeaving.events);
 
   // Opponent's benched Pokémon knocked out -> player takes prizes, and vice versa
-  const player = takePrizes(state.playerPrizes, state.playerHand, opponentKOs);
-  const opponent = takePrizes(state.opponentPrizes, state.opponentHand, playerKOs);
+  const player = takePrizes(state.playerPrizes, state.playerHand, opponentKOs, "opponent");
+  const opponent = takePrizes(state.opponentPrizes, state.opponentHand, playerKOs, "player");
 
   let gameResult = state.gameResult;
   let gamePhase = state.gamePhase;
@@ -2770,7 +2789,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
       events.push(...leaving.events);
 
       // El oponente puede tomar premio
-      if (updatedState.opponentPrizes.length > 0 && givesPrizeWhenKnockedOut(knockedOut)) {
+      if (updatedState.opponentPrizes.length > 0 && knockOutGivesPrize(updatedState, knockedOut, "player", events)) {
         opponentCanTakePrize = true;
         events.push(createGameEvent("El rival puede tomar un premio", "action"));
       }
@@ -2797,7 +2816,7 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
       events.push(...leaving.events);
 
       // El jugador puede tomar premio
-      if (updatedState.playerPrizes.length > 0 && givesPrizeWhenKnockedOut(knockedOut)) {
+      if (updatedState.playerPrizes.length > 0 && knockOutGivesPrize(updatedState, knockedOut, "opponent", events)) {
         playerCanTakePrize = true;
         events.push(createGameEvent("¡Puedes tomar un premio!", "action"));
       }
@@ -5198,7 +5217,7 @@ function executeAttackUnchecked(
     events.push(...leaving.events);
 
     // Marcar que el jugador puede tomar un premio (si hay; un Fósil Misterioso no da premio)
-    if (newPlayerPrizes.length > 0 && givesPrizeWhenKnockedOut(defender)) {
+    if (newPlayerPrizes.length > 0 && knockOutGivesPrize(gameState, defender, "opponent", events)) {
       playerCanTakePrize = true;
       events.push(createGameEvent("¡Puedes tomar un premio!", "action"));
     }

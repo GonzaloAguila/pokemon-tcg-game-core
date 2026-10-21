@@ -13,6 +13,7 @@
 
 import type { Card, PokemonCard, TrainerCard } from "./types";
 import { CardKind, PokemonStage } from "@/domain/constants";
+import type { TableRules } from "@/domain/adventure/types";
 
 /** The in-play form of a card put into play as a Basic (identity for real Pokémon). */
 export function toInPlayCard<T extends Card>(card: T): T | (PokemonCard & Omit<T, keyof PokemonCard>) {
@@ -69,10 +70,32 @@ export function cardsLeavingPlay<T extends Card>(pokemon: {
   ].map(cardOutOfPlay);
 }
 
+/** What the table rules need from a state (structural: no engine import here). */
+export type PrizeRuleView = {
+  tableRules?: TableRules;
+  playerActivePokemon: { pokemon: { id: string } } | null;
+  playerBench: readonly ({ pokemon: { id: string } } | null)[];
+};
+
+/**
+ * Adventure battle modifier `noPrizeFor`: is this Pokémon (of `owner`; omitted = found on the
+ * board by id, else "opponent") one whose Knock Out gives no Prize at this table? Matched on the
+ * name of the card in play (`pokemon.pokemon.name`).
+ */
+export function noPrizeByTableRule(pokemon: { pokemon: Card }, state?: PrizeRuleView, owner?: "player" | "opponent"): boolean {
+  const rule = state?.tableRules?.noPrizeFor;
+  if (!rule) return false;
+  const id = pokemon.pokemon.id;
+  const side =
+    owner ?? (state.playerActivePokemon?.pokemon.id === id || state.playerBench.some((p) => p?.pokemon.id === id) ? "player" : "opponent");
+  return rule[side]?.includes(pokemon.pokemon.name) ?? false;
+}
+
 /**
  * Does Knocking Out this Pokémon give a Prize? Not for a Trainer played as a Basic ("it
- * doesn't count as a Knocked Out Pokémon").
+ * doesn't count as a Knocked Out Pokémon"), a face-down card, nor — with the state — a Pokémon
+ * the table's `noPrizeFor` rule names for its owner (`owner`; omitted: found on the board).
  */
-export function givesPrizeWhenKnockedOut(pokemon: { pokemon: Card }): boolean {
-  return !isTrainerInPlay(pokemon.pokemon) && !isFaceDownCard(pokemon.pokemon);
+export function givesPrizeWhenKnockedOut(pokemon: { pokemon: Card }, state?: PrizeRuleView, owner?: "player" | "opponent"): boolean {
+  return !isTrainerInPlay(pokemon.pokemon) && !isFaceDownCard(pokemon.pokemon) && !noPrizeByTableRule(pokemon, state, owner);
 }

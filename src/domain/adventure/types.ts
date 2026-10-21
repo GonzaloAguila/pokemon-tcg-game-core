@@ -21,3 +21,19 @@ export type BattlePassives = {
   opponent?: AdventurePassive[];
   luckyCoinUsed?: { player?: boolean; opponent?: boolean };
 };
+
+/**
+ * `GameState.tableRules`: battle modifiers the engine reads during play (relative, swapped by
+ * swapSides). `noPrizeFor[side]`: names of that side's Pokémon whose Knock Out gives no Prize.
+ */
+export type TableRules = {
+  noPrizeFor?: { player?: string[]; opponent?: string[] };
+};
+
+/**
+ * `GameState.setupRules`: battle modifiers consumed once both players are ready (applySetupRules;
+ * relative, swapped by swapSides). `bonusCards[side]`: battle-only cards put into that side's hand.
+ */
+export type SetupRules = {
+  bonusCards?: { player?: CardEntry[]; opponent?: CardEntry[] };
+};

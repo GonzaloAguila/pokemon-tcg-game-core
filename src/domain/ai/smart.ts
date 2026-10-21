@@ -544,7 +544,7 @@ function threatCost(s: GameState, theirs: PokemonInPlay | null, mine: PokemonInP
     if (alt.ko * 0.5 > threat.ko) threat = { attackIndex: alt.attackIndex, ko: alt.ko * 0.5, expected: alt.expected * 0.5 };
   }
   const theirPrizesLeft = s.opponentPrizes.length;
-  const losesGame = s.playerBench.length === 0 || theirPrizesLeft <= prizesFor(mine);
+  const losesGame = s.playerBench.length === 0 || theirPrizesLeft <= prizesFor(mine, s);
   const loss = losesGame ? GAME_WON / 20 : knockOutValue(s, mine);
   return threat.ko * loss * 0.9 + (1 - threat.ko) * damageValue(s, target, threat.expected) * 0.8 + damageValue(s, mine, poison);
 }
@@ -561,7 +561,7 @@ function comboScore(s: GameState, combo: Combo): number {
   const confusion = hasStatusCondition(mine, StatusCondition.Confused) ? 0.5 : 1;
   if (card && canAttackNow) {
     const theirHp = hpLeft(s, theirs);
-    const lastPrize = s.playerPrizes.length <= prizesFor(theirs) || s.opponentBench.length === 0;
+    const lastPrize = s.playerPrizes.length <= prizesFor(theirs, s) || s.opponentBench.length === 0;
     // Recall's attacks too, when it was played this turn
     getAvailableAttacks(s, mine).forEach(({ attack, index }) => {
       if (missingEnergy(s, "player", mine, index) > 0) return;
