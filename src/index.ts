@@ -292,6 +292,7 @@ export {
 // Prize & KO
 export {
   takePrize,
+  takeLastPrizes,
   promoteActivePokemon,
 } from "./lib/gameState";
 

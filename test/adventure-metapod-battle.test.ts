@@ -114,8 +114,8 @@ describe("the Metapod battle (battle 7) is solvable with every starter", () => {
     expect(state.opponentActivePokemon?.pokemon.name).toBe("Caterpie");
     if (line.plusPower) state = playTrainerCard(state, card(state, "PlusPower").id, []);
     state = attack(state, line.attack);
-    expect(state.playerCanTakePrize).toBe(true);
-    state = takePrize(state, 0, true, false);
+    // The last Prize is taken automatically (0.10.1)
+    expect(state.playerPrizes).toHaveLength(0);
     expect(state.gameResult).toBe("victory");
   });
 

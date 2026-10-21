@@ -439,6 +439,16 @@ function completeAIAttack(attacked: GameState, eventsBefore: number, coins: Coin
     if (message === "El rival tomó un premio") {
       message = "Tomaste un premio";
     }
+    // The AI took its own last Prize automatically (takeLastPrizes) on its view
+    else if (message === "Tomaste un premio") {
+      message = "El rival tomó un premio";
+    }
+    else if (message === "¡Victoria! Has tomado todos tus premios") {
+      message = "¡Derrota! El rival tomó todos sus premios";
+    }
+    else if (message === "¡Derrota! El rival tomó todos sus premios") {
+      message = "¡Victoria! Has tomado todos tus premios";
+    }
     // "¡Puedes tomar un premio!" cuando el defensor (human en swapped) es KO'd
     // Esto está mal porque en realidad el AI (atacante) debería tomar el premio
     else if (message === "¡Puedes tomar un premio!") {

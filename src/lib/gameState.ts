@@ -2041,7 +2041,8 @@ export function knockOutOpponentActive(state: GameState): GameState {
  * Knock Outs after an effect that is not an attack moved or placed damage counters (Gengar's
  * Curse...): both benches (processBenchKnockouts, Prizes taken automatically), then the
  * opponent's and the player's Active Pokémon (knockOutOpponentActive / knockOutPlayerActive),
- * then the "no Pokémon left" check. Pure: returns the same object when nothing happened.
+ * then the "no Pokémon left" check, then the last Prize owed by an Active's Knock Out
+ * (takeLastPrizes). Pure: returns the same object when nothing happened.
  */
 export function checkKnockouts(state: GameState): GameState {
   // Shapeshift: a statused Ninetales loses its Evolution card first (its HP is its own again)
@@ -2057,7 +2058,42 @@ export function checkKnockouts(state: GameState): GameState {
   if (next.gameResult === null && isOut(next.playerActivePokemon)) next = knockOutPlayerActive(next);
   // Defender / PlusPower of a Pokémon that left play go to the discard pile with it. Lucky Duel:
   // the other Active Knocked Out by the same action makes it a draw
-  return releaseOrphanModifiers(settleLuckyDuelDraw(next === state ? state : endGameIfNoPokemonLeft(next)));
+  // A side owed a Prize with only 1 left takes it now and wins (also when nothing else happened:
+  // the attack / checkup / Buzzap that set the flag runs checkKnockouts right after)
+  return takeLastPrizes(releaseOrphanModifiers(settleLuckyDuelDraw(next === state ? state : endGameIfNoPokemonLeft(next))));
+}
+
+/**
+ * The last Prize is taken automatically (since 0.10.1, every mode): a side owed a Prize for an
+ * Active's Knock Out (`playerCanTakePrize` / `opponentCanTakePrize`: an attack, the between-turns
+ * checkup, Buzzap) with exactly ONE Prize card left takes it at once (takePrize) and the game ends.
+ * With 2+ left the pick stays manual. The player side is settled first (simultaneous prize-outs
+ * aren't modelled; an attacker self-Knock Out that already gave the opponent its last Prize keeps
+ * its result: this only runs while `gameResult` is null). The game is over, so promotions and
+ * pending choices are dropped. Pure: returns the same object when no last Prize is owed.
+ */
+export function takeLastPrizes(state: GameState): GameState {
+  if (state.gameResult !== null || state.gamePhase === GamePhase.GameOver) return state;
+  const isPlayer = state.playerCanTakePrize && state.playerPrizes.length === 1
+    ? true
+    : state.opponentCanTakePrize && state.opponentPrizes.length === 1
+      ? false
+      : null;
+  if (isPlayer === null) return state;
+  const won = takePrize(state, 0, isPlayer, false);
+  if (won.gameResult === null) return won;
+  return {
+    ...won,
+    playerCanTakePrize: false,
+    opponentCanTakePrize: false,
+    playerNeedsToPromote: false,
+    opponentNeedsToPromote: false,
+    pendingForceSwitch: undefined,
+    pendingSelfSwitch: undefined,
+    pendingDeckSearch: undefined,
+    pendingBenchDamageSelection: undefined,
+    pendingAttackChoice: undefined,
+  };
 }
 
 /**

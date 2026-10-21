@@ -43,27 +43,27 @@ describe("Poison Knock Outs between turns", () => {
     expect(endTurn(normal).playerActivePokemon!.currentDamage).toBe(40);
   });
 
-  it("the opponent's Poison Knock Out gives the player its last Prize: victory once taken", () => {
+  it("the opponent's Poison Knock Out gives the player its last Prize: taken automatically, victory", () => {
     const state = makeState({
       player: { active: inPlay("Abra"), prizes: [gameCard("Bill", "base")] },
       opponent: { active: poisonedMachop(), bench: [inPlay("Rattata")] },
     });
-    const paused = endTurn(state);
-    expect(paused.gameResult).toBeNull();
-    const won = takePrize(paused, 0, true);
+    const won = endTurn(state);
+    expect(won.playerPrizes).toHaveLength(0);
     expect(won.gameResult).toBe("victory");
     expect(won.gamePhase).toBe(GamePhase.GameOver);
   });
 
-  it("the player's own Poison Knock Out gives the opponent its last Prize: defeat once taken", () => {
+  it("the player's own Poison Knock Out gives the opponent its last Prize: taken automatically, defeat", () => {
     const state = makeState({
       player: { active: poisonedMachop(), bench: [inPlay("Abra")] },
       opponent: { active: inPlay("Chansey"), prizes: [gameCard("Bill", "base")] },
     });
-    const paused = endTurn(state);
-    expect(paused.opponentCanTakePrize).toBe(true);
-    expect(paused.playerNeedsToPromote).toBe(true);
-    expect(takePrize(paused, 0, false).gameResult).toBe("defeat");
+    const lost = endTurn(state);
+    expect(lost.opponentPrizes).toHaveLength(0);
+    expect(lost.opponentCanTakePrize).toBe(false);
+    expect(lost.playerNeedsToPromote).toBe(false);
+    expect(lost.gameResult).toBe("defeat");
   });
 
   it("a Poison Knock Out of a side's last Pokémon ends the game at once", () => {

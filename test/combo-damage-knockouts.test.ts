@@ -181,17 +181,18 @@ describe("Selfdestruct / Mass Explosion: Knock Outs on both sides", () => {
     expect(after.gameResult).toBeNull();
   });
 
-  it("Selfdestruct's manual Prize is the attacker's last one: taking it wins even though the attacker is gone", () => {
+  it("Selfdestruct's Prize is the attacker's last one: taken automatically, victory even though the attacker is gone", () => {
     const magneton = inPlay("Magneton", { set: "fossil" });
     const state = makeState({
       player: { active: magneton, bench: [inPlay("Machop")], prizes: energies(Water) },
       opponent: { active: inPlay("Pikachu", { set: "base" }), bench: [inPlay("Onix")] },
     });
-    const after = attack(state, "Autodestrucción", [], { skipDefenderPromotion: true });
-    expect(after.gameResult).toBeNull();
-    const won = takePrize(after, 0, true, false);
+    const won = attack(state, "Autodestrucción", [], { skipDefenderPromotion: true });
+    expect(won.playerPrizes).toHaveLength(0);
     expect(won.gameResult).toBe("victory");
     expect(won.gamePhase).toBe(GamePhase.GameOver);
+    expect(won.playerNeedsToPromote).toBe(false);
+    expect(won.opponentNeedsToPromote).toBe(false);
   });
 
   it("Selfdestruct giving the opponent its last Prize loses, even with Pokémon left on both Benches", () => {
