@@ -477,3 +477,11 @@ export type { DeckEntry, FeaturedPokemonRef, Deck, ResolvedDeckEntry, GroupedDec
 export { decks, gymLeaderDecks, resolveDeck, findCardBySetAndNumber, findCardByNumber, getDeckById, getDeckEnergyTypes, getDeckCardCount, getDeckFeaturedPokemon, groupDeckByKind } from "./domain/decks";
 
 export type { StartGameOptions } from "./lib/gameState";
+export { DEFAULT_OPENING_HAND, openingHandSizeOf } from "./lib/gameState";
+
+// =============================================================================
+// Adventure mode (Modo Aventura): decks from card ids, deck rules
+// =============================================================================
+
+export type { CardEntry, SidePair, TableSide, DeckRules } from "./domain/adventure";
+export { deckFromCardEntries, validateDeckEntries, isAdventureCardAllowed } from "./domain/adventure";

@@ -52,6 +52,7 @@ export function swapSides(state: GameState): GameState {
     ...(state.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(state.setAsideHands) }),
     ...(state.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(state.pendingDuel) }),
     ...(state.lastDuel !== undefined && { lastDuel: swapLastDuel(state.lastDuel) }),
+    ...(state.openingHandSize !== undefined && { openingHandSize: { player: state.openingHandSize.opponent, opponent: state.openingHandSize.player } }),
     ...(state.trainerLockUntilTurn !== undefined && { trainerLockUntilTurn: swapSideTurns(state.trainerLockUntilTurn) }),
     ...(state.benchProtectedUntilTurn !== undefined && { benchProtectedUntilTurn: swapSideTurns(state.benchProtectedUntilTurn) }),
     ...(state.pendingChaosOffer !== undefined && {

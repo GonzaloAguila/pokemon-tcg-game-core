@@ -56,6 +56,7 @@ import {
 } from "@/domain/powers";
 import { getTurnActionBlocker, isBenchFull, maxBenchSize } from "@/domain/board";
 import { isLuckyDuel, type GameMode } from "@/domain/lucky-duel/mode";
+import type { SidePair } from "@/domain/adventure/types";
 import { getLuckyDuelAttackBlocker } from "@/domain/lucky-duel/rules";
 import { resistanceAmount, stadiumIgnoresResistance, stadiumIgnoresWeakness, stadiumOffersAttackCoin, stadiumRetreatModifier, VERMILION_COIN_DAMAGE } from "@/domain/stadiums/rules";
 import type { SelectionStep } from "@/domain/effects/types";
@@ -459,8 +460,13 @@ export type GameState = {
    * other action. Kept in sync with domain/match/types.ts (re-export).
    */
   pendingBenchTrim?: BenchTrim[];
-  /** Prize cards each player set aside at the start (startGame's prizeCount; 6 when absent). */
+  /** Prize cards each player set aside at the start (startGame's prizeCount, the larger side's when they differ; 6 when absent). */
   prizeCount?: number;
+  /**
+   * Cards each side draws for its opening hand and after a mulligan (startGame's `openingHand`;
+   * 7 when absent). Relative: swapped by swapSides.
+   */
+  openingHandSize?: SidePair;
   /**
    * Table type (absent = "standard"). "lucky-duel" (domain/lucky-duel): random Basic and deck,
    * Benches locked (maxBenchSize 0), no Prizes, a Knock Out of an Active ends the game and both
@@ -2360,19 +2366,36 @@ export function initializeMultiplayerGame(player1Deck: Deck, player2Deck: Deck):
 /** Prize cards in a standard game. */
 export const DEFAULT_PRIZE_COUNT = 6;
 
+/** Cards in an opening hand in a standard game. */
+export const DEFAULT_OPENING_HAND = 7;
+
 export type StartGameOptions = {
   /**
    * Prize cards per player (1-6, default 6): shorter games vs the AI. The game is won as
-   * always, by taking the last one.
+   * always, by taking the last one. A pair deals each side its own count (adventure mode).
    */
-  prizeCount?: number;
+  prizeCount?: number | SidePair;
+  /** Cards in each opening hand (and after a mulligan: `openingHandSize`); default 7. A pair: per side. */
+  openingHand?: number | SidePair;
 };
+
+function sidePair(value: number | SidePair | undefined, fallback: number, clamp: (n: number) => number): SidePair {
+  const pair = typeof value === "object" ? value : { player: value ?? fallback, opponent: value ?? fallback };
+  return { player: clamp(pair.player), opponent: clamp(pair.opponent) };
+}
+
+/** The opening hand size of a side (`openingHandSize`, else 7). */
+export function openingHandSizeOf(state: GameState, side: "player" | "opponent"): number {
+  return state.openingHandSize?.[side] ?? DEFAULT_OPENING_HAND;
+}
 
 /**
  * Prepara el juego: reparte cartas y premios (sin coinflip, eso ocurre después del setup)
  */
 export function startGame(gameState: GameState, options: StartGameOptions = {}): GameState {
-  const prizeCount = Math.min(DEFAULT_PRIZE_COUNT, Math.max(1, Math.floor(options.prizeCount ?? DEFAULT_PRIZE_COUNT)));
+  const prizes = sidePair(options.prizeCount, DEFAULT_PRIZE_COUNT, (n) => Math.min(DEFAULT_PRIZE_COUNT, Math.max(1, Math.floor(n))));
+  const hands = sidePair(options.openingHand, DEFAULT_OPENING_HAND, (n) => Math.max(1, Math.floor(n)));
+  const prizeCount = Math.max(prizes.player, prizes.opponent);
 
   // Crear copias de los mazos para no mutar los originales
   const playerDeckCopy = [...gameState.playerDeck];
@@ -2382,23 +2405,25 @@ export function startGame(gameState: GameState, options: StartGameOptions = {}):
   const shuffledPlayerDeck = shuffle(playerDeckCopy);
   const shuffledOpponentDeck = shuffle(opponentDeckCopy);
 
-  // Repartir: 7 cartas a la mano, los premios, el resto queda en el mazo
-  const prizesEnd = 7 + prizeCount;
-  const playerHand = shuffledPlayerDeck.slice(0, 7);
-  const playerPrizes = shuffledPlayerDeck.slice(7, prizesEnd);
-  const playerDeck = shuffledPlayerDeck.slice(prizesEnd);
+  // Repartir: la mano inicial, los premios, el resto queda en el mazo
+  const playerPrizesEnd = hands.player + prizes.player;
+  const playerHand = shuffledPlayerDeck.slice(0, hands.player);
+  const playerPrizes = shuffledPlayerDeck.slice(hands.player, playerPrizesEnd);
+  const playerDeck = shuffledPlayerDeck.slice(playerPrizesEnd);
 
-  const opponentHand = shuffledOpponentDeck.slice(0, 7);
-  const opponentPrizes = shuffledOpponentDeck.slice(7, prizesEnd);
-  const opponentDeck = shuffledOpponentDeck.slice(prizesEnd);
-  const prizesText = `${prizeCount} ${prizeCount === 1 ? "premio" : "premios"}`;
+  const opponentPrizesEnd = hands.opponent + prizes.opponent;
+  const opponentHand = shuffledOpponentDeck.slice(0, hands.opponent);
+  const opponentPrizes = shuffledOpponentDeck.slice(hands.opponent, opponentPrizesEnd);
+  const opponentDeck = shuffledOpponentDeck.slice(opponentPrizesEnd);
+  const prizesText = (count: number) => `${count} ${count === 1 ? "premio" : "premios"}`;
 
   // Crear eventos
   const newEvents = [
     ...gameState.events,
-    createGameEvent(`Tú robas 7 cartas y colocas ${prizesText}`, "action"),
-    createGameEvent(`Rival roba 7 cartas y coloca ${prizesText}`, "action"),
+    createGameEvent(`Tú robas ${hands.player} cartas y colocas ${prizesText(prizes.player)}`, "action"),
+    createGameEvent(`Rival roba ${hands.opponent} cartas y coloca ${prizesText(prizes.opponent)}`, "action"),
   ];
+  const customHands = hands.player !== DEFAULT_OPENING_HAND || hands.opponent !== DEFAULT_OPENING_HAND;
 
   return {
     ...gameState,
@@ -2411,6 +2436,7 @@ export function startGame(gameState: GameState, options: StartGameOptions = {}):
     opponentHand,
     opponentPrizes,
     prizeCount,
+    ...(customHands && { openingHandSize: hands }),
     opponentActivePokemon: null,
     opponentBench: [],
     turnNumber: 0,
@@ -2457,8 +2483,8 @@ export function canMulligan(gameState: GameState, isPlayer: boolean): string | n
 }
 
 /**
- * Realiza un mulligan: devuelve la mano al mazo, mezcla y roba 7 nuevas cartas.
- * Throws IllegalActionError when `canMulligan` gives a reason.
+ * Realiza un mulligan: devuelve la mano al mazo, mezcla y roba una mano nueva (7 cartas, o el
+ * `openingHandSize` de ese lado). Throws IllegalActionError when `canMulligan` gives a reason.
  */
 export function doMulligan(gameState: GameState, isPlayer: boolean): GameState {
   assertLegal(canMulligan(gameState, isPlayer));
@@ -2471,9 +2497,10 @@ export function doMulligan(gameState: GameState, isPlayer: boolean): GameState {
   // Mezclar
   const shuffled = shuffle(combined);
 
-  // Robar 7 nuevas cartas
-  const newHand = shuffled.slice(0, 7);
-  const newDeck = shuffled.slice(7);
+  // Robar la mano nueva
+  const handSize = openingHandSizeOf(gameState, isPlayer ? "player" : "opponent");
+  const newHand = shuffled.slice(0, handSize);
+  const newDeck = shuffled.slice(handSize);
 
   const playerName = isPlayer ? "Tú" : "Rival";
   const newEvent = createGameEvent(`${playerName} ${isPlayer ? "hiciste" : "hizo"} mulligan`, "action");
