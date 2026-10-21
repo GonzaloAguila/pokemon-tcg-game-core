@@ -27,6 +27,8 @@ import { evolvePokemonCard, getPlayBasicCoinFlips, getTurnActionBlocker, playBas
 import { answerChaosGymOfferForAI, stadiumValue } from "@/domain/ai";
 import { IllegalActionError } from "@/shared/errors";
 import { makeState, inPlay, gameCard, names, deepFreeze, armedFor } from "./helpers/state";
+import { ALL_CARDS } from "@/domain/catalog";
+import { TrainerType } from "@/domain/constants";
 
 const H = "heads" as const;
 const T = "tails" as const;
@@ -44,6 +46,31 @@ function withStadium(name: string, extra: Setup = {}): GameState {
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+// ============================================================================
+// One Stadium per turn (0.8.7), every Stadium of every set
+// ============================================================================
+
+describe("one Stadium per turn", () => {
+  const stadiums = [...new Map(ALL_CARDS.filter((c) => c.kind === "trainer" && c.trainerType === TrainerType.Stadium).map((c) => [c.name, c])).values()];
+
+  it.each(stadiums.map((c) => [c.name, c.set] as const))("%s marks the turn: no second Stadium until the turn passes", (name) => {
+    const set = (stadiums.find((c) => c.name === name)!.set === "Gym Challenge" ? "gym-challenge" : "gym-heroes") as "gym-challenge" | "gym-heroes";
+    const first = gameCard(name, set);
+    const other = stadiums.find((c) => c.name !== name)!;
+    const second = gameCard(other.name, other.set === "Gym Challenge" ? "gym-challenge" : "gym-heroes");
+    const state = deepFreeze(makeState({ player: { active: inPlay("Machop"), hand: [first, second] }, opponent: { active: inPlay("Abra") } }));
+    expect(getTrainerCoinFlips(state, first.id)).toBe(0);
+    const played = playTrainerCard(state, first.id, []);
+    expect([played.stadium?.card.name, played.stadiumPlayedThisTurn]).toEqual([name, true]);
+    expect(canPlayTrainerCard(played, second.id)).toBe("Solo puedes jugar un Estadio por turno");
+    // Never through Chaos Gym either: Stadiums don't flip, so they are never replayed or offered
+    expect(isChaosGymCoinPending(played, second.id)).toBe(false);
+    const back = endTurn(endTurn(played));
+    expect(back.stadiumPlayedThisTurn).toBe(false);
+    expect(canPlayTrainerCard(back, second.id)).toBeNull();
+  });
+});
 
 // ============================================================================
 // Resistance Gym / Cinnabar City Gym
