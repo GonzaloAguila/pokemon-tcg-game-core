@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Team Rocket Pokémon Powers: passive / triggered (Hay Fever, Sticky Goo, Sinkhole, Final
  * Beam, Frenzy) and activated (Trickery, Evolutionary Light, Matter Exchange, Gather Fire,
@@ -101,7 +102,7 @@ describe("Sinkhole (Dark Dugtrio)", () => {
     const hurt = { ...state, playerActivePokemon: { ...machop, currentDamage: 40 } };
     const next = executeRetreat(hurt, machop.attachedEnergy.map((e) => e.id), 0, { coinResults: [T] });
     expect(next.playerBench).toHaveLength(0);
-    expect(next.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "opponent")).toBe(1);
   });
 
   it("no coin when Dark Dugtrio is Asleep or is the retreating player's own", () => {
@@ -128,11 +129,13 @@ describe("Final Beam (Dark Gyarados)", () => {
   it("applies Weakness (Charmander takes double) and can Knock Out the attacker", () => {
     const gyarados = rocket("Dark Gyarados", { energy: [Water], damage: 60 });
     const charmander = rocket("Charmander", { energy: [Fire] });
-    const state = vs(charmander, gyarados, { player: { bench: [inPlay("Abra")] } });
+    const state = vs(charmander, gyarados, { player: { bench: [inPlay("Abra")] }, opponent: { bench: [inPlay("Onix")] } });
     const next = attack(state, "Cola Ígnea", [H]);
     expect(next.playerActivePokemon).toBeNull();
     expect(next.playerNeedsToPromote).toBe(true);
-    expect(next.opponentPrizes).toHaveLength(5);
+    // Both owed a Prize: Charmander for the Dark Gyarados side, Dark Gyarados for the attacker
+    expect(prizesOwed(next, "opponent")).toBe(1);
+    expect(prizesOwed(next, "player")).toBe(1);
   });
 
   it("doesn't work when the attack doesn't Knock it Out, or while Asleep", () => {

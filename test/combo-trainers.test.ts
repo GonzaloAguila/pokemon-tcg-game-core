@@ -1,3 +1,4 @@
+import { takePrize } from "@/lib/gameState";
 /**
  * Trainer cards against cards of other sets (Base Set, Jungle, Fossil, Team Rocket):
  * attached Trainers (Defender, PlusPower) through evolving / devolving / switching / leaving
@@ -110,7 +111,8 @@ describe("Defender leaves play with its Pokémon", () => {
     const abra = inPlay("Abra", { set: "base", damage: 20 }); // 30 HP
     const state = makeState({ player: { active: abra, bench: [inPlay("Onix")], hand: [defender, digger, revive] }, opponent: { active: lowKicker() } });
     const protectedAbra = playTrainerCard(state, defender.id, [[abra.pokemon.id]]);
-    const dug = playTrainerCard(protectedAbra, digger.id, [], { coinResults: [T] });
+    // The opponent picks the Prize it is owed for Abra
+    const dug = takePrize(playTrainerCard(protectedAbra, digger.id, [], { coinResults: [T] }), 0, false, false);
     expect(dug.activeModifiers).toHaveLength(0);
     expect(names(dug.playerDiscard).sort()).toEqual(["Abra", "Defender", "Digger"]);
     const revived = playTrainerCard({ ...dug, playerActivePokemon: dug.playerBench[0], playerBench: [], playerNeedsToPromote: false }, revive.id, [[abra.pokemon.id]]);

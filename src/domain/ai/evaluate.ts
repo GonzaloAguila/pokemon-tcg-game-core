@@ -18,6 +18,7 @@ import {
   resolveCoinFlipEffects,
   canUseAttack,
   getAvailableAttacks,
+  prizesOwed,
 } from "@/lib/gameState";
 import { attackBonusFromModifiers, defenderReduction as modifierDefenderReduction } from "@/lib/modifiers";
 import type { Attack, PokemonCard } from "@/domain/cards";
@@ -604,8 +605,8 @@ export function evaluateBoard(v: GameState): number {
   if (v.gameResult === "draw") return isLuckyDuel(v) ? LUCKY_DUEL_DRAW : 0;
   if (isLuckyDuel(v)) return evaluateLuckyDuel(v);
 
-  const myPrizesLeft = v.playerPrizes.length - (v.playerCanTakePrize ? 1 : 0);
-  const theirPrizesLeft = v.opponentPrizes.length - (v.opponentCanTakePrize ? 1 : 0);
+  const myPrizesLeft = v.playerPrizes.length - prizesOwed(v, "player");
+  const theirPrizesLeft = v.opponentPrizes.length - prizesOwed(v, "opponent");
   if (myPrizesLeft <= 0) return GAME_WON / 2;
   const theirSide = inPlayOf(v, "opponent");
   if (theirSide.length === 0) return GAME_WON / 2;

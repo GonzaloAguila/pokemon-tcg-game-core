@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Fossil activated Pokémon Powers through the effect registry: Step In (Dragonite),
  * Curse (Gengar), Strange Behavior (Slowbro), Cowardice (Tentacool).
@@ -52,7 +53,7 @@ describe("Curse (Gengar): move 1 damage counter between the opponent's Pokémon,
     const state = makeState({ player: { active: gengar }, opponent: { active: damaged, bench: [target] } });
     const next = usePokemonPower(state, gengar.pokemon.id, [[damaged.pokemon.id], [target.pokemon.id]]);
     expect(next.opponentBench).toEqual([]);
-    expect(next.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "player")).toBe(1);
     expect(names(next.opponentDiscard)).toEqual(["Abra"]);
   });
 
@@ -64,7 +65,7 @@ describe("Curse (Gengar): move 1 damage counter between the opponent's Pokémon,
     const next = usePokemonPower(state, gengar.pokemon.id, [[benched.pokemon.id], [active.pokemon.id]]);
     expect(next.opponentActivePokemon).toBeNull();
     expect(next.opponentNeedsToPromote).toBe(true);
-    expect(next.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "player")).toBe(1);
     expect(next.isPlayerTurn).toBe(true);
     const promoted = promoteActivePokemon(next, 0, false);
     expect(promoted.opponentActivePokemon!.pokemon.name).toBe("Machop");

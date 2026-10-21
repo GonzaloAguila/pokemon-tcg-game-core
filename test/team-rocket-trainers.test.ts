@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Team Rocket Trainers through the effect registry (playTrainerCard / getTrainerSteps).
  */
@@ -131,7 +132,7 @@ describe("Digger", () => {
     const next = playTrainerCard(state, trainer.id, [], { coinResults: [T] });
     expect(next.playerActivePokemon).toBeNull();
     expect(next.playerNeedsToPromote).toBe(true);
-    expect(next.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "opponent")).toBe(1);
   });
 });
 
@@ -187,7 +188,7 @@ describe("Goop Gas Attack ending (simulator seed 74)", () => {
     const next = endTurn(state, true);
     expect(next.opponentActivePokemon).toBeNull();
     expect(next.opponentNeedsToPromote).toBe(true);
-    expect(next.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "player")).toBe(1);
     expect(next.turnNumber).toBe(3);
   });
 });

@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Gym Challenge attacks that need new engine code (Task 2 of
  * docs/superpowers/plans/2026-10-19-gym-challenge.md; rulings in docs/card-doubts.md →
@@ -122,7 +123,7 @@ describe("Gym Challenge attack effects that need new engine code", () => {
     expect([ko.playerCanTakePrize, names(ko.opponentDiscard), selfDmg(ko)]).toEqual([true, ["Sabrina's Abra"], 0]);
     // Mewtwo (70 HP) gets 70: Knocked Out, the opponent takes a Prize
     const selfKo = attack(deepFreeze(vs(gym(14), dummy({ damage: 70 }), { player: { bench: [dummy()] } })), "Yuxtaposición", [H]);
-    expect([selfKo.playerActivePokemon, selfKo.opponentHand.length, dmg(selfKo)]).toEqual([null, 1, 0]);
+    expect([selfKo.playerActivePokemon, prizesOwed(selfKo, "opponent"), dmg(selfKo)]).toEqual([null, 1, 0]);
   });
 
   it("#15 Electroburn: 70, and 10 to itself per Lightning Energy card attached", () => {

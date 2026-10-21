@@ -533,12 +533,12 @@ describe("Lucky Duel: Knock Outs end the game", () => {
     expect(endTurn(state).gameResult).toBe("defeat");
   });
 
-  it("standard games keep the old double Knock Out results", () => {
+  it("standard games: both sides out at once → the player whose turn it is wins (Sudden Death not modelled)", () => {
     const magnemite = armedFor(inPlay("Magnemite", { set: "base" }), "Autodestrucción");
     const selfdestruct = makeState({ player: { active: magnemite }, opponent: { active: inPlay("Abra", { set: "base" }) } });
-    expect(executeAttack(selfdestruct, attackIndex(magnemite, "Autodestrucción")).gameResult).toBe("defeat");
+    expect(executeAttack(selfdestruct, attackIndex(magnemite, "Autodestrucción")).gameResult).toBe("victory");
     const poisoned = (name: string) => inPlay(name, { set: "base", damage: 20, statuses: [StatusCondition.Poisoned] });
     const poison = makeState({ player: { active: poisoned("Abra") }, opponent: { active: poisoned("Gastly") } });
-    expect(endTurn(poison).gameResult).toBe("defeat");
+    expect(endTurn(poison).gameResult).toBe("victory");
   });
 });

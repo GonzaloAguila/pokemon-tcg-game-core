@@ -1,3 +1,4 @@
+import { prizesOwed, takePrize } from "@/lib/gameState";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { executeAIAction } from "@/domain/ai/executor";
 import { EnergyType, ProtectionType, StatusCondition } from "@/domain/constants";
@@ -68,9 +69,11 @@ describe("AI attacks resolve coin effects through the engine", () => {
     const after = aiAttack(zapdos, inPlay("Onix"), "Trueno", TAILS, { opponent: { bench: [inPlay("Machop")] } });
     expect(names(after.opponentDiscard)).toContain("Zapdos");
     expect(after.opponentActivePokemon?.pokemon.name).toBe("Machop");
-    expect(after.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(after, "player")).toBe(1);
     expect(after.playerActivePokemon?.currentDamage).toBe(60);
-    expect(after.isPlayerTurn).toBe(true);
+    // The human picks the Prize; that ends the AI's turn
+    expect(after.isPlayerTurn).toBe(false);
+    expect(takePrize(after, 0, true).isPlayerTurn).toBe(true);
   });
 
   it("does not mutate the input state", () => {

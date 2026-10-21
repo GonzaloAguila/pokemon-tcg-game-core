@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Copied attacks and copied Pokémon in the damage pipeline: Metronome (Clefairy / Clefable)
  * copying Fossil / Team Rocket attacks, Ditto's Transform facing Dark and Fossil Pokémon,
@@ -63,7 +64,7 @@ describe("Metronome copying attacks of other sets", () => {
 
   it("Metronome copying Rage counts Clefable's own damage counters", () => {
     const cubone = inPlay("Cubone", { set: "jungle" });
-    const state = makeState({ player: { active: clefable({ damage: 30 }) }, opponent: { active: cubone } });
+    const state = makeState({ player: { active: clefable({ damage: 30 }) }, opponent: { active: cubone, bench: [inPlay("Onix")] } });
     // Rage 10 + 30 = 40 vs Cubone (40 HP): Knocked Out
     const after = metronome(state, attackOf(cubone, "Rage"), [], { skipDefenderPromotion: true });
     expect(after.opponentActivePokemon).toBeNull();
@@ -180,7 +181,7 @@ describe("Transform under Toxic Gas", () => {
     const next = evolvePokemonCard(state, muk.id, grimer.pokemon.id);
     expect(next.opponentActivePokemon).toBeNull();
     expect(names(next.opponentDiscard)).toContain("Ditto");
-    expect(next.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "player")).toBe(1);
     expect(next.opponentNeedsToPromote).toBe(true);
   });
 });

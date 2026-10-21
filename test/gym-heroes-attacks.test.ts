@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Gym Heroes attack effects (texts in data/pokemontcg/gym1.json).
  *
@@ -291,9 +292,9 @@ describe("new effect kinds", () => {
       expect(use(state, [H]).playerActivePokemon!.currentDamage).toBe(40);
       expect(use(state, [T]).playerActivePokemon!.currentDamage).toBe(0);
       // Knocked Out by the double damage: the defender takes a Prize
-      const ko = use(vs(withAttack(inPlay("Abra"), { damage: 30, effects: [] }), hitmonchan), [H]);
+      const ko = use(vs(withAttack(inPlay("Abra"), { damage: 30, effects: [] }), hitmonchan, { player: { bench: [inPlay("Onix")] } }), [H]);
       expect(ko.playerActivePokemon).toBeNull();
-      expect(ko.opponentPrizes).toHaveLength(5);
+      expect(prizesOwed(ko, "opponent")).toBe(1);
     });
 
     it("works for chosen-target damage on the Active Pokémon too", () => {
@@ -323,7 +324,7 @@ describe("new effect kinds", () => {
     expect(next.opponentActivePokemon!.currentDamage).toBe(30);
     expect(next.opponentBench.map((p) => p.currentDamage)).toEqual([0]);
     expect(names(next.opponentBench.map((p) => p.pokemon))).toEqual(["Machop"]);
-    expect(next.playerPrizes).toHaveLength(5); // Abra (30 HP) Knocked Out
+    expect(prizesOwed(next, "player")).toBe(1); // Abra (30 HP) Knocked Out
     // Agility on the Defending Pokémon stops it there
     const agile = inPlay("Raichu", { damage: 10, protection: { type: "damageAndEffects", expiresAfterTurn: 3 } });
     expect(use(vs(pain, agile)).opponentActivePokemon!.currentDamage).toBe(10);

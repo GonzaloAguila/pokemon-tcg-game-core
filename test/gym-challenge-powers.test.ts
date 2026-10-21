@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Gym Challenge Task 5: trigger powers and the remaining powers.
  *
@@ -185,7 +186,7 @@ describe("Shock Blast (Lt. Surge's Electrode)", () => {
     });
     const next = jab(state, [T]);
     expect(names(next.playerDiscard)).toContain("Hitmonchan");
-    expect(next.opponentPrizes.length).toBe(5);
+    expect(prizesOwed(next, "opponent")).toBe(1);
   });
 });
 

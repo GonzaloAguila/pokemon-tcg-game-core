@@ -27,6 +27,11 @@ function swapPair<T>(pair: { player?: T; opponent?: T }): { player?: T; opponent
  */
 export function swapSideRules(state: GameState): Partial<GameState> {
   return {
+    // Prizes owed (counts; the CanTakePrize flags are swapped by every caller)
+    ...((state.playerPrizesOwed !== undefined || state.opponentPrizesOwed !== undefined) && {
+      playerPrizesOwed: state.opponentPrizesOwed,
+      opponentPrizesOwed: state.playerPrizesOwed,
+    }),
     ...(state.openingHandSize !== undefined && { openingHandSize: { player: state.openingHandSize.opponent, opponent: state.openingHandSize.player } }),
     ...(state.passives !== undefined && { passives: swapPassives(state.passives) }),
     ...(state.tableRules !== undefined && { tableRules: swapTableRules(state.tableRules) }),

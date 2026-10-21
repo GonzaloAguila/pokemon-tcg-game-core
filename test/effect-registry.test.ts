@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 import { describe, it, expect } from "vitest";
 import {
   TRAINER_EFFECTS,
@@ -192,14 +193,14 @@ describe("generic trainer entry points", () => {
   it("Devolution Spray devolves, removes conditions, and knocks out when damage >= new HP", () => {
     const spray = gameCard("Devolution Spray");
     const charmeleon = inPlay("Charmeleon", { damage: 60, evolvedFrom: ["Charmander"], statuses: [StatusCondition.Confused] });
-    const state = makeState({ player: { active: charmeleon, bench: [inPlay("Abra")], hand: [spray] } });
+    const state = makeState({ player: { active: charmeleon, bench: [inPlay("Abra")], hand: [spray] }, opponent: { active: inPlay("Onix") } });
     const step = getTrainerSteps(state, spray.id, []);
     expect(step?.options[0].sublabel).toMatch(/Fuera de Combate/);
 
     const next = playTrainerCard(state, spray.id, [[charmeleon.pokemon.id]]);
     expect(next.playerActivePokemon).toBeNull();
     expect(next.playerNeedsToPromote).toBe(true);
-    expect(next.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "opponent")).toBe(1);
     expect(names(next.playerDiscard)).toContain("Charmander");
 
     const healthy = { ...state, playerActivePokemon: { ...charmeleon, currentDamage: 10 } };

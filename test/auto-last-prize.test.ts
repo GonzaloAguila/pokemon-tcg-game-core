@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * The last Prize is taken automatically (owner decision, 0.10.1): a Knock Out that leaves a side
  * owing a Prize when it has exactly ONE Prize card left takes it and ends the game at once
@@ -63,7 +64,7 @@ describe("the last Prize is taken automatically", () => {
 
   it("a bench Knock Out takes the second-to-last Prize and the Active's Knock Out the last one: victory", () => {
     // Magneton's Selfdestruct: 80 to Pidgey (Knocked Out), 20 to each Benched Pokémon (Abra Knocked
-    // Out: automatic Prize), 80 to itself (the opponent takes 1 of its 6)
+    // Out), 80 to itself: the 2 Prizes owed are the attacker's last 2, taken at once (victory)
     const magneton = inPlay("Magneton", { energy: [Lightning, Lightning, Lightning, Lightning] });
     const state = makeState({
       player: { active: magneton, bench: [inPlay("Machop")], prizes: energies(Water, Water) },
@@ -73,7 +74,9 @@ describe("the last Prize is taken automatically", () => {
 
     expect(after.gameResult).toBe("victory");
     expect(after.playerPrizes).toHaveLength(0);
-    expect(after.opponentPrizes).toHaveLength(5);
+    // The game is over: the Prize owed to the opponent for Magneton is dropped
+    expect(prizesOwed(after, "opponent")).toBe(0);
+    expect(after.opponentPrizes).toHaveLength(6);
     expect(after.playerCanTakePrize).toBe(false);
   });
 
@@ -90,7 +93,7 @@ describe("the last Prize is taken automatically", () => {
     expect(after.opponentNeedsToPromote).toBe(false);
   });
 
-  it("simultaneous last Prizes (the attacker Knocks itself Out too) keep the old result: defeat", () => {
+  it("simultaneous last Prizes (the attacker Knocks itself Out too): the player whose turn it is wins (Sudden Death not modelled)", () => {
     const magneton = inPlay("Magneton", { energy: [Lightning, Lightning, Lightning, Lightning] });
     const state = makeState({
       player: { active: magneton, bench: [inPlay("Machop")], prizes: lastPrize() },
@@ -98,9 +101,9 @@ describe("the last Prize is taken automatically", () => {
     });
     const after = executeAttack(state, attackIndex(magneton, "Autodestrucción"));
 
-    expect(after.gameResult).toBe("defeat");
-    expect(after.playerPrizes).toHaveLength(1);
-    expect(after.opponentPrizes).toHaveLength(0);
+    expect(after.gameResult).toBe("victory");
+    expect(after.playerPrizes).toHaveLength(0);
+    expect(after.opponentPrizes).toHaveLength(1);
   });
 
   it("a Poison Knock Out between turns gives the player its last Prize: victory at endTurn", () => {

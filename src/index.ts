@@ -293,6 +293,8 @@ export {
 export {
   takePrize,
   takeLastPrizes,
+  prizesOwed,
+  withPrizesOwed,
   promoteActivePokemon,
 } from "./lib/gameState";
 
@@ -310,6 +312,8 @@ export {
   getCardImageUrl,
   getEnergyTypeInSpanish,
   getAttackDiscardRequirement,
+  energyPaysDiscard,
+  checkDiscardSelection,
 } from "./lib/gameState";
 
 // Status Effects

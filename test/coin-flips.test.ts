@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 import { describe, it, expect } from "vitest";
 import { executeAttack as engineExecuteAttack, executeMetronome as engineExecuteMetronome, getAttackCoinFlipCount } from "@/index";
 import type { Attack, GameModifier, GameState, PokemonInPlay } from "@/index";
@@ -313,9 +314,10 @@ describe("Self damage on tails", () => {
     const after = attack(state, "Trueno", [T]);
     expect(after.playerActivePokemon).toBeNull();
     expect(names(after.playerDiscard)).toContain("Zapdos");
-    expect(after.opponentPrizes).toHaveLength(5);
-    expect(after.opponentHand).toHaveLength(1);
-    expect(after.opponentCanTakePrize).toBe(false);
+    // Owed to the opponent (picked by it), not taken from the top
+    expect(prizesOwed(after, "opponent")).toBe(1);
+    expect(after.opponentHand).toHaveLength(0);
+    expect(after.opponentCanTakePrize).toBe(true);
     expect(after.playerNeedsToPromote).toBe(true);
   });
 });

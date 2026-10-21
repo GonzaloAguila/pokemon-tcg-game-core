@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 import { describe, it, expect } from "vitest";
 import { executeAttack, executeBenchDamage } from "@/lib/gameState";
 import { EnergyType, GamePhase } from "@/domain/constants";
@@ -20,8 +21,9 @@ describe("bench knockouts (classic rule: check KOs after every damage source)", 
     expect(names(after.playerBench.map((p) => p.pokemon))).toEqual(["Machop"]);
     expect(after.playerBench[0].currentDamage).toBe(10);
     expect(names(after.playerDiscard)).toEqual(expect.arrayContaining(["Abra", "Psychic Energy"]));
-    expect(after.opponentPrizes).toHaveLength(5);
-    expect(after.opponentHand.map((c) => c.id)).toContain(state.opponentPrizes[0].id);
+    // Owed, picked by the opponent (never taken behind its back)
+    expect(prizesOwed(after, "opponent")).toBe(1);
+    expect(after.opponentPrizes).toHaveLength(6);
   });
 
   it("Pikachu's Spark (selected bench target) knocks out a damaged Magneton with its evolution and energy", () => {
@@ -41,8 +43,8 @@ describe("bench knockouts (classic rule: check KOs after every damage source)", 
     expect(names(after.opponentDiscard)).toEqual(
       expect.arrayContaining(["Magneton", "Magnemite", "Lightning Energy"]),
     );
-    expect(after.playerPrizes).toHaveLength(5);
-    expect(after.playerHand.map((c) => c.id)).toContain(state.playerPrizes[0].id);
+    expect(prizesOwed(after, "player")).toBe(1);
+    expect(after.playerPrizes).toHaveLength(6);
   });
 
   it("Magneton's Selfdestruct sweeps KOs on both benches", () => {
@@ -58,7 +60,7 @@ describe("bench knockouts (classic rule: check KOs after every damage source)", 
     expect(names(after.opponentBench.map((p) => p.pokemon))).toEqual(["Rattata"]);
     expect(after.opponentBench[0].currentDamage).toBe(20);
     expect(names(after.opponentDiscard)).toContain("Pidgey");
-    expect(after.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(after, "player")).toBe(1);
 
     // Own side: Abra (30 HP, 10 + 20) is out, Machop survives; Magneton knocked itself out
     expect(names(after.playerBench.map((p) => p.pokemon))).toEqual(["Machop"]);
@@ -66,7 +68,7 @@ describe("bench knockouts (classic rule: check KOs after every damage source)", 
     expect(after.playerActivePokemon).toBeNull();
     expect(after.playerNeedsToPromote).toBe(true);
     // One prize for Magneton (already taken automatically) + one for Abra
-    expect(after.opponentPrizes).toHaveLength(4);
+    expect(prizesOwed(after, "opponent")).toBe(2);
   });
 
   it("a bench KO resolves before the defender is replaced, so a KO'd benched Pokémon is never promoted", () => {
@@ -82,9 +84,9 @@ describe("bench knockouts (classic rule: check KOs after every damage source)", 
     expect(after.opponentActivePokemon?.currentDamage).toBe(20);
     expect(after.opponentBench).toHaveLength(0);
     expect(names(after.opponentDiscard)).toEqual(expect.arrayContaining(["Pidgey", "Abra"]));
-    // Active KO keeps the manual prize flow; the bench KO prize is taken automatically
+    // Pidgey (Active) + Abra (Bench): 2 Prizes owed, picked one by one
     expect(after.playerCanTakePrize).toBe(true);
-    expect(after.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(after, "player")).toBe(2);
   });
 
   it("taking the last prize from a bench KO wins the game", () => {

@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Gym Challenge Task 4: live HP and card copies.
  *
@@ -93,7 +94,7 @@ describe("Gaseous Form (Sabrina's Gastly #97): +10 HP per Psychic Energy card at
     const played = playTrainerCard(state, removal.id, [[gastly.attachedEnergy[0].id]]);
     expect(played.opponentActivePokemon?.pokemon.id).not.toBe(gastly.pokemon.id);
     expect(names(played.opponentDiscard)).toContain("Sabrina's Gastly");
-    expect(played.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(played, "player")).toBe(1);
   });
 
   it("Dark Wave stopping Gaseous Form Knocks it Out (Prize)", () => {
@@ -103,7 +104,7 @@ describe("Gaseous Form (Sabrina's Gastly #97): +10 HP per Psychic Energy card at
     const done = attack(state, "Onda Oscura");
     expect(done.powersSuppressed).toEqual([{ source: "Onda Oscura", expiresAfterTurn: state.turnNumber + 1 }]);
     expect(names(done.opponentDiscard)).toContain("Sabrina's Gastly");
-    expect(done.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(done, "player")).toBe(1);
   });
 });
 
@@ -151,7 +152,7 @@ describe("Giant Growth (Koga's Ditto): heads = max HP 80 and Pound 30, until it 
     const retreated = executeRetreat(state, [ditto.attachedEnergy[0].id], 0);
     expect(retreated.playerBench.map((p) => p.pokemon.name)).not.toContain("Koga's Ditto");
     expect(names(retreated.playerDiscard)).toContain("Koga's Ditto");
-    expect(retreated.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(retreated, "opponent")).toBe(1);
   });
 });
 
@@ -208,7 +209,7 @@ describe("Shapeshift (Brock's Ninetales): an Evolution card from the hand, treat
     const used = usePokemonPower(state, ninetales.pokemon.id, [[kadabra.id]]);
     expect(used.playerBench).toHaveLength(0);
     expect(names(used.playerDiscard).sort()).toEqual(["Brock's Ninetales", "Kadabra"]);
-    expect(used.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(used, "opponent")).toBe(1);
   });
 
   it("its owner may discard the card during the turn", () => {

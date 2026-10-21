@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Pokémon Power combinations across Base Set, Jungle, Fossil and Team Rocket: suppressors
  * (Toxic Gas, Goop Gas Attack, Stare, Special Conditions) against every activated power, and
@@ -317,7 +318,7 @@ describe("Damage Swap / Curse / Strange Behavior: moving damage counters", () =>
     const ko = makeState({ player: { active: gengar }, opponent: { active: gyarados, bench: [inPlay("Machop", { damage: 10 })] } });
     const afterKo = usePokemonPower(ko, gengar.pokemon.id, [[ko.opponentBench[0].pokemon.id], [gyarados.pokemon.id]]);
     expect(afterKo.opponentActivePokemon).toBeNull();
-    expect(afterKo.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(afterKo, "player")).toBe(1);
     expect(afterKo.playerActivePokemon!.currentDamage).toBe(0);
 
     const machamp = makeState({ player: { active: gengar }, opponent: { active: inPlay("Machamp"), bench: [inPlay("Machop", { damage: 10 })] } });
@@ -345,7 +346,7 @@ describe("on-play powers crossing reactions", () => {
     const koGyarados = resolvePowerChoice(pending, [gyarados.pokemon.id]);
     expect(koGyarados.opponentActivePokemon).toBeNull();
     expect(koGyarados.opponentNeedsToPromote).toBe(true);
-    expect(koGyarados.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(koGyarados, "player")).toBe(1);
     expect(koGyarados.playerActivePokemon!.currentDamage).toBe(0);
   });
 
@@ -505,7 +506,7 @@ describe("powers against a transformed Ditto / a Mr. Mime attacker", () => {
     const next = resolveAttackChoice(state, [ditto.pokemon.id], { skipEndTurn: true });
     expect(next.opponentActivePokemon).toBeNull();
     expect(names(next.opponentDiscard)).toContain("Ditto");
-    expect(next.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "player")).toBe(1);
     expect(next.opponentNeedsToPromote).toBe(true);
   });
 

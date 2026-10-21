@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Single-player: the AI's attack waits for the human's answer to a power asked mid-attack
  * (Flee, Bench Guard). The frontend answers it on the AI's view (resolveAttackChoice with
@@ -77,15 +78,16 @@ describe("finishAIAttackAfterReaction", () => {
     // Magneton Knocked itself Out: the AI promoted its Abra; the human got a Prize
     expect(done.opponentActivePokemon!.pokemon.id).toBe(aiAbra.pokemon.id);
     expect(names(done.opponentDiscard)).toContain("Magneton");
-    expect(done.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(done, "player")).toBe(1);
     // Machop Knocked Out: the AI's Prize and the human's promotion are pending, the turn waits
     expect(done.opponentCanTakePrize).toBe(true);
     expect(done.playerNeedsToPromote).toBe(true);
     expect(done.turnNumber).toBe(state.turnNumber);
     const log = lines(paused, done);
-    expect(log).toContain("Tomaste un premio");
+    // Both are owed, in the human's perspective
+    expect(log).toContain("¡Puedes tomar un premio!");
     expect(log).toContain("El rival puede tomar un premio");
-    expect(log).not.toContain("¡Puedes tomar un premio!");
+    expect(log).not.toContain("Tomaste un premio");
     expect(log).not.toContain("El rival tomó un premio");
     expect(done.startingPlayer).toBe(state.startingPlayer);
   });

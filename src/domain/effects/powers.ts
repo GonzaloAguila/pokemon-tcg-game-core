@@ -785,6 +785,9 @@ const TEAM_ROCKET_POWER_EFFECTS: Record<string, CardEffectDef> = {
         description: "Elige una carta de Evolución de tu mazo para tu mano",
         ...wholeDeckChoice(state.playerDeck, isEvolutionCard),
         maxSelections: 1,
+        // "you may search" (owner decision, like Poké Ball): the player can take nothing — the power is
+        // still used and the deck shuffled
+        minSelections: 0,
       };
     },
     resolve: (state, pokemonId, selections) => {
@@ -796,7 +799,12 @@ const TEAM_ROCKET_POWER_EFFECTS: Record<string, CardEffectDef> = {
         playerDeck: shuffle(state.playerDeck.filter((c) => c.id !== chosen?.id)),
         events: [
           ...state.events,
-          createGameEvent(chosen ? `${power.name}: mostró ${chosen.name} y lo puso en su mano` : `${power.name}: no había cartas de Evolución en el mazo`, "action"),
+          createGameEvent(
+            chosen
+              ? `${power.name}: mostró ${chosen.name} y lo puso en su mano`
+              : state.playerDeck.some(isEvolutionCard) ? `${power.name}: no se tomó ninguna carta` : `${power.name}: no había cartas de Evolución en el mazo`,
+            "action"
+          ),
           createGameEvent("Se mezcló el mazo", "info"),
         ],
       };

@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Team Rocket attack effects, card by card (texts in data/pokemontcg/rocket.txt).
  */
@@ -57,11 +58,11 @@ describe("choose 1 of the opponent's Pokémon (Stare, Flitter, Dig Under, Coin H
     const next = attack(state, "Revoloteo");
     const benchKo = choose(next, [optionIds(next)[1]]);
     expect(benchKo.opponentBench).toHaveLength(0);
-    expect(benchKo.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(benchKo, "player")).toBe(1);
     const activeKo = resolveAttackChoice(next, [optionIds(next)[0]]);
     expect(activeKo.opponentActivePokemon).toBeNull();
     expect(activeKo.opponentNeedsToPromote).toBe(true);
-    expect(activeKo.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(activeKo, "player")).toBe(1);
   });
 
   it("Stare: 10 damage and the chosen Pokémon's power stops until the end of the opponent's next turn", () => {

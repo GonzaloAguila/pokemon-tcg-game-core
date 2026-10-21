@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Transform (Ditto, FO #3): "If Ditto is your Active Pokémon, treat it as if it were the same
  * card as the Defending Pokémon, including type, Hit Points, Weakness, and so on, except Ditto
@@ -94,7 +95,7 @@ describe("Transform: Knock Out when the copy's HP drops below Ditto's damage", (
     const next = promoteActivePokemon(state, 0, false);
     expect(next.playerActivePokemon).toBeNull();
     expect(next.playerNeedsToPromote).toBe(true);
-    expect(next.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "opponent")).toBe(1);
   });
 
   it("Gust of Wind brings a benched Ditto up: it is now a copy of the new Defending Pokémon", () => {

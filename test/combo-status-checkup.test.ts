@@ -159,7 +159,10 @@ describe("simultaneous Knock Outs during an attack", () => {
     expect(after.opponentNeedsToPromote).toBe(true);
     // Abra (30 HP, 20 damage) was Knocked Out on the Bench by the 10 bench damage
     expect(after.opponentBench.map((p) => p.pokemon.name)).toEqual(["Pikachu"]);
-    let next = after.playerCanTakePrize ? takePrize(after, 0, true, false) : after;
+    // Rattata + Abra owed to the player, Magneton to the opponent: every Prize first
+    let next = takePrize(takePrize(after, 0, true, false), 0, true, false);
+    expect(endTurn(next).isPlayerTurn).toBe(true);
+    next = takePrize(next, 0, false, false);
     expect(endTurn(next).isPlayerTurn).toBe(true);
     next = promoteActivePokemon(next, 0, true);
     expect(endTurn(next).isPlayerTurn).toBe(true);

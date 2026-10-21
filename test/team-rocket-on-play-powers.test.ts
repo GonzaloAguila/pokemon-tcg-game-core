@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * "When you play <it> from your hand" powers: Summon Minions (Dark Dragonite), Sneak Attack
  * (Dark Golbat), Reel In (Dark Slowbro) — the generic pending power choice.
@@ -112,7 +113,7 @@ describe("Sneak Attack (Dark Golbat)", () => {
     const { next } = setup();
     const done = resolvePowerChoice(next, [next.opponentBench[0].pokemon.id]);
     expect(done.opponentBench).toHaveLength(0);
-    expect(done.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(done, "player")).toBe(1);
   });
 
   it("Resistance can bring it to 0 (Fighting-resistant... Grass vs a Fire Pokémon has no effect, Machop is neutral)", () => {

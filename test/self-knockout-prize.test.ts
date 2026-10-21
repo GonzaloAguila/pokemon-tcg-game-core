@@ -1,3 +1,4 @@
+import { prizesOwed, takePrize } from "@/lib/gameState";
 import { describe, expect, it } from "vitest";
 import { executeAttack } from "@/lib/gameState";
 import { EnergyType } from "@/domain/constants";
@@ -16,7 +17,9 @@ describe("attacker knocks itself out", () => {
     const after = executeAttack(state, attackIndex(magneton, "Autodestrucción"));
 
     expect(after.playerActivePokemon).toBeNull();
-    expect(after.opponentPrizes).toHaveLength(state.opponentPrizes.length - 1);
-    expect(after.opponentCanTakePrize).toBe(false);
+    // Exactly one Prize owed to the opponent, picked by hand (no automatic Prize, no second one)
+    expect(after.opponentPrizes).toHaveLength(state.opponentPrizes.length);
+    expect(prizesOwed(after, "opponent")).toBe(1);
+    expect(prizesOwed(takePrize(after, 0, false, false), "opponent")).toBe(0);
   });
 });

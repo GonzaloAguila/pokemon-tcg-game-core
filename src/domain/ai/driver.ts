@@ -277,7 +277,8 @@ export function applyAIStep(state: GameState, step: AIStep, options: AIStepOptio
     }
 
     case "takePrize":
-      return takePrize(state, 0, false, !state.isPlayerTurn);
+      // The last owed Prize ends a turn that is already over (takePrize checks it)
+      return takePrize(state, 0, false, true);
 
     case "promote":
       return promoteActivePokemon(state, step.benchIndex, false);

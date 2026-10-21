@@ -360,8 +360,14 @@ export type GameState = {
   opponentReady: boolean;
   energyAttachedThisTurn: boolean; // Solo se puede adjuntar una energía por turno
   retreatedThisTurn: boolean; // Solo se puede retirar una vez por turno
-  playerCanTakePrize: boolean; // El jugador puede tomar un premio (después de noquear)
-  opponentCanTakePrize: boolean; // El oponente puede tomar un premio
+  playerCanTakePrize: boolean; // El jugador debe tomar premios (prizesOwed > 0)
+  opponentCanTakePrize: boolean; // El oponente debe tomar premios
+  /**
+   * Prizes owed (0.10.2): one per opposing Pokémon Knocked Out, picked one by one with takePrize;
+   * read it with `prizesOwed(state, side)` (absent with the flag set = 1). Set by checkKnockouts.
+   */
+  playerPrizesOwed?: number;
+  opponentPrizesOwed?: number;
   playerNeedsToPromote: boolean; // El jugador necesita elegir un Pokémon de la banca para promover
   opponentNeedsToPromote: boolean; // El oponente necesita elegir un Pokémon de la banca para promover
   activeModifiers: GameModifier[]; // Modificadores activos (PlusPower, Defender, etc.)
@@ -1904,188 +1910,234 @@ function knockedOutCards(state: GameState | undefined, knockedOut: PokemonInPlay
 }
 
 /**
- * The acting side's ("player") active Pokémon is knocked out during its own turn
- * (self damage, Strikes Back, Destiny Bond, confusion). Shared by executeAttack and
- * resolveConfusionFlip. Pure: returns new piles, never mutates the inputs.
- * - The Pokémon and all attached energy/trainers/lower stages go to its discard pile.
- * - The opponent automatically takes exactly one prize (no manual pick is flagged).
- * - `needsToPromote` when something is left on the bench; otherwise a defeat event is
- *   logged. `prizedOut` when that prize was the opponent's last one. The caller sets
- *   gameResult/gamePhase.
+ * Prizes `side` is owed: one per opposing Pokémon Knocked Out, picked one by one with takePrize
+ * (`playerPrizesOwed` / `opponentPrizesOwed`; `playerCanTakePrize` / `opponentCanTakePrize` say
+ * whether any is owed). A state that only sets the flag (older consumers, tests) owes 1.
  */
-function knockOutActingActive(
-  knockedOut: PokemonInPlay,
-  piles: { bench: PokemonInPlay[]; discard: GameCard[]; hand: GameCard[]; opponentPrizes: GameCard[]; opponentHand: GameCard[] },
-  prizeMessage: string,
-  state: GameState
-): {
-  discard: GameCard[];
-  hand: GameCard[];
-  opponentPrizes: GameCard[];
-  opponentHand: GameCard[];
-  needsToPromote: boolean;
-  prizedOut: boolean;
-  events: GameEvent[];
-} {
-  const leaving = knockedOutCards(state, knockedOut);
-  const events: GameEvent[] = [...leaving.events];
-  const discard = [...piles.discard, ...leaving.discard];
-  const hand = [...piles.hand, ...leaving.hand];
+export function prizesOwed(
+  state: Pick<GameState, "playerCanTakePrize" | "opponentCanTakePrize" | "playerPrizesOwed" | "opponentPrizesOwed">,
+  side: "player" | "opponent"
+): number {
+  const flag = side === "player" ? state.playerCanTakePrize : state.opponentCanTakePrize;
+  if (!flag) return 0;
+  const count = side === "player" ? state.playerPrizesOwed : state.opponentPrizesOwed;
+  return count !== undefined && count > 0 ? count : 1;
+}
 
-  let opponentPrizes = piles.opponentPrizes;
-  let opponentHand = piles.opponentHand;
-  let prizedOut = false;
-  // A Knocked Out Mysterious Fossil / Clefairy Doll doesn't count: no Prize
-  if (opponentPrizes.length > 0 && knockOutGivesPrize(state, knockedOut, "player", events)) {
-    const prize = opponentPrizes[opponentPrizes.length - 1];
-    opponentPrizes = opponentPrizes.slice(0, -1);
-    opponentHand = [...opponentHand, prize];
-    events.push(createGameEvent(prizeMessage, "action"));
-    prizedOut = opponentPrizes.length === 0;
-  }
-
-  const needsToPromote = piles.bench.some((p) => p != null);
-  if (prizedOut) {
-    events.push(createGameEvent("¡Se tomó el último premio! Fin de la partida", "system"));
-    events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
-  } else if (needsToPromote) {
-    events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
-  } else {
-    events.push(createGameEvent("¡Derrota! No tienes más Pokémon", "system"));
-    events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
-  }
-
-  return { discard, hand, opponentPrizes, opponentHand, needsToPromote: needsToPromote && !prizedOut, prizedOut, events };
+/** `side` is owed `owed` Prizes (never more than its Prizes left); the flag follows the count. */
+export function withPrizesOwed(state: GameState, side: "player" | "opponent", owed: number): GameState {
+  const left = side === "player" ? state.playerPrizes.length : state.opponentPrizes.length;
+  const n = Math.max(0, Math.min(owed, left));
+  return side === "player"
+    ? { ...state, playerCanTakePrize: n > 0, playerPrizesOwed: n > 0 ? n : undefined }
+    : { ...state, opponentCanTakePrize: n > 0, opponentPrizesOwed: n > 0 ? n : undefined };
 }
 
 /**
- * Knock out the acting side's ("player") Active Pokémon outside an attack (a Trainer or a
- * Power left it with damage >= HP, e.g. Devolution Spray). Same flow as an attacker self-KO:
- * discard it with everything attached, the opponent automatically takes one prize, then the
- * player must promote (or loses when the bench is empty / that was the last prize).
+ * Knock out the acting side's ("player") Active Pokémon outside an attack (a Trainer or a Power
+ * left it with damage >= HP, Destiny Bond after a chosen-target attack...): the shared Knock Out
+ * check with that Pokémon forced out (checkKnockouts). `_prizeMessage` is kept for compatibility:
+ * the opponent is now owed the Prize ("El rival puede tomar un premio").
  */
-export function knockOutPlayerActive(state: GameState, prizeMessage: string = "El rival tomó un premio"): GameState {
+export function knockOutPlayerActive(state: GameState, _prizeMessage?: string): GameState {
   const active = state.playerActivePokemon;
   if (!active) return state;
-  const ko = knockOutActingActive(
-    active,
-    { bench: state.playerBench, discard: state.playerDiscard, hand: state.playerHand, opponentPrizes: state.opponentPrizes, opponentHand: state.opponentHand },
-    prizeMessage,
-    state
+  return checkKnockouts(
+    { ...state, events: [...state.events, createGameEvent(`¡${active.pokemon.name} fue noqueado!`, "action")] },
+    { forcedKnockOuts: [active.pokemon.id] }
   );
-  const defeated = ko.prizedOut || !ko.needsToPromote;
-  return {
-    ...state,
-    playerActivePokemon: null,
-    playerDiscard: ko.discard,
-    playerHand: ko.hand,
-    opponentPrizes: ko.opponentPrizes,
-    opponentHand: ko.opponentHand,
-    playerNeedsToPromote: ko.needsToPromote,
-    ...(defeated && { gameResult: "defeat" as const, gamePhase: GamePhase.GameOver }),
-    events: [...state.events, createGameEvent(`¡${active.pokemon.name} fue noqueado!`, "action"), ...ko.events],
-  };
 }
 
-/**
- * Knock out the opponent's Active Pokémon outside an attack (Gengar's Curse moved a damage
- * counter onto it...). Its cards go to the opponent's discard pile, the player automatically
- * takes one Prize (none for a Mysterious Fossil / Clefairy Doll), then the opponent must
- * promote a benched Pokémon (`opponentNeedsToPromote`; the player's turn goes on afterwards)
- * or loses when nothing is left. Taking the last Prize wins.
- */
+/** Knock out the opponent's Active Pokémon outside an attack (the same shared check, forced). */
 export function knockOutOpponentActive(state: GameState): GameState {
   const active = state.opponentActivePokemon;
   if (!active) return state;
-  const leaving = knockedOutCards(state, active);
-  const events: GameEvent[] = [...state.events, createGameEvent(`¡${active.pokemon.name} fue noqueado!`, "action"), ...leaving.events];
-  let playerPrizes = state.playerPrizes;
-  let playerHand = state.playerHand;
-  let tookPrize = false;
-  if (playerPrizes.length > 0 && knockOutGivesPrize(state, active, "opponent", events)) {
-    playerHand = [playerPrizes[0], ...playerHand];
-    playerPrizes = playerPrizes.slice(1);
-    tookPrize = true;
-    events.push(createGameEvent(`Se toma 1 premio por noquear a ${active.pokemon.name}`, "action"));
-  }
-  const next: GameState = {
-    ...state,
-    opponentActivePokemon: null,
-    opponentDiscard: [...state.opponentDiscard, ...leaving.discard],
-    opponentHand: [...state.opponentHand, ...leaving.hand],
-    playerPrizes,
-    playerHand,
-    opponentNeedsToPromote: state.opponentBench.length > 0,
-    events,
-  };
-  if (tookPrize && playerPrizes.length === 0) {
-    return {
-      ...next,
-      gameResult: "victory",
-      gamePhase: GamePhase.GameOver,
-      opponentNeedsToPromote: false,
-      events: [
-        ...events,
-        createGameEvent("¡Se tomó el último premio! Fin de la partida", "system"),
-        createGameEvent("Ya puedes salir de la mesa", "info"),
-      ],
-    };
-  }
-  if (next.opponentNeedsToPromote) {
-    return { ...next, events: [...events, createGameEvent(`El dueño de ${active.pokemon.name} debe elegir un nuevo Pokémon activo`, "info")] };
-  }
-  return endGameIfNoPokemonLeft(next);
+  return checkKnockouts(
+    { ...state, events: [...state.events, createGameEvent(`¡${active.pokemon.name} fue noqueado!`, "action")] },
+    { forcedKnockOuts: [active.pokemon.id] }
+  );
 }
 
+export type KnockOutOptions = {
+  /**
+   * Pokémon (ids) the caller already found Knocked Out and whose Knock Out line it already logged:
+   * an attack's damage step (the Defending Pokémon / the attacker, with the HP they had then — a
+   * transformed Ditto's copy can change once the other Active leaves), Destiny Bond, the
+   * between-turns checkup. They leave play with the others, in the same check.
+   */
+  forcedKnockOuts?: readonly string[];
+};
+
 /**
- * Knock Outs after an effect that is not an attack moved or placed damage counters (Gengar's
- * Curse...): both benches (processBenchKnockouts, Prizes taken automatically), then the
- * opponent's and the player's Active Pokémon (knockOutOpponentActive / knockOutPlayerActive),
- * then the "no Pokémon left" check, then the last Prize owed by an Active's Knock Out
- * (takeLastPrizes). Pure: returns the same object when nothing happened.
+ * THE Knock Out check (attack resolution steps 5-7, CLAUDE.md "Attack resolution"), run after
+ * every attack, the between-turns checkup, Trainers / powers and anything else that changes
+ * damage or HP:
+ *
+ * 1. State-based departures first: Secret Plan's face-down cards flip, Ninja Trick leaves the
+ *    Bench, broken Shapeshifts, Scram (not Knock Outs).
+ * 2. Every Pokémon in play of BOTH players with damage >= its HP (Actives with their current HP;
+ *    `forcedKnockOuts` too) is Knocked Out at the same time: it goes to its owner's discard pile
+ *    with every card attached (Rebirth: back to the hand); repeated while a Knock Out changes a
+ *    transformed Ditto's HP.
+ * 3. Prizes: each player is owed one Prize per opposing Pokémon Knocked Out (a Mysterious Fossil /
+ *    Clefairy Doll or a table's noPrizeFor Pokémon gives none), added to `xPrizesOwed` (never more
+ *    than the Prizes left) and picked one by one with takePrize — never taken behind the player's
+ *    back.
+ * 4. Win checks (settleGameEnd): a side owed every Prize it has left takes them now and wins; a
+ *    side left with no Pokémon in play loses; both at once → the player whose turn it is wins
+ *    (Sudden Death isn't modelled; a Lucky Duel is a draw: settleLuckyDuelDraw).
+ * 5. Promotions: a side whose Active was Knocked Out gets `xNeedsToPromote` (after its Prizes;
+ *    the defending player first, then the attacker).
+ *
+ * Pure: returns the same object when nothing happened.
  */
-export function checkKnockouts(state: GameState): GameState {
+export function checkKnockouts(state: GameState, options: KnockOutOptions = {}): GameState {
   // Shapeshift: a statused Ninetales loses its Evolution card first (its HP is its own again)
   // Scram: a Primeape with exactly 10 HP left goes into the deck before any Knock Out
   // Koga's Ninja Trick: discarded once its Pokémon is on the Bench
   // Lt. Surge's Secret Plan: face-down cards that became the Active or were affected flip first
-  let next = processBenchKnockouts(shuffleScrammingPokemon(discardBrokenShapeshiftCards(discardBenchedNinjaTricks(revealFaceDownCards(state)))));
-  // Actives use their current HP (a transformed Ditto's copy changes with the other Active)
-  const isOut = (p: PokemonInPlay | null): boolean =>
-    !!p && p.pokemon.kind === CardKind.Pokemon && !isFaceDown(p) && (p.currentDamage ?? 0) >= getEffectiveHp(next, p) &&
-    !isAwaitingTransformTarget(next, p);
-  if (next.gameResult === null && isOut(next.opponentActivePokemon)) next = knockOutOpponentActive(next);
-  if (next.gameResult === null && isOut(next.playerActivePokemon)) next = knockOutPlayerActive(next);
+  let next = shuffleScrammingPokemon(discardBrokenShapeshiftCards(discardBenchedNinjaTricks(revealFaceDownCards(state))));
+  if (next.gameResult === null) {
+    const forced = new Set(options.forcedKnockOuts ?? []);
+    for (let pass = 0; pass < 4; pass++) {
+      const swept = sweepKnockOuts(next, forced);
+      if (swept === next) break;
+      next = swept;
+    }
+  }
+  const changed = next !== state;
+  const settled = settleGameEnd(changed ? clearEmptyPromotions(next) : next, changed);
   // Defender / PlusPower of a Pokémon that left play go to the discard pile with it. Lucky Duel:
   // the other Active Knocked Out by the same action makes it a draw
-  // A side owed a Prize with only 1 left takes it now and wins (also when nothing else happened:
-  // the attack / checkup / Buzzap that set the flag runs checkKnockouts right after)
-  return takeLastPrizes(releaseOrphanModifiers(settleLuckyDuelDraw(next === state ? state : endGameIfNoPokemonLeft(next))));
+  return releaseOrphanModifiers(settleLuckyDuelDraw(settled));
+}
+
+/** One pass of steps 2-3 of checkKnockouts: every Pokémon in play Knocked Out now, at once. */
+function sweepKnockOuts(state: GameState, forced: ReadonlySet<string>): GameState {
+  const counts = (p: PokemonInPlay) => p.pokemon.kind === CardKind.Pokemon && !isFaceDown(p);
+  // Actives use their current HP (a transformed Ditto's copy); a Benched Ditto is not a copy
+  const activeOut = (p: PokemonInPlay | null): p is PokemonInPlay =>
+    !!p && counts(p) && (forced.has(p.pokemon.id) || ((p.currentDamage ?? 0) >= getEffectiveHp(state, p) && !isAwaitingTransformTarget(state, p)));
+  const benchOut = (p: PokemonInPlay) => counts(p) && (forced.has(p.pokemon.id) || (p.currentDamage ?? 0) >= getEffectiveHp(state, p));
+
+  // The defending side's lines first (the side whose turn it isn't)
+  const sides: ("player" | "opponent")[] = state.isPlayerTurn ? ["opponent", "player"] : ["player", "opponent"];
+  const found = sides.map((side) => {
+    const active = side === "player" ? state.playerActivePokemon : state.opponentActivePokemon;
+    const bench = side === "player" ? state.playerBench : state.opponentBench;
+    return { side, active: activeOut(active) ? active : null, bench: bench.filter(benchOut) };
+  });
+  if (found.every((f) => !f.active && f.bench.length === 0)) return state;
+
+  const events: GameEvent[] = [...state.events];
+  const gained = { player: 0, opponent: 0 };
+  let next: GameState = state;
+  for (const { side, active, bench } of found) {
+    const knockedOut = [...(active ? [active] : []), ...bench];
+    if (knockedOut.length === 0) continue;
+    const discard: GameCard[] = [];
+    const hand: GameCard[] = [];
+    for (const ko of knockedOut) {
+      if (!forced.has(ko.pokemon.id)) {
+        events.push(createGameEvent(ko === active ? `¡${ko.pokemon.name} fue noqueado!` : `¡${ko.pokemon.name} fue noqueado en la banca!`, "action"));
+      }
+      const leaving = knockedOutCards(state, ko);
+      discard.push(...leaving.discard);
+      hand.push(...leaving.hand);
+      events.push(...leaving.events);
+      if (knockOutGivesPrize(state, ko, side, events)) gained[side === "player" ? "opponent" : "player"] += 1;
+    }
+    if (side === "player") {
+      const left = next.playerBench.filter((p) => !bench.includes(p));
+      next = {
+        ...next,
+        playerBench: left,
+        playerDiscard: [...next.playerDiscard, ...discard],
+        playerHand: [...next.playerHand, ...hand],
+        ...(active && { playerActivePokemon: null, playerNeedsToPromote: left.length > 0 }),
+      };
+    } else {
+      const left = next.opponentBench.filter((p) => !bench.includes(p));
+      next = {
+        ...next,
+        opponentBench: left,
+        opponentDiscard: [...next.opponentDiscard, ...discard],
+        opponentHand: [...next.opponentHand, ...hand],
+        ...(active && { opponentActivePokemon: null, opponentNeedsToPromote: left.length > 0 }),
+      };
+    }
+  }
+  // Prizes owed (the attacker's line first), never more than the Prizes left
+  for (const side of [...sides].reverse()) {
+    if (gained[side] === 0) continue;
+    const before = prizesOwed(next, side);
+    next = withPrizesOwed(next, side, before + gained[side]);
+    const added = prizesOwed(next, side) - before;
+    for (let i = 0; i < added; i++) {
+      events.push(createGameEvent(side === "player" ? "¡Puedes tomar un premio!" : "El rival puede tomar un premio", "action"));
+    }
+  }
+  for (const { side, active } of found) {
+    if (!active) continue;
+    if (side === "player" && next.playerNeedsToPromote) events.push(createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"));
+    if (side === "opponent" && next.opponentNeedsToPromote) events.push(createGameEvent(`El dueño de ${active.pokemon.name} debe elegir un nuevo Pokémon activo`, "info"));
+  }
+  return { ...next, events };
+}
+
+/** A side with nothing left on the Bench can't promote. */
+function clearEmptyPromotions(state: GameState): GameState {
+  const player = state.playerNeedsToPromote && state.playerBench.length > 0;
+  const opponent = state.opponentNeedsToPromote && state.opponentBench.length > 0;
+  return player === state.playerNeedsToPromote && opponent === state.opponentNeedsToPromote
+    ? state
+    : { ...state, playerNeedsToPromote: player, opponentNeedsToPromote: opponent };
 }
 
 /**
- * The last Prize is taken automatically (since 0.10.1, every mode): a side owed a Prize for an
- * Active's Knock Out (`playerCanTakePrize` / `opponentCanTakePrize`: an attack, the between-turns
- * checkup, Buzzap) with exactly ONE Prize card left takes it at once (takePrize) and the game ends.
- * With 2+ left the pick stays manual. The player side is settled first (simultaneous prize-outs
- * aren't modelled; an attacker self-Knock Out that already gave the opponent its last Prize keeps
- * its result: this only runs while `gameResult` is null). The game is over, so promotions and
- * pending choices are dropped. Pure: returns the same object when no last Prize is owed.
+ * Win checks after Knock Outs (attack resolution step 7). A side owed every Prize it has left
+ * takes them now (takePrize: "Tomaste un premio"...) and wins — the last Prize is never picked by
+ * hand. With `checkNoPokemon`, a side with no Pokémon in play loses. Both sides at once: the
+ * player whose turn it is wins (the classic rule is a Sudden Death game, not modelled; a Lucky
+ * Duel turns it into a draw afterwards: settleLuckyDuelDraw). The game is over, so owed Prizes,
+ * promotions and pending choices are dropped. Pure: the same object when nobody wins.
  */
-export function takeLastPrizes(state: GameState): GameState {
+function settleGameEnd(state: GameState, checkNoPokemon: boolean): GameState {
   if (state.gameResult !== null || state.gamePhase === GamePhase.GameOver) return state;
-  const isPlayer = state.playerCanTakePrize && state.playerPrizes.length === 1
-    ? true
-    : state.opponentCanTakePrize && state.opponentPrizes.length === 1
-      ? false
-      : null;
-  if (isPlayer === null) return state;
-  const won = takePrize(state, 0, isPlayer, false);
-  if (won.gameResult === null) return won;
+  const prizedOut = (side: "player" | "opponent") => {
+    const left = side === "player" ? state.playerPrizes.length : state.opponentPrizes.length;
+    return left > 0 && prizesOwed(state, side) >= left;
+  };
+  const noPokemon = (side: "player" | "opponent") =>
+    checkNoPokemon &&
+    (side === "player" ? !state.playerActivePokemon && state.playerBench.length === 0 : !state.opponentActivePokemon && state.opponentBench.length === 0);
+  const playerWins = prizedOut("player") || noPokemon("opponent");
+  const opponentWins = prizedOut("opponent") || noPokemon("player");
+  if (!playerWins && !opponentWins) return state;
+  const winner: "player" | "opponent" = playerWins && opponentWins ? (state.isPlayerTurn ? "player" : "opponent") : playerWins ? "player" : "opponent";
+
+  let next: GameState;
+  if (prizedOut(winner)) {
+    next = state;
+    while (next.gameResult === null && prizesOwed(next, winner) > 0) next = takePrize(next, 0, winner === "player", false);
+  } else {
+    next = {
+      ...state,
+      gameResult: winner === "player" ? "victory" : "defeat",
+      gamePhase: GamePhase.GameOver,
+      events: [
+        ...state.events,
+        createGameEvent(winner === "player" ? "¡Victoria! El rival no tiene más Pokémon" : "¡Derrota! No tienes más Pokémon", "system"),
+        createGameEvent("Ya puedes salir de la mesa", "info"),
+      ],
+    };
+  }
   return {
-    ...won,
+    ...next,
     playerCanTakePrize: false,
     opponentCanTakePrize: false,
+    playerPrizesOwed: undefined,
+    opponentPrizesOwed: undefined,
     playerNeedsToPromote: false,
     opponentNeedsToPromote: false,
     pendingForceSwitch: undefined,
@@ -2094,6 +2146,14 @@ export function takeLastPrizes(state: GameState): GameState {
     pendingBenchDamageSelection: undefined,
     pendingAttackChoice: undefined,
   };
+}
+
+/**
+ * The last Prizes are taken automatically: a side owed every Prize it has left takes them and
+ * wins (part of every checkKnockouts; exported for callers that changed owed Prizes themselves).
+ */
+export function takeLastPrizes(state: GameState): GameState {
+  return settleGameEnd(state, false);
 }
 
 /**
@@ -2185,123 +2245,20 @@ export function settleLuckyDuelDraw(state: GameState): GameState {
 }
 
 /**
- * A side with no Active and an empty bench loses (checked after damage that can remove the
- * last Pokémon outside the normal attack flow). Promotion flags of a side with nothing left
- * on the bench are cleared. The "player" side is checked second, like executeAttack.
+ * Win check for a side left with no Pokémon in play (also after a Pokémon left play without a
+ * Knock Out: Fling, Vanish...) and the Prize-out check, with the same rules as checkKnockouts
+ * (settleGameEnd). Promotion flags of a side with nothing on the Bench are cleared.
  */
 export function endGameIfNoPokemonLeft(state: GameState): GameState {
-  if (state.gameResult !== null) return state;
-  const opponentOut = !state.opponentActivePokemon && state.opponentBench.length === 0;
-  const playerOut = !state.playerActivePokemon && state.playerBench.length === 0;
-  const cleaned: GameState = {
-    ...state,
-    playerNeedsToPromote: state.playerNeedsToPromote && state.playerBench.length > 0,
-    opponentNeedsToPromote: state.opponentNeedsToPromote && state.opponentBench.length > 0,
-  };
-  if (!opponentOut && !playerOut) return cleaned;
-  const result: GameResult = playerOut ? "defeat" : "victory";
-  return {
-    ...cleaned,
-    gameResult: result,
-    gamePhase: GamePhase.GameOver,
-    playerCanTakePrize: false,
-    opponentCanTakePrize: false,
-    events: [
-      ...state.events,
-      createGameEvent(result === "victory" ? "¡Victoria! El rival no tiene más Pokémon" : "¡Derrota! No tienes más Pokémon", "system"),
-      createGameEvent("Ya puedes salir de la mesa", "info"),
-    ],
-  };
+  return settleGameEnd(clearEmptyPromotions(state), true);
 }
 
 /**
- * KO sweep for BOTH benches (classic rule: knockouts are checked after every
- * damage source, including bench damage and self-damage attacks).
- *
- * Every benched Pokémon whose damage is >= its HP is Knocked Out: it goes to its
- * owner's discard pile together with its attached energy, trainers and lower
- * evolution stages, and the OTHER side takes one prize per knocked-out Pokémon.
- * Bench-KO prizes are taken automatically from the top of the prize pile (the
- * active-KO manual prize pick, `playerCanTakePrize`, is left untouched).
- * If a side takes its last prize the game ends (`gameResult` is set from the
- * `player` perspective). Simultaneous prize-outs (sudden death) are not modeled:
- * the `player` side is checked first.
- *
- * Active Pokémon are NOT handled here: their KO flow includes the promotion step.
- * Pure: returns the same object when nothing is knocked out.
+ * Former Bench-only sweep: every Knock Out now goes through the one check (checkKnockouts), which
+ * owes the Prizes instead of taking them. Kept as an alias for consumers.
  */
 export function processBenchKnockouts(state: GameState): GameState {
-  // Live HP (Gaseous Form, Shapeshift; a Benched Ditto is not a copy)
-  // A face-down card (Secret Plan, hp 0) is never Knocked Out: it flips first (checkKnockouts)
-  const isKnockedOut = (p: PokemonInPlay | null | undefined): p is PokemonInPlay =>
-    !!p && p.pokemon.kind === CardKind.Pokemon && !isFaceDown(p) && (p.currentDamage ?? 0) >= getEffectiveHp(state, p);
-
-  const playerKOs = state.playerBench.filter(isKnockedOut);
-  const opponentKOs = state.opponentBench.filter(isKnockedOut);
-  if (playerKOs.length === 0 && opponentKOs.length === 0) {
-    return state;
-  }
-
-  const events = [...state.events];
-  // Rebirth (Rocket's Moltres): the card goes back to its owner's hand after being discarded
-  const leavingOf = (kos: PokemonInPlay[]) => {
-    const all = kos.map((p) => knockedOutCards(state, p));
-    return { discard: all.flatMap((l) => l.discard), hand: all.flatMap((l) => l.hand), events: all.flatMap((l) => l.events) };
-  };
-  const playerLeaving = leavingOf(playerKOs);
-  const opponentLeaving = leavingOf(opponentKOs);
-
-  // Takes one prize per KO for the given side (not for a Mysterious Fossil / Clefairy Doll)
-  const takePrizes = (prizes: GameCard[], hand: GameCard[], allKnockedOut: PokemonInPlay[], owner: "player" | "opponent") => {
-    const knockedOut = prizes.length > 0 ? allKnockedOut.filter((ko) => knockOutGivesPrize(state, ko, owner, events)) : [];
-    const taken = prizes.slice(0, knockedOut.length);
-    for (const ko of knockedOut.slice(0, taken.length)) {
-      events.push(createGameEvent(`Se toma 1 premio por noquear a ${ko.pokemon.name}`, "action"));
-    }
-    return { prizes: prizes.slice(taken.length), hand: [...taken, ...hand], took: taken.length > 0 };
-  };
-
-  for (const ko of [...opponentKOs, ...playerKOs]) {
-    events.push(createGameEvent(`¡${ko.pokemon.name} fue noqueado en la banca!`, "action"));
-  }
-  events.push(...opponentLeaving.events, ...playerLeaving.events);
-
-  // Opponent's benched Pokémon knocked out -> player takes prizes, and vice versa
-  const player = takePrizes(state.playerPrizes, state.playerHand, opponentKOs, "opponent");
-  const opponent = takePrizes(state.opponentPrizes, state.opponentHand, playerKOs, "player");
-
-  let gameResult = state.gameResult;
-  let gamePhase = state.gamePhase;
-  if (gameResult === null) {
-    if (player.took && player.prizes.length === 0) {
-      gameResult = "victory";
-    } else if (opponent.took && opponent.prizes.length === 0) {
-      gameResult = "defeat";
-    }
-    if (gameResult !== null) {
-      gamePhase = GamePhase.GameOver;
-      events.push(createGameEvent("¡Se tomó el último premio! Fin de la partida", "system"));
-      events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
-    }
-  }
-
-  const gameOver = gameResult !== null && state.gameResult === null;
-
-  return {
-    ...state,
-    playerBench: state.playerBench.filter((p) => !playerKOs.includes(p)),
-    opponentBench: state.opponentBench.filter((p) => !opponentKOs.includes(p)),
-    playerDiscard: [...state.playerDiscard, ...playerLeaving.discard],
-    opponentDiscard: [...state.opponentDiscard, ...opponentLeaving.discard],
-    playerPrizes: player.prizes,
-    playerHand: [...player.hand, ...playerLeaving.hand],
-    opponentPrizes: opponent.prizes,
-    opponentHand: [...opponent.hand, ...opponentLeaving.hand],
-    gameResult,
-    gamePhase,
-    ...(gameOver && { playerCanTakePrize: false, opponentCanTakePrize: false }),
-    events,
-  };
+  return checkKnockouts(state);
 }
 
 /**
@@ -2801,151 +2758,30 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     events.push(createGameEvent(`Tickling Machine: ${setAside.returned === 1 ? "la carta apartada vuelve" : `las ${setAside.returned} cartas apartadas vuelven`} a la mano de quien las apartó`, "info"));
   }
 
-  // Variables para trackear KO y premios
-  let gameResult: GameResult = null;
-  let gamePhase: GamePhase = gameState.gamePhase;
-  let playerCanTakePrize = gameState.playerCanTakePrize;
-  let opponentCanTakePrize = gameState.opponentCanTakePrize;
-
   // =====================================================================
-  // FASE "ENTRE TURNOS": Procesar efectos de estado para AMBOS Pokémon
-  // En Pokemon TCG, el veneno se aplica "entre turnos" a TODOS los Pokemon envenenados
-  // =====================================================================
-
-  // Función helper para manejar KO
-  const handleKnockout = (
-    knockedOut: PokemonInPlay,
-    isPlayerPokemon: boolean
-  ) => {
-    // Mover al descarte
-    if (isPlayerPokemon) {
-      const leaving = knockedOutCards(updatedState, knockedOut);
-      updatedState.playerDiscard = [...updatedState.playerDiscard, ...leaving.discard];
-      updatedState.playerHand = [...updatedState.playerHand, ...leaving.hand];
-      events.push(...leaving.events);
-
-      // El oponente puede tomar premio
-      if (updatedState.opponentPrizes.length > 0 && knockOutGivesPrize(updatedState, knockedOut, "player", events)) {
-        opponentCanTakePrize = true;
-        events.push(createGameEvent("El rival puede tomar un premio", "action"));
-      }
-
-      // Promover de banca — el jugador debe elegir
-      const hasPlayerBench = updatedState.playerBench.some(p => p != null);
-      if (hasPlayerBench) {
-        updatedState.playerActivePokemon = null;
-        updatedState.playerNeedsToPromote = true;
-        events.push(
-          createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")
-        );
-      } else {
-        updatedState.playerActivePokemon = null;
-        gameResult = "defeat";
-        gamePhase = GamePhase.GameOver;
-        events.push(createGameEvent("¡Derrota! No tienes más Pokémon", "system"));
-        events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
-      }
-    } else {
-      const leaving = knockedOutCards(updatedState, knockedOut);
-      updatedState.opponentDiscard = [...updatedState.opponentDiscard, ...leaving.discard];
-      updatedState.opponentHand = [...updatedState.opponentHand, ...leaving.hand];
-      events.push(...leaving.events);
-
-      // El jugador puede tomar premio
-      if (updatedState.playerPrizes.length > 0 && knockOutGivesPrize(updatedState, knockedOut, "opponent", events)) {
-        playerCanTakePrize = true;
-        events.push(createGameEvent("¡Puedes tomar un premio!", "action"));
-      }
-
-      // Promover de banca
-      const opponentPromoteIndex = updatedState.opponentBench.findIndex(p => p != null);
-      if (opponentPromoteIndex !== -1) {
-        if (skipOpponentPromotion) {
-          updatedState.opponentActivePokemon = null;
-          updatedState.opponentNeedsToPromote = true;
-          events.push(
-            createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info")
-          );
-        } else {
-          const promoted = updatedState.opponentBench[opponentPromoteIndex]!;
-          // Copy instead of splice: updatedState is a shallow copy, the array is the caller's
-          updatedState.opponentBench = updatedState.opponentBench.filter((_, i) => i !== opponentPromoteIndex);
-          updatedState.opponentActivePokemon = promoted;
-          events.push(
-            createGameEvent(`${promoted.pokemon.name} pasa a ser el Pokémon activo del rival`, "info")
-          );
-        }
-      } else {
-        updatedState.opponentActivePokemon = null;
-        gameResult = "victory";
-        gamePhase = GamePhase.GameOver;
-        events.push(createGameEvent("¡Victoria! El rival no tiene más Pokémon", "system"));
-        events.push(createGameEvent("Ya puedes salir de la mesa", "info"));
-      }
-    }
-  };
-
-  // =====================================================================
-  // POKEMON CHECKUP — entre turnos, aplica a AMBOS Pokémon activos
-  // Reglas TCG: veneno, sueño y parálisis se chequean para ambos jugadores
+  // POKEMON CHECKUP — between turns, BOTH Active Pokémon (poison, sleep, paralysis...). The damage
+  // is put on them; their Knock Outs go through the shared check below (checkKnockouts, forced:
+  // both at once, Prizes owed to the other side) — the same rule as an attack's Knock Outs.
   // =====================================================================
 
   // The checkup runs once per turn change, even if endTurn is called again after a pause
   const checkupAlreadyDone = gameState.checkupDoneOnTurn === currentTurn;
-
-  // 1) Pokémon del jugador que TERMINA su turno
-  const ownPokemon = isPlayerEndingTurn
-    ? updatedState.playerActivePokemon
-    : updatedState.opponentActivePokemon;
-
-  if (ownPokemon && gameResult === null && !checkupAlreadyDone) {
-    const result = processStatusEffectsForPokemon(ownPokemon, currentTurn, true, getEffectiveHp(gameState, ownPokemon));
+  const checkupKnockOuts: string[] = [];
+  const checkup = (pokemon: PokemonInPlay | null, isOwnTurn: boolean, isPlayerPokemon: boolean) => {
+    if (!pokemon || checkupAlreadyDone) return;
+    const result = processStatusEffectsForPokemon(pokemon, currentTurn, isOwnTurn, getEffectiveHp(gameState, pokemon));
     events.push(...result.events);
-
     if (result.isKnockedOut) {
-      handleKnockout(result.pokemon, isPlayerEndingTurn);
-    } else {
-      if (isPlayerEndingTurn) {
-        updatedState.playerActivePokemon = result.pokemon;
-      } else {
-        updatedState.opponentActivePokemon = result.pokemon;
-      }
+      checkupKnockOuts.push(result.pokemon.pokemon.id);
+      events.push(createGameEvent(`¡${result.pokemon.pokemon.name} fue noqueado!`, "action"));
     }
-  }
-
-  // 2) Pokémon del OPONENTE (el que no termina su turno)
-  const otherPokemon = isPlayerEndingTurn
-    ? updatedState.opponentActivePokemon
-    : updatedState.playerActivePokemon;
-
-  // Lucky Duel: both Actives are checked even when the first one's Knock Out ended the game (both
-  // Knocked Out by the same checkup is a draw: settleLuckyDuelDraw below)
-  if (otherPokemon && (gameResult === null || isLuckyDuel(gameState)) && !checkupAlreadyDone) {
-    const result = processStatusEffectsForPokemon(otherPokemon, currentTurn, false, getEffectiveHp(gameState, otherPokemon));
-    events.push(...result.events);
-
-    if (result.isKnockedOut) {
-      handleKnockout(result.pokemon, !isPlayerEndingTurn);
-    } else {
-      if (isPlayerEndingTurn) {
-        updatedState.opponentActivePokemon = result.pokemon;
-      } else {
-        updatedState.playerActivePokemon = result.pokemon;
-      }
-    }
-  }
-
-  // Si el juego terminó, no continuar con el siguiente turno
-  if (gameResult !== null) {
-    return settleLuckyDuelDraw({
-      ...updatedState,
-      gamePhase,
-      gameResult,
-      playerCanTakePrize,
-      opponentCanTakePrize,
-      events,
-    });
-  }
+    if (isPlayerPokemon) updatedState.playerActivePokemon = result.pokemon;
+    else updatedState.opponentActivePokemon = result.pokemon;
+  };
+  // 1) the Pokémon of the player ending the turn, 2) the other one
+  checkup(isPlayerEndingTurn ? updatedState.playerActivePokemon : updatedState.opponentActivePokemon, true, isPlayerEndingTurn);
+  checkup(isPlayerEndingTurn ? updatedState.opponentActivePokemon : updatedState.playerActivePokemon, false, !isPlayerEndingTurn);
+  const opponentActiveBefore = updatedState.opponentActivePokemon;
 
   // =====================================================================
   // EXPIRE POWER SUPPRESSION (Goop Gas Attack, Stare) — before the state-based Knock Outs:
@@ -2959,22 +2795,29 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     updatedState.powersSuppressed = stillActive.length > 0 ? stillActive : undefined;
   }
 
-  // State-based Knock Outs after the checkup: an auto-promoted Pokémon changed what a transformed
-  // Ditto copies (it can't wait for the next turn: the turn change must leave nothing pending)
-  const swept = checkKnockouts({ ...updatedState, playerCanTakePrize, opponentCanTakePrize, events: [...events] });
+  // The shared Knock Out check (the checkup's Knock Outs, a transformed Ditto whose copy changed)
+  const swept = checkKnockouts({ ...updatedState, events: [...events] }, { forcedKnockOuts: checkupKnockOuts });
   if (swept.gameResult !== null) return swept;
-  if (swept.events.length !== events.length) {
-    updatedState = { ...swept };
-    events.splice(0, events.length, ...swept.events);
+  updatedState = { ...swept };
+  events.splice(0, events.length, ...swept.events);
+
+  // Single-player: the engine promotes the other side's (the AI's) new Active itself, unless asked not to
+  if (!skipOpponentPromotion && opponentActiveBefore && checkupKnockOuts.includes(opponentActiveBefore.pokemon.id) &&
+      updatedState.opponentNeedsToPromote && updatedState.opponentActivePokemon === null && updatedState.opponentBench.length > 0) {
+    const promoted = updatedState.opponentBench[0];
+    updatedState = { ...updatedState, opponentActivePokemon: promoted, opponentBench: updatedState.opponentBench.slice(1), opponentNeedsToPromote: false };
+    events.push(createGameEvent(`${promoted.pokemon.name} pasa a ser el Pokémon activo del rival`, "info"));
+    const recheck = checkKnockouts({ ...updatedState, events: [...events] });
+    if (recheck.gameResult !== null) return recheck;
+    updatedState = { ...recheck };
+    events.splice(0, events.length, ...recheck.events);
   }
 
   // Si alguien puede tomar premio o promover, no avanzar el turno aún (either side may still
   // need a new Active: an attack that Knocked Out the Defending Pokémon with skipDefenderPromotion)
-  if (playerCanTakePrize || opponentCanTakePrize || updatedState.playerNeedsToPromote || updatedState.opponentNeedsToPromote) {
+  if (updatedState.playerCanTakePrize || updatedState.opponentCanTakePrize || updatedState.playerNeedsToPromote || updatedState.opponentNeedsToPromote) {
     return {
       ...updatedState,
-      playerCanTakePrize,
-      opponentCanTakePrize,
       checkupDoneOnTurn: currentTurn,
       events,
     };
@@ -3273,8 +3116,6 @@ export function endTurn(gameState: GameState, skipOpponentPromotion: boolean = f
     energyAttachedThisTurn: false,
     retreatedThisTurn: false,
     stadiumPlayedThisTurn: false,
-    playerCanTakePrize,
-    opponentCanTakePrize,
     usedPowersThisTurn: [], // Clear used powers for new turn
     attackedThisTurn: undefined,
     checkupDoneOnTurn: undefined,
@@ -3717,6 +3558,44 @@ export function canUseAttack(
   }
 
   return true;
+}
+
+/** The type a working Energy Burn (Charizard) turns every Energy attached to `holder` into, if any. */
+function energyBurnType(holder: PokemonInPlay): EnergyType | undefined {
+  if (holder.energyConversionType) return holder.energyConversionType;
+  if (!isPokemonCard(holder.pokemon)) return undefined;
+  const power = holder.pokemon.power;
+  return power?.type === PokemonPowerType.EnergyConversion && power.energyType && !hasBlockingStatus(holder) ? power.energyType : undefined;
+}
+
+/**
+ * Can this card attached to `holder` pay one entry of an attack's discard cost
+ * (`discardCostRequirement`)? Colorless = "discard 1 Energy card": any Energy card (Kindle);
+ * a type = an Energy card that provides it (Rainbow Energy, a Buzzap Electrode's chosen type, every
+ * card under a working Energy Burn).
+ */
+export function energyPaysDiscard(card: GameCard, type: EnergyType, holder: PokemonInPlay, state?: GameState): boolean {
+  if (card.kind !== CardKind.Energy && !card.buzzapEnergyType) return false;
+  if (type === EnergyTypeEnum.Colorless) return true;
+  if (energyBurnType(holder)) return true;
+  return energyProvidesType(card, type, holder, state);
+}
+
+/**
+ * Why `selectedIds` can't pay the discard cost `required` of an attack by `holder` (Spanish), or
+ * null: exactly one distinct Energy card attached to it per entry, each matching its entry
+ * (energyPaysDiscard). The cost counts cards, not Energy units (a Double Colorless Energy is 1 card).
+ * executeAttack enforces it; the consumers' discard pickers use it to enable "confirm".
+ */
+export function checkDiscardSelection(holder: PokemonInPlay, required: readonly EnergyType[], selectedIds: readonly string[], state?: GameState): string | null {
+  const cards = selectedIds.map((id) => holder.attachedEnergy.find((e) => e.id === id));
+  if (new Set(selectedIds).size !== selectedIds.length || cards.some((c) => !c)) return "Elige cartas de Energía unidas al atacante";
+  if (cards.length !== required.length) return `Debes descartar ${required.length} carta${required.length === 1 ? "" : "s"} de Energía`;
+  // Every entry gets its own card (at most 4 entries: try the assignments)
+  const assign = (i: number, used: Set<number>): boolean =>
+    i === required.length ||
+    cards.some((card, k) => !used.has(k) && energyPaysDiscard(card!, required[i], holder, state) && assign(i + 1, new Set([...used, k])));
+  return assign(0, new Set()) ? null : `Esas cartas no pagan el descarte (${required.map(getEnergyTypeInSpanish).join(", ")})`;
 }
 
 /**
@@ -4577,6 +4456,11 @@ export function executeAttack(
   selectedEnergyIdsArg?: string[]
 ): GameState {
   assertLegal(canExecuteAttack(gameState, attackIndex));
+  // A discard cost chosen by the player (Fire Spin, Kindle...) must pay it: the right cards, attached
+  const selected = typeof skipEndTurnOrOptions === "object" ? skipEndTurnOrOptions.selectedEnergyIds : selectedEnergyIdsArg;
+  const attacker = gameState.playerActivePokemon;
+  const discardCost = attacker && selected && selected.length > 0 ? getAttackDiscardRequirement(attacker, attackIndex, gameState) : null;
+  if (attacker && discardCost && selected) assertLegal(checkDiscardSelection(attacker, discardCost, selected, gameState));
   return executeAttackUnchecked(gameState, attackIndex, skipEndTurnOrOptions, skipDefenderPromotionArg, selectedEnergyIdsArg);
 }
 
@@ -5239,28 +5123,14 @@ function executeAttackUnchecked(
   let newPlayerHand = [...gameState.playerHand];
   let newOpponentHand = [...gameState.opponentHand];
 
-  // Variable para trackear si el jugador puede tomar premio
-  let playerCanTakePrize = false;
-  // Variable para trackear si el oponente necesita promover (cuando skipDefenderPromotion es true)
+  // The Defending Pokémon left play without a Knock Out (Fling...): its owner promotes
   let opponentNeedsToPromote = false;
 
   if (isKnockedOut) {
-    // Mover Pokémon noqueado y sus cartas al descarte
-    // (Rebirth: Rocket's Moltres goes back to the hand after being discarded)
-    const leaving = knockedOutCards(gameState, defender);
-    newOpponentDiscard.push(...leaving.discard);
-    newOpponentHand = [...newOpponentHand, ...leaving.hand];
-    events.push(...leaving.events);
-
-    // Marcar que el jugador puede tomar un premio (si hay; un Fósil Misterioso no da premio)
-    if (newPlayerPrizes.length > 0 && knockOutGivesPrize(gameState, defender, "opponent", events)) {
-      playerCanTakePrize = true;
-      events.push(createGameEvent("¡Puedes tomar un premio!", "action"));
-    }
-
-    // The replacement is chosen AFTER all attack effects and the bench KO sweep
-    // (see "DEFENDER REPLACEMENT" below), so a benched Pokémon knocked out by this
-    // same attack is never promoted and the replacement doesn't dodge bench damage.
+    // Knocked Out (step 2 found it): no effect touches it any more. It leaves play with every
+    // other Knock Out in the attack's single check ("KNOCK OUTS" below: checkKnockouts, which
+    // owes the Prize), and its replacement is chosen after that ("PROMOTIONS"), so a Benched
+    // Pokémon Knocked Out by this same attack is never promoted.
     newOpponentActive = null;
   } else {
     // Solo actualizar daño + store lastDamageReceived for Mirror Move
@@ -5308,22 +5178,13 @@ function executeAttackUnchecked(
   // Detonate / Mega Thrash discard the Stadium in play
   let newStadium: StadiumInPlay | null = gameState.stadium ?? null;
 
-  // Shared attacker-KO step (self damage, Strikes Back, Destiny Bond): see knockOutActingActive
-  const applyAttackerKnockout = (knockedOut: PokemonInPlay, prizeMessage: string) => {
-    const ko = knockOutActingActive(
-      knockedOut,
-      { bench: newPlayerBench, discard: newPlayerDiscard, hand: newPlayerHand, opponentPrizes: newOpponentPrizes, opponentHand: newOpponentHand },
-      prizeMessage,
-      gameState
-    );
-    events.push(...ko.events);
-    newPlayerHand = ko.hand;
-    return {
-      newPlayerDiscard: ko.discard,
-      newOpponentPrizes: ko.opponentPrizes,
-      newOpponentHand: ko.opponentHand,
-      attackerNeedsToPromote: ko.needsToPromote,
-    };
+  // The attacker Knocked Out by its own attack (self damage, Juxtapose, Strikes Back, Destiny Bond,
+  // Mirror Shell...): from then on no effect touches it (newPlayerActive is null) and it leaves play
+  // in the attack's single Knock Out check with the HP it had (forced), which owes the Prize.
+  const knockedOutAttacker: { pokemon: PokemonInPlay | null } = { pokemon: null };
+  const applyAttackerKnockout = (knockedOut: PokemonInPlay, _cause: string) => {
+    knockedOutAttacker.pokemon = knockedOut;
+    return { newPlayerDiscard, newOpponentPrizes, newOpponentHand, attackerNeedsToPromote };
   };
 
   if (attack.effects) {
@@ -5802,15 +5663,23 @@ function executeAttackUnchecked(
           const discardedEnergy: GameCard[] = [];
           let canPay = true;
 
-          for (const reqType of discardReq) {
-            const idx = remainingEnergy.findIndex(
-              (e) => e.kind === CardKind.Energy && energyProvidesType(e, reqType, newPlayerActive, gameState)
-            );
-            if (idx !== -1) {
-              discardedEnergy.push(...remainingEnergy.splice(idx, 1));
-            } else {
-              canPay = false;
-              break;
+          const holder = newPlayerActive;
+          if (selectedEnergyIds && selectedEnergyIds.length > 0) {
+            // The player's choice (validated before the attack: checkDiscardSelection)
+            for (const energyId of selectedEnergyIds) {
+              const idx = remainingEnergy.findIndex((e) => e.id === energyId);
+              if (idx !== -1) discardedEnergy.push(...remainingEnergy.splice(idx, 1));
+            }
+            canPay = discardedEnergy.length === discardReq.length;
+          } else {
+            for (const reqType of discardReq) {
+              const idx = remainingEnergy.findIndex((e) => energyPaysDiscard(e, reqType, holder, gameState));
+              if (idx !== -1) {
+                discardedEnergy.push(...remainingEnergy.splice(idx, 1));
+              } else {
+                canPay = false;
+                break;
+              }
             }
           }
 
@@ -5990,7 +5859,7 @@ function executeAttackUnchecked(
           const discardedEnergy: GameCard[] = [];
 
           if (selectedEnergyIds && selectedEnergyIds.length > 0) {
-            // User selected specific energies to discard
+            // The player's choice (validated before the attack: checkDiscardSelection)
             for (const energyId of selectedEnergyIds) {
               const idx = remainingEnergy.findIndex((e) => e.id === energyId);
               if (idx !== -1) {
@@ -6000,24 +5869,11 @@ function executeAttackUnchecked(
           } else {
             // Auto-select energies (fallback for AI or legacy code)
             const discardReq = effect.discardCostRequirement;
-            let energyConversionType = newPlayerActive.energyConversionType;
-            if (!energyConversionType && isPokemonCard(newPlayerActive.pokemon)) {
-              const power = newPlayerActive.pokemon.power;
-              if (power?.type === PokemonPowerType.EnergyConversion && power.energyType) {
-                if (!hasBlockingStatus(newPlayerActive)) energyConversionType = power.energyType;
-              }
-            }
-
+            const holder = newPlayerActive;
             // Typed requirements first; Colorless (Kindle) = any Energy card, last
             const ordered = [...discardReq.filter((t) => t !== EnergyTypeEnum.Colorless), ...discardReq.filter((t) => t === EnergyTypeEnum.Colorless)];
             for (const reqType of ordered) {
-              const matches = (e: GameCard): boolean => {
-                if (e.kind !== CardKind.Energy && !e.buzzapEnergyType) return false;
-                // With Energy Burn, all energy counts as the converted type
-                if (energyConversionType || reqType === EnergyTypeEnum.Colorless) return true;
-                // Buzzap energy uses its chosen type; Rainbow Energy any basic type
-                return energyProvidesType(e, reqType, newPlayerActive, gameState);
-              };
+              const matches = (e: GameCard): boolean => energyPaysDiscard(e, reqType, holder, gameState);
               // A card printed with that type first, Rainbow Energy last
               const exact = remainingEnergy.findIndex((e) => matches(e) && !(isEnergyCard(e) && e.providesAllTypes));
               const idx = exact !== -1 ? exact : remainingEnergy.findIndex(matches);
@@ -6749,11 +6605,12 @@ function executeAttackUnchecked(
   // Construir el estado después del ataque
   let stateAfterAttack: GameState = {
     ...gameState,
-    playerActivePokemon: attackerKnockedOut || attackerLeftPlay ? newPlayerActive : (newPlayerActive ?? attacker),
+    // Knocked Out Actives stay in their slot until the single Knock Out check below
+    playerActivePokemon: attackerKnockedOut ? knockedOutAttacker.pokemon : attackerLeftPlay ? newPlayerActive : (newPlayerActive ?? attacker),
     playerBench: newPlayerBench,
     playerDiscard: newPlayerDiscard,
     playerDeck: newPlayerDeck,
-    opponentActivePokemon: newOpponentActive,
+    opponentActivePokemon: isKnockedOut && newOpponentActive === null ? { ...defender, currentDamage: newDamage } : newOpponentActive,
     opponentBench: newOpponentBench,
     opponentDiscard: newOpponentDiscard,
     opponentDeck: newOpponentDeck,
@@ -6761,10 +6618,6 @@ function executeAttackUnchecked(
     playerHand: newPlayerHand,
     opponentPrizes: newOpponentPrizes,
     opponentHand: newOpponentHand,
-    playerCanTakePrize: playerCanTakePrize,
-    // Every attacker-KO path above already moved the opponent's prize to their hand;
-    // flagging a manual pick too gave the opponent a second prize.
-    opponentCanTakePrize: false,
     pendingForceSwitch: pendingForceSwitch || undefined,
     pendingSelfSwitch: pendingSelfSwitch || undefined,
     pendingDeckSearch: pendingDeckSearch,
@@ -6777,96 +6630,10 @@ function executeAttackUnchecked(
   };
 
   // =====================================================================
-  // KO SWEEP: benched Pokémon on BOTH sides (bench damage, self-damage attacks)
+  // STEP 4 — AFTER-EFFECTS that still damage: Shock Blast (Lt. Surge's Electrode) tails, 20 damage
+  // to each Active Pokémon (the attacker and Electrode; no Weakness / Resistance)
   // =====================================================================
-  stateAfterAttack = processBenchKnockouts(stateAfterAttack);
-
-  // =====================================================================
-  // DEFENDER REPLACEMENT (after the sweep)
-  // =====================================================================
-  if (isKnockedOut && stateAfterAttack.gameResult === null) {
-    const remainingBench = stateAfterAttack.opponentBench;
-    const pendingOpponentBenchDamage = stateAfterAttack.pendingBenchDamageSelection;
-    if (remainingBench.length > 0 && pendingOpponentBenchDamage?.targetSide === "opponent") {
-      // The attacker still chooses the benched targets: promote once that damage is done
-      stateAfterAttack = {
-        ...stateAfterAttack,
-        pendingBenchDamageSelection: { ...pendingOpponentBenchDamage, promoteDefenderAfter: skipDefenderPromotion ? "choose" : "auto" },
-      };
-    } else if (remainingBench.length > 0) {
-      if (skipDefenderPromotion) {
-        // No auto-promover, dejar que el jugador elija
-        opponentNeedsToPromote = true;
-        stateAfterAttack = {
-          ...stateAfterAttack,
-          events: [
-            ...stateAfterAttack.events,
-            createGameEvent("Debes elegir un Pokémon de tu banca para continuar", "info"),
-          ],
-        };
-      } else {
-        // Auto-promotion (single-player: the defender is the AI): the AI's promotion choice
-        const index = chooseAutoPromotion(stateAfterAttack);
-        const promoted = remainingBench[index];
-        stateAfterAttack = {
-          ...stateAfterAttack,
-          opponentActivePokemon: promoted,
-          opponentBench: remainingBench.filter((_, i) => i !== index),
-          events: [
-            ...stateAfterAttack.events,
-            createGameEvent(`${promoted.pokemon.name} pasa a ser el Pokémon activo del rival`, "info"),
-          ],
-        };
-      }
-    } else {
-      stateAfterAttack = {
-        ...stateAfterAttack,
-        events: [
-          ...stateAfterAttack.events,
-          createGameEvent("¡Victoria! El rival no tiene más Pokémon", "system"),
-          createGameEvent("Ya puedes salir de la mesa", "info"),
-        ],
-      };
-    }
-  }
-
-  // A promotion is only possible if something is left on the bench after the sweep
-  if (stateAfterAttack.opponentBench.length === 0) opponentNeedsToPromote = false;
-  if (stateAfterAttack.playerBench.length === 0) attackerNeedsToPromote = false;
-
-  // Determinar resultado del juego (a prize-out from the sweep already set it)
-  let gameResult: GameResult = stateAfterAttack.gameResult;
-  let gamePhase: GamePhase = stateAfterAttack.gamePhase;
-  if (gameResult === null) {
-    // Victoria: el rival no tiene más Pokémon
-    if (stateAfterAttack.opponentActivePokemon === null && stateAfterAttack.opponentBench.length === 0) {
-      gameResult = "victory";
-      gamePhase = GamePhase.GameOver;
-    }
-    // Derrota: el jugador no tiene más Pokémon
-    if (stateAfterAttack.playerActivePokemon === null && stateAfterAttack.playerBench.length === 0) {
-      gameResult = "defeat";
-      gamePhase = GamePhase.GameOver;
-    }
-    // Derrota: el KO del atacante le dio al rival su último premio
-    if (gameResult === null && gameState.opponentPrizes.length > 0 && stateAfterAttack.opponentPrizes.length === 0) {
-      gameResult = "defeat";
-      gamePhase = GamePhase.GameOver;
-      attackerNeedsToPromote = false;
-    }
-  }
-
-  stateAfterAttack = {
-    ...stateAfterAttack,
-    gamePhase,
-    gameResult,
-    playerNeedsToPromote: attackerNeedsToPromote || gameState.playerNeedsToPromote,
-    opponentNeedsToPromote: opponentNeedsToPromote,
-  };
-
-  // Shock Blast (Lt. Surge's Electrode) tails, after the attack: 20 damage to each Active Pokémon
-  // (the attacker and Electrode if it is still in play; no Weakness / Resistance), Knock Outs together
-  if (shockBlastCoin === "tails" && attackDamageToDefender > 0 && stateAfterAttack.gameResult === null) {
+  if (shockBlastCoin === "tails" && attackDamageToDefender > 0) {
     const blast = (p: PokemonInPlay | null, id: string) => (p && p.pokemon.id === id ? { ...p, currentDamage: (p.currentDamage ?? 0) + 20 } : p);
     stateAfterAttack = {
       ...stateAfterAttack,
@@ -6876,13 +6643,61 @@ function executeAttackUnchecked(
     };
   }
 
-  // Knock Outs the attack caused indirectly: a transformed Ditto whose copy changed (new
-  // Defending Pokémon) or that stopped being a copy (Asleep...) with damage >= its new HP;
-  // Scram (Brock's Primeape) left with 10 HP; Shock Blast's damage
-  // (a Defending Pokémon that leaves play there sets opponentNeedsToPromote, as Fling does)
-  stateAfterAttack = checkKnockouts(stateAfterAttack);
+  // =====================================================================
+  // STEPS 5-7 — KNOCK OUTS, PRIZES, WIN CHECKS: one check of every Pokémon in play of both
+  // players (checkKnockouts): the Defending Pokémon and the attacker as the damage step found them
+  // (forced), Benched Pokémon hit by bench damage, Scram, a transformed Ditto whose copy changed...
+  // Each player is owed one Prize per opposing Pokémon Knocked Out (picked with takePrize); a side
+  // owed all its Prizes left takes them and wins; a side with no Pokémon loses.
+  // =====================================================================
+  const forcedKnockOuts = [
+    ...(isKnockedOut ? [defender.pokemon.id] : []),
+    ...(attackerKnockedOut && knockedOutAttacker.pokemon ? [knockedOutAttacker.pokemon.pokemon.id] : []),
+  ];
+  stateAfterAttack = endGameIfNoPokemonLeft(checkKnockouts(stateAfterAttack, { forcedKnockOuts }));
+  if (stateAfterAttack.gameResult !== null) {
+    return stateAfterAttack;
+  }
 
-  // No terminar el turno si el juego terminó o si el jugador puede tomar premio
+  // =====================================================================
+  // STEP 8 — PROMOTIONS (after the Prizes): the defending player first, then the attacker
+  // =====================================================================
+  // Pokémon that left play without a Knock Out during the effects (Fling, Vanish, Star Boomerang)
+  let playerPromotes = stateAfterAttack.playerNeedsToPromote || attackerNeedsToPromote;
+  let opponentPromotes = stateAfterAttack.opponentNeedsToPromote || opponentNeedsToPromote;
+  const defenderKnockedOut = isKnockedOut && stateAfterAttack.opponentActivePokemon === null;
+  if (defenderKnockedOut && stateAfterAttack.opponentBench.length > 0) {
+    const remainingBench = stateAfterAttack.opponentBench;
+    const pendingOpponentBenchDamage = stateAfterAttack.pendingBenchDamageSelection;
+    if (pendingOpponentBenchDamage?.targetSide === "opponent") {
+      // The attacker still chooses the benched targets: promote once that damage is done
+      opponentPromotes = false;
+      stateAfterAttack = {
+        ...stateAfterAttack,
+        pendingBenchDamageSelection: { ...pendingOpponentBenchDamage, promoteDefenderAfter: skipDefenderPromotion ? "choose" : "auto" },
+      };
+    } else if (skipDefenderPromotion) {
+      // Its owner chooses (multiplayer, the AI's own attacks)
+      opponentPromotes = true;
+    } else {
+      // Auto-promotion (single-player: the defender is the AI): the AI's promotion choice
+      const index = chooseAutoPromotion(stateAfterAttack);
+      const promoted = remainingBench[index];
+      opponentPromotes = false;
+      stateAfterAttack = {
+        ...stateAfterAttack,
+        opponentActivePokemon: promoted,
+        opponentBench: remainingBench.filter((_, i) => i !== index),
+        events: [...stateAfterAttack.events, createGameEvent(`${promoted.pokemon.name} pasa a ser el Pokémon activo del rival`, "info")],
+      };
+    }
+  }
+  // A promotion is only possible with something left on the Bench
+  if (stateAfterAttack.opponentBench.length === 0) opponentPromotes = false;
+  if (stateAfterAttack.playerBench.length === 0) playerPromotes = false;
+  stateAfterAttack = { ...stateAfterAttack, playerNeedsToPromote: playerPromotes, opponentNeedsToPromote: opponentPromotes };
+  // The new Defending Pokémon can change what a transformed Ditto copies
+  stateAfterAttack = checkKnockouts(stateAfterAttack);
   if (stateAfterAttack.gameResult !== null) {
     return stateAfterAttack;
   }
@@ -6921,12 +6736,13 @@ function executeAttackUnchecked(
     return stateAfterAttack;
   }
 
-  // Terminar el turno después de atacar (a menos que el jugador pueda tomar premio)
+  // STEP 9 — END OF TURN, unless a Prize is owed (either side: the last takePrize ends the turn)
+  // or a promotion is due
   if (
     stateAfterAttack.opponentActivePokemon !== null &&
     stateAfterAttack.playerActivePokemon !== null &&
-    !attackerKnockedOut &&
-    !playerCanTakePrize
+    !stateAfterAttack.playerCanTakePrize &&
+    !stateAfterAttack.opponentCanTakePrize
   ) {
     return endTurn(stateAfterAttack);
   }
@@ -6996,35 +6812,13 @@ export function resolveConfusionFlip(
   }
 
   events.push(createGameEvent(`¡${name} se noqueó a sí mismo!`, "action"));
-  const ko = knockOutActingActive(
-    active,
-    {
-      bench: state.playerBench,
-      discard: state.playerDiscard,
-      hand: state.playerHand,
-      opponentPrizes: state.opponentPrizes,
-      opponentHand: state.opponentHand,
-    },
-    "El rival tomó un premio",
-    state
-  );
-  events.push(...ko.events);
-
-  const defeated = ko.prizedOut || !ko.needsToPromote;
+  // The shared Knock Out check: the opponent is owed the Prize, the player promotes (or loses);
+  // the turn waits for them (the last takePrize / the promotion ends it)
   return {
-    state: {
-      ...state,
-      playerActivePokemon: null,
-      playerDiscard: ko.discard,
-      playerHand: ko.hand,
-      opponentPrizes: ko.opponentPrizes,
-      opponentHand: ko.opponentHand,
-      opponentCanTakePrize: false,
-      playerNeedsToPromote: ko.needsToPromote,
-      attackedThisTurn: true,
-      ...(defeated && { gameResult: "defeat" as const, gamePhase: GamePhase.GameOver }),
-      events,
-    },
+    state: checkKnockouts(
+      { ...state, playerActivePokemon: { ...active, currentDamage: newDamage }, attackedThisTurn: true, events },
+      { forcedKnockOuts: [active.pokemon.id] }
+    ),
     canAttack: false,
   };
 }
@@ -7187,7 +6981,8 @@ export function takePrize(gameState: GameState, prizeIndex: number, isPlayer: bo
   }
 
   const prizes = isPlayer ? gameState.playerPrizes : gameState.opponentPrizes;
-  const canTake = isPlayer ? gameState.playerCanTakePrize : gameState.opponentCanTakePrize;
+  const owed = prizesOwed(gameState, isPlayer ? "player" : "opponent");
+  const canTake = owed > 0;
 
   // Verificar que puede tomar un premio
   if (!canTake) {
@@ -7242,26 +7037,41 @@ export function takePrize(gameState: GameState, prizeIndex: number, isPlayer: bo
     gamePhase = GamePhase.GameOver;
   }
 
-  const updatedState: GameState = {
-    ...gameState,
-    gamePhase,
-    gameResult,
-    playerPrizes: isPlayer ? newPrizes : gameState.playerPrizes,
-    playerHand: isPlayer ? newHand : gameState.playerHand,
-    playerCanTakePrize: isPlayer ? false : gameState.playerCanTakePrize,
-    opponentPrizes: !isPlayer ? newPrizes : gameState.opponentPrizes,
-    opponentHand: !isPlayer ? newHand : gameState.opponentHand,
-    opponentCanTakePrize: !isPlayer ? false : gameState.opponentCanTakePrize,
-    events,
-  };
+  // One Prize fewer owed (the count never exceeds the Prizes left)
+  const updatedState: GameState = withPrizesOwed(
+    {
+      ...gameState,
+      gamePhase,
+      gameResult,
+      playerPrizes: isPlayer ? newPrizes : gameState.playerPrizes,
+      playerHand: isPlayer ? newHand : gameState.playerHand,
+      opponentPrizes: !isPlayer ? newPrizes : gameState.opponentPrizes,
+      opponentHand: !isPlayer ? newHand : gameState.opponentHand,
+      events,
+    },
+    isPlayer ? "player" : "opponent",
+    owed - 1
+  );
 
   // No terminar turno si el juego terminó o si se indica que no debe terminar
   if (gameResult !== null || !shouldEndTurn) {
     return updatedState;
   }
 
-  // Terminar el turno después de tomar el premio (solo si shouldEndTurn = true)
-  if (gameState.opponentActivePokemon !== null && gameState.playerActivePokemon !== null) {
+  // The turn ends with the last thing it waited for: only a turn that is already over (an attack
+  // was made, or endTurn paused after the between-turns checkup), with no Prize owed by either
+  // side, no promotion due and both Actives in play. A Prize owed in the middle of a turn (Curse,
+  // Buzzap) leaves the turn going.
+  const turnDone = gameState.attackedThisTurn === true || gameState.checkupDoneOnTurn === gameState.turnNumber;
+  if (
+    turnDone &&
+    !updatedState.playerCanTakePrize &&
+    !updatedState.opponentCanTakePrize &&
+    !updatedState.playerNeedsToPromote &&
+    !updatedState.opponentNeedsToPromote &&
+    updatedState.opponentActivePokemon !== null &&
+    updatedState.playerActivePokemon !== null
+  ) {
     return endTurn(updatedState);
   }
 

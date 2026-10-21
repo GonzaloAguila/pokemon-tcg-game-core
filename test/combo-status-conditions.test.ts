@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Special Conditions across sets: Toxic vs normal Poison, what clears them (Full Heal, Full Heal
  * Energy, evolving, the Bench, Scoop Up), exclusive conditions (Asleep / Confused / Paralyzed
@@ -184,7 +185,7 @@ describe("Long-Distance Hypnosis (Drowzee) tails: your own Active falls Asleep",
     const next = usePokemonPower(state, drowzee.pokemon.id, [], { coinResults: [T] });
     expect(next.playerActivePokemon).toBeNull();
     expect(next.playerNeedsToPromote).toBe(true);
-    expect(next.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "opponent")).toBe(1);
     expect(next.playerDiscard.map((c) => c.name)).toContain("Ditto");
   });
 
@@ -195,7 +196,7 @@ describe("Long-Distance Hypnosis (Drowzee) tails: your own Active falls Asleep",
     const next = usePokemonPower(state, gloom.pokemon.id, [], { coinResults: [H] });
     expect(next.opponentActivePokemon).toBeNull();
     expect(next.opponentNeedsToPromote).toBe(true);
-    expect(next.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "player")).toBe(1);
   });
 });
 

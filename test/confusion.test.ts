@@ -1,3 +1,5 @@
+import { takePrize } from "@/lib/gameState";
+import { prizesOwed } from "@/lib/gameState";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { CONFUSION_SELF_DAMAGE, resolveConfusionFlip, executeAttack } from "@/index";
 import { executeAIAction } from "@/domain/ai/executor";
@@ -62,10 +64,12 @@ describe("Confusion (Base Set rule): tails on the attack flip -> 20 damage to it
     const after = executeAIAction(state, { type: "attack", attackIndex: attackIndex(abra, "Psicochoque"), delay: 0 });
 
     expect(names(after.opponentDiscard)).toEqual(expect.arrayContaining(["Abra", "Psychic Energy"]));
-    expect(after.playerPrizes).toHaveLength(5);
-    expect(after.playerCanTakePrize).toBe(false);
+    expect(prizesOwed(after, "player")).toBe(1);
+    expect(after.playerCanTakePrize).toBe(true);
     expect(after.opponentActivePokemon?.pokemon.name).toBe("Machop");
-    expect(after.isPlayerTurn).toBe(true);
+    // The AI's turn waits for the human's Prize; taking it passes the turn
+    expect(after.isPlayerTurn).toBe(false);
+    expect(takePrize(after, 0, true).isPlayerTurn).toBe(true);
   });
 });
 
@@ -137,9 +141,9 @@ describe("resolveConfusionFlip", () => {
     expect(result.canAttack).toBe(false);
     expect(result.state.playerActivePokemon).toBeNull();
     expect(names(result.state.playerDiscard)).toEqual(["Kadabra", "Psychic Energy", "Psychic Energy", "Abra"]);
-    expect(result.state.opponentPrizes).toHaveLength(5);
-    expect(result.state.opponentHand).toHaveLength(1);
-    expect(result.state.opponentCanTakePrize).toBe(false);
+    expect(prizesOwed(result.state, "opponent")).toBe(1);
+    expect(result.state.opponentHand).toHaveLength(0);
+    expect(result.state.opponentCanTakePrize).toBe(true);
     expect(result.state.playerNeedsToPromote).toBe(true);
     // Same as an attacker self-KO in executeAttack: the turn waits for the promotion
     expect(result.state.isPlayerTurn).toBe(true);

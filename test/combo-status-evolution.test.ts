@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Evolution across the four sets: every Dark Evolution card only goes on the exact name it
  * evolves from (data-driven over the catalog) and no other Evolution card goes on a Dark
@@ -232,7 +233,7 @@ describe("evolution changes and a transformed Ditto", () => {
     expect(next.playerActivePokemon!.pokemon.name).toBe("Charmeleon");
     expect(next.opponentActivePokemon).toBeNull();
     expect(next.opponentNeedsToPromote).toBe(true);
-    expect(next.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "player")).toBe(1);
   });
 
   it("evolving the player's Active only raises the opponent's Ditto's HP: no Knock Out, no Prize", () => {

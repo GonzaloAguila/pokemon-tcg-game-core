@@ -14,7 +14,7 @@
 import type { GameState, PokemonInPlay, GameCard } from "@/domain/match/types";
 import type { PokemonPower, EnergyType, PokemonCard } from "@/domain/cards/types";
 import { EnergyType as EnergyTypeEnum, PokemonPowerType, PokemonStage, StatusCondition } from "@/domain/constants";
-import { createGameEvent, energyProvidesType } from "@/lib/gameState";
+import { createGameEvent, energyProvidesType, prizesOwed, withPrizesOwed } from "@/lib/gameState";
 import { isPokemonCard, isEnergyCard, isTrainerInPlay, cardOutOfPlay, givesPrizeWhenKnockedOut } from "@/domain/cards";
 import { isBenchProtected } from "@/domain/trainers/side-marks";
 
@@ -1714,27 +1714,34 @@ export function executeBuzzap(
     ),
   ];
 
+  // The other side is owed one more Prize for the Knock Out (not for a Pokémon the table's
+  // noPrizeFor rule names); checkKnockouts (run after every power) settles a Prize-out
+  const prize = givesPrizeWhenKnockedOut(pokemon, state, side) ? 1 : 0;
   if (side === "player") {
-    return {
-      ...state,
-      playerActivePokemon: newActivePokemon,
-      playerBench: cleanBench,
-      playerDiscard: discard,
-      playerNeedsToPromote: needsPromotion && cleanBench.length > 0,
-      // Opponent takes a prize for the KO (not for a Pokémon the table's noPrizeFor rule names)
-      opponentCanTakePrize: givesPrizeWhenKnockedOut(pokemon, state, side),
-      events,
-    };
+    return withPrizesOwed(
+      {
+        ...state,
+        playerActivePokemon: newActivePokemon,
+        playerBench: cleanBench,
+        playerDiscard: discard,
+        playerNeedsToPromote: needsPromotion && cleanBench.length > 0,
+        events,
+      },
+      "opponent",
+      prizesOwed(state, "opponent") + prize
+    );
   } else {
-    return {
-      ...state,
-      opponentActivePokemon: newActivePokemon,
-      opponentBench: cleanBench,
-      opponentDiscard: discard,
-      // Player takes a prize for the KO (not for a Pokémon the table's noPrizeFor rule names)
-      playerCanTakePrize: givesPrizeWhenKnockedOut(pokemon, state, side),
-      events,
-    };
+    return withPrizesOwed(
+      {
+        ...state,
+        opponentActivePokemon: newActivePokemon,
+        opponentBench: cleanBench,
+        opponentDiscard: discard,
+        events,
+      },
+      "player",
+      prizesOwed(state, "player") + prize
+    );
   }
 }
 

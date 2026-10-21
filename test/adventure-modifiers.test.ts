@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 import { describe, expect, it } from "vitest";
 import {
   applyBattleModifiersToOptions,
@@ -80,7 +81,7 @@ describe("noPrizeFor: a Knock Out of a named Pokémon gives no Prize", () => {
       tableRules: NO_PRIZE_METAPOD,
     });
     const after = processBenchKnockouts(state);
-    expect(after.playerPrizes).toHaveLength(1);
+    expect(prizesOwed(after, "player")).toBe(1);
     expect(after.opponentBench).toHaveLength(0);
     expect(hasLine(after, NO_PRIZE_LINE)).toBe(true);
   });

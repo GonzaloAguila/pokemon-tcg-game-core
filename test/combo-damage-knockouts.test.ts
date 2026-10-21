@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Knock Outs and damage reactions across sets: Strikes Back with bench damage (Chain Lightning,
  * Spark / Dark Mind choices, Thunderstorm coins), Selfdestruct / Mass Explosion with KOs on both
@@ -73,7 +74,7 @@ describe("Strikes Back (Machamp) only when bench damage really hit Machamp", () 
     const after = executeBenchDamage(attack(state, "Mente Oscura"), [machamp.pokemon.id], { skipEndTurn: true });
     expect(after.playerActivePokemon).toBeNull();
     expect(names(after.playerDiscard)).toContain("Gengar");
-    expect(after.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(after, "opponent")).toBe(1);
     expect(after.playerNeedsToPromote).toBe(true);
   });
 
@@ -119,8 +120,8 @@ describe("Selfdestruct / Mass Explosion: Knock Outs on both sides", () => {
     expect(after.opponentActivePokemon!.currentDamage).toBe(0);
     expect(after.playerActivePokemon).toBeNull();
     expect(after.opponentBench).toHaveLength(0); // Abra 10 + 20 = 30 HP
-    expect(after.playerPrizes).toHaveLength(5);
-    expect(after.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(after, "player")).toBe(1);
+    expect(prizesOwed(after, "opponent")).toBe(1);
   });
 
   it("Selfdestruct that leaves the opponent with no Pokémon wins, although the attacker is Knocked Out too", () => {
@@ -157,7 +158,8 @@ describe("Selfdestruct / Mass Explosion: Knock Outs on both sides", () => {
     });
     const after = attack(state, "Autodestrucción");
     expect(after.playerActivePokemon).toBeNull();
-    expect(after.opponentPrizes).toHaveLength(5);
+    // Chansey (Fighting Weakness) is Knocked Out too and was the opponent's last Pokémon: victory
+    expect(after.gameResult).toBe("victory");
   });
 
   it("Selfdestruct KOs both Actives and two benched Pokémon: 2 Prizes each side, both sides promote", () => {
@@ -171,11 +173,11 @@ describe("Selfdestruct / Mass Explosion: Knock Outs on both sides", () => {
     expect(after.opponentActivePokemon).toBeNull();
     expect(benchNames(after.playerBench)).toEqual(["Machop"]);
     expect(benchNames(after.opponentBench)).toEqual(["Onix"]);
-    // Player: 1 automatic (benched Abra) + 1 manual pick pending (Pikachu)
-    expect(after.playerPrizes).toHaveLength(5);
+    // Player: Pikachu + benched Abra; opponent: Magneton + benched Abra — all owed, picked by hand
+    expect(prizesOwed(after, "player")).toBe(2);
     expect(after.playerCanTakePrize).toBe(true);
-    // Opponent: Magneton + benched Abra, both automatic
-    expect(after.opponentPrizes).toHaveLength(4);
+    expect(prizesOwed(after, "opponent")).toBe(2);
+    expect(after.opponentPrizes).toHaveLength(6);
     expect(after.playerNeedsToPromote).toBe(true);
     expect(after.opponentNeedsToPromote).toBe(true);
     expect(after.gameResult).toBeNull();
@@ -220,9 +222,9 @@ describe("Selfdestruct / Mass Explosion: Knock Outs on both sides", () => {
     // Dark Weezing (60 HP, 40 + 20) and the benched Koffing (40 HP, 20 + 20) are Knocked Out
     expect(after.playerActivePokemon).toBeNull();
     expect(benchNames(after.playerBench)).toEqual(["Machop"]);
-    expect(after.playerPrizes).toHaveLength(5); // benched Koffing automatic; Weezing pick pending
+    expect(prizesOwed(after, "player")).toBe(2); // Weezing + the benched Koffing
     expect(after.playerCanTakePrize).toBe(true);
-    expect(after.opponentPrizes).toHaveLength(4); // Dark Weezing + Koffing
+    expect(prizesOwed(after, "opponent")).toBe(2); // Dark Weezing + Koffing
   });
 });
 
@@ -234,7 +236,7 @@ describe("reactions in the same attack: Destiny Bond, Mirror Shell, Final Beam",
     const after = attack(state, "Autodestrucción", [], { skipDefenderPromotion: true });
     expect(after.playerActivePokemon).toBeNull();
     expect(after.opponentActivePokemon).toBeNull();
-    expect(after.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(after, "opponent")).toBe(1);
     expect(after.playerCanTakePrize).toBe(true);
   });
 
@@ -247,7 +249,7 @@ describe("reactions in the same attack: Destiny Bond, Mirror Shell, Final Beam",
     const after = attack(hurt, "Puño Especial", [], { skipDefenderPromotion: true });
     expect(after.opponentActivePokemon).toBeNull();
     expect(after.playerActivePokemon).toBeNull();
-    expect(after.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(after, "opponent")).toBe(1);
     expect(after.playerCanTakePrize).toBe(true);
   });
 
@@ -259,7 +261,7 @@ describe("reactions in the same attack: Destiny Bond, Mirror Shell, Final Beam",
     const after = attack(state, "Trueno Sacudida", ["heads"], { skipDefenderPromotion: true });
     expect(after.opponentActivePokemon).toBeNull();
     expect(after.playerActivePokemon).toBeNull();
-    expect(after.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(after, "opponent")).toBe(1);
     expect(after.playerCanTakePrize).toBe(true);
     expect(after.playerNeedsToPromote).toBe(true);
   });
@@ -281,7 +283,7 @@ describe("reactions in the same attack: Destiny Bond, Mirror Shell, Final Beam",
     const after = attack(state, "Roer", ["heads"], { skipDefenderPromotion: true });
     expect(after.opponentActivePokemon).toBeNull();
     expect(after.playerActivePokemon).toBeNull();
-    expect(after.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(after, "opponent")).toBe(1);
     const tails = attack(state, "Roer", ["tails"], { skipDefenderPromotion: true });
     expect(tails.playerActivePokemon!.currentDamage).toBe(0);
   });
@@ -299,7 +301,7 @@ describe("damage counters are not damage: no reduction, Knock Out checked at onc
     });
     const next = usePokemonPower(state, gengar.pokemon.id, [[donor.pokemon.id], [kabuto.pokemon.id]]);
     expect(next.opponentBench).toEqual([]);
-    expect(next.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "player")).toBe(1);
   });
 
   it("Damage Swap moves counters onto Kabuto without halving", () => {

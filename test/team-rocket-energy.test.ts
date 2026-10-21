@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Team Rocket special Energy: Rainbow Energy, Full Heal Energy, Potion Energy.
  */
@@ -38,7 +39,7 @@ describe("Rainbow Energy", () => {
     const next = attachTo(state, card.id, active.pokemon.id);
     expect(next.playerActivePokemon).toBeNull();
     expect(next.playerNeedsToPromote).toBe(true);
-    expect(next.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "opponent")).toBe(1);
     expect(next.playerDiscard.map((c) => c.name)).toEqual(expect.arrayContaining(["Abra", "Rainbow Energy"]));
   });
 

@@ -318,7 +318,8 @@ describe("required looks can't be skipped", () => {
     const deck = [energy(Fire), c("Abra", "base"), c("Dark Charmeleon", "rocket"), c("Brock's Vulpix", "gym-heroes"), c("Charmeleon", "base")];
     const state = withHand([trainer, ...extraHand], deck);
     expect(canPlayTrainerCard(state, trainer.id)).toBeNull();
-    const before = extraHand.length > 0 ? [[extraHand[0].id]] : [];
+    const first: GameCard | undefined = extraHand[0];
+    const before = first ? [[first.id]] : [];
     const step = getTrainerSteps(state, trainer.id, before);
     expectRequired(step);
     expectClientStep(step);
@@ -401,15 +402,20 @@ describe("other hidden cards (`reveals`) count as points of no return too", () =
   });
 });
 
-describe("activated power: Evolutionary Light (Dark Dragonair)", () => {
-  it("its deck search is a required point of no return; the power is marked used once answered", () => {
+describe("activated power: Evolutionary Light (Dark Dragonair): \"you may search\" (owner decision, like Poké Ball)", () => {
+  it("its deck search is an optional point of no return: taking nothing still uses the power and shuffles", () => {
     const dragonair = inPlay("Dark Dragonair", { set: "rocket" });
     const deck = [energy(Psychic), c("Charmeleon", "base")];
     const state = deepFreeze(makeState({ player: { active: inPlay("Charmander", { set: "base" }), bench: [dragonair], deck }, opponent: { active: inPlay("Onix", { set: "base" }) } }));
     const step = getPowerSteps(state, dragonair.pokemon.id, []);
-    expectRequired(step);
+    expectOptional(step);
     expectClientStep(step);
-    expect(() => usePokemonPower(state, dragonair.pokemon.id, [[]])).toThrow(IllegalActionError);
+    const none = usePokemonPower(state, dragonair.pokemon.id, [[]]);
+    expect(none.playerHand).toEqual([]);
+    sameCards(none.playerDeck, deck);
+    expect(shuffledLine(state, none)).toBe(true);
+    expect(none.events.some((e) => e.message.endsWith(": no se tomó ninguna carta"))).toBe(true);
+    expect(canUsePokemonPower(none, dragonair.pokemon.id)).not.toBeNull();
     const next = usePokemonPower(state, dragonair.pokemon.id, [[deck[1].id]]);
     expect(names(next.playerHand)).toEqual(["Charmeleon"]);
     expect(canUsePokemonPower(next, dragonair.pokemon.id)).not.toBeNull();

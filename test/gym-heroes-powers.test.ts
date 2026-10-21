@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Gym Heroes Pokémon Powers, one block per power, from the printed text (data/pokemontcg/gym1.json):
  *
@@ -120,7 +121,7 @@ describe("Bench Guard (Brock's Rhydon): while Benched, may take 10 of the damage
     expect(saved.opponentBench.some((p) => p.pokemon.id === abra.pokemon.id)).toBe(true);
     const lost = resolveAttackChoice(paused, [], { skipEndTurn: true });
     expect(lost.opponentBench.some((p) => p.pokemon.id === abra.pokemon.id)).toBe(false);
-    expect(lost.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(lost, "player")).toBe(1);
   });
 
   it("damage chosen by the attacker (Hitmonlee's Stretch Kick) waits for the answer too", () => {
@@ -364,7 +365,7 @@ describe("Rebirth (Rocket's Moltres): Knocked Out → back to the hand after dis
     const moltres = gym("Rocket's Moltres", { damage: 50 });
     const next = attack(vs(inPlay("Dark Arbok", { set: "rocket" }), inPlay("Onix"), { opponent: { bench: [moltres] } }), "Vapor Venenoso");
     expect(next.opponentBench).toEqual([]);
-    expect(next.playerPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "player")).toBe(1);
     expect(names(next.opponentHand)).toContain("Rocket's Moltres");
     expect(names(next.opponentDiscard)).not.toContain("Rocket's Moltres");
   });

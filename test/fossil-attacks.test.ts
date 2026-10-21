@@ -1,3 +1,4 @@
+import { prizesOwed } from "@/lib/gameState";
 /**
  * Fossil attack effects, card by card (texts in data/pokemontcg/fossil.txt).
  */
@@ -107,7 +108,7 @@ describe("bench damage", () => {
     expect(next.playerBench[0].currentDamage).toBe(20);
     expect(next.opponentBench[0].currentDamage).toBe(20);
     expect(next.playerActivePokemon).toBeNull();
-    expect(next.opponentPrizes).toHaveLength(5);
+    expect(prizesOwed(next, "opponent")).toBe(1);
   });
 });
 

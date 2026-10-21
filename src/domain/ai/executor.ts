@@ -280,6 +280,7 @@ function executeOpponentAttack(state: GameState, action: AttackAction, coins: Co
           ...afterFlip.events.slice(0, eventsBefore),
           ...afterFlip.events.slice(eventsBefore).flatMap((event) => {
             if (event.message === "El rival tomó un premio") return [{ ...event, message: "Tomaste un premio" }];
+            if (event.message === "El rival puede tomar un premio") return [{ ...event, message: "¡Puedes tomar un premio!" }];
             if (event.message === "¡Derrota! No tienes más Pokémon") {
               return [{ ...event, message: "¡Victoria! El rival no tiene más Pokémon" }];
             }
@@ -432,7 +433,7 @@ function completeAIAttack(attacked: GameState, eventsBefore: number, coins: Coin
   // Necesitamos invertirlos para que reflejen la realidad: AI atacó al human
   // Only the lines written by this attack (earlier ones are already in the human's perspective)
   const newEvents = resultState.events.slice(eventsBefore);
-  const correctedEvents = [...resultState.events.slice(0, eventsBefore), ...newEvents.map((event, idx, allEvents) => {
+  const correctedEvents = [...resultState.events.slice(0, eventsBefore), ...newEvents.map((event) => {
     let message = event.message;
 
     // "El rival tomó un premio" durante self-KO → el humano toma el premio
@@ -449,22 +450,12 @@ function completeAIAttack(attacked: GameState, eventsBefore: number, coins: Coin
     else if (message === "¡Derrota! El rival tomó todos sus premios") {
       message = "¡Victoria! Has tomado todos tus premios";
     }
-    // "¡Puedes tomar un premio!" cuando el defensor (human en swapped) es KO'd
-    // Esto está mal porque en realidad el AI (atacante) debería tomar el premio
+    // Prizes owed (checkKnockouts): written for the AI's side, so swapped for the human
     else if (message === "¡Puedes tomar un premio!") {
-      // Verificar si este mensaje es por el defensor KO'd o por self-KO del atacante
-      // Si hay self-KO, puede haber múltiples "puedes tomar premio" - uno correcto y otro no
-      // El mensaje correcto es el que viene después del self-KO
-      const selfKOIndex = allEvents.findIndex(e => e.message.includes("se noqueó a sí mismo"));
-      const thisIndex = idx;
-
-      if (selfKOIndex >= 0 && thisIndex > selfKOIndex) {
-        // Este mensaje es por el self-KO, es correcto (humano toma premio)
-        message = "¡Puedes tomar un premio!";
-      } else {
-        // Este mensaje es por el KO del defensor, invertir
-        message = "El rival puede tomar un premio";
-      }
+      message = "El rival puede tomar un premio";
+    }
+    else if (message === "El rival puede tomar un premio") {
+      message = "¡Puedes tomar un premio!";
     }
     // Corregir mensajes de promoción cuando el atacante (AI) se auto-KO
     else if (message.includes("pasa a ser tu Pokémon activo")) {
@@ -573,6 +564,7 @@ function completeAIAttack(attacked: GameState, eventsBefore: number, coins: Coin
   // terminamos el turno. Esto genera los eventos con la perspectiva CORRECTA.
   if (finalState.gamePhase !== "GAME_OVER" &&
       !finalState.opponentCanTakePrize &&
+      !finalState.playerCanTakePrize &&
       !finalState.playerNeedsToPromote) {
     finalState = endTurn(finalState);
   }
