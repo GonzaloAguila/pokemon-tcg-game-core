@@ -231,7 +231,7 @@ describe("Sabrina", () => {
     expect(optionIds(state, trainer.id, [[abra.pokemon.id]])).toEqual([drowzee.pokemon.id]);
     const next = playTrainerCard(state, trainer.id, [[abra.pokemon.id], [drowzee.pokemon.id]]);
     expect(next.playerActivePokemon!.attachedEnergy).toEqual([]);
-    expect(next.playerBench[0].attachedEnergy.map((e) => e.energyType)).toEqual([Fighting, Psychic, Psychic]);
+    expect(next.playerBench[0].attachedEnergy.map((e) => (e as { energyType?: string }).energyType)).toEqual([Fighting, Psychic, Psychic]);
     expect(badLines(state, next)).toEqual([]);
   });
 

@@ -47,7 +47,7 @@ describe("Lt. Surge's Secret Plan: playing it", () => {
     expect(fd.pokemon.name).toBe(FACE_DOWN_NAME);
     expect(fd.pokemon.kind).toBe("pokemon");
     expect(fd.pokemon.kind === "pokemon" && [fd.pokemon.hp, fd.pokemon.attacks.length, fd.pokemon.retreatCost, fd.pokemon.types.length]).toEqual([0, 0, 0, 0]);
-    expect(fd.pokemon.faceDownCard?.id).toBe(hidden.id);
+    expect((fd.pokemon as { faceDownCard?: { id: string } }).faceDownCard?.id).toBe(hidden.id);
     // The in-play id says nothing about the card
     expect(fd.pokemon.id).not.toContain("Pikachu");
     // No line names the hidden card
@@ -219,7 +219,7 @@ describe("Lt. Surge's Secret Plan: hidden information", () => {
     const masked = maskFaceDownFor(state, "opponent");
     const fd = masked.playerBench[0];
     expect(isFaceDown(fd)).toBe(true);
-    expect(fd.pokemon.faceDownCard!.name).not.toBe("Pikachu");
+    expect((fd.pokemon as { faceDownCard?: { name: string } }).faceDownCard!.name).not.toBe("Pikachu");
     expect(JSON.stringify(masked.playerBench)).not.toContain("Pikachu");
   });
 

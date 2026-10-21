@@ -220,7 +220,7 @@ describe("Gym Challenge attack effects that need new engine code", () => {
     [69, "Puño Contenido", 40, 10],
   ] as const)("#%i %s: %i against an undamaged Defending Pokémon, %i against a damaged one", (number, name, clean, damaged) => {
     expect(dmg(attack(deepFreeze(vs(gym(number), dummy())), name))).toBe(clean);
-    expect(dmg(attack(deepFreeze(vs(gym(number), dummy({ damage: 10 }))), name)) - 10).toBe(damaged);
+    expect(dmg(attack(deepFreeze(vs(gym(number), dummy({ damage: 10 }))), name))! - 10).toBe(damaged);
   });
 
   it("#53 Focus Energy: during your next turn Double-edge's damage and self damage are doubled", () => {

@@ -118,7 +118,7 @@ describe("Lunar Power (Erika's Clefairy)", () => {
     expect(takeable(step(after)).map((c) => c.id)).toEqual([charmeleon.id]);
     const done = choose(after, [charmeleon.id]);
     expect(done.playerBench[0].pokemon.name).toBe("Charmeleon");
-    expect(names(done.playerBench[0].previousEvolutions)).toEqual(["Charmander"]);
+    expect(names(done.playerBench[0].previousEvolutions ?? [])).toEqual(["Charmander"]);
     expect(done.playerDeck).toHaveLength(1);
   });
   it("two Pokémon it can evolve: a second step picks which", () => {
