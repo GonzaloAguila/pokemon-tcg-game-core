@@ -20,6 +20,8 @@ export { checkInvariants, ownedCardIds } from "./invariants";
 export { mulberry32, withRandom, createSeededRng, hashSeed } from "./rng";
 export type { Rng, SeededRng } from "./rng";
 export { swapSides } from "@/domain/board";
+export { adventureBattleConfig, rivalDeckFor } from "./adventure";
+export type { AdventureContentLike, AdventureDifficulty } from "./adventure";
 
 /** greedy = smart = the single-player AI; legacy = the greedy script it replaced (baseline) */
 export type PolicyName = "greedy" | "smart" | "legacy" | "random" | "explore";

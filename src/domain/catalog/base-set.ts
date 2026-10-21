@@ -735,7 +735,7 @@ export const baseSetCards: Card[] = [
         },
       ],
       retreatCost: 0,
-      weaknesses: [EnergyType.Water],
+      weaknesses: [EnergyType.Fire],
       resistances: [EnergyType.Fighting],
     }),
     createPokemonCard({

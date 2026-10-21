@@ -498,4 +498,8 @@ export {
   tableRulesFromModifiers,
   setupRulesFromModifiers,
   placeOpponentSetup,
+  createAdventureGame,
 } from "./domain/adventure";
+export type { AdventureGameConfig } from "./domain/adventure";
+export { adventureBattleConfig, rivalDeckFor } from "./domain/simulation";
+export type { AdventureContentLike, AdventureDifficulty } from "./domain/simulation";

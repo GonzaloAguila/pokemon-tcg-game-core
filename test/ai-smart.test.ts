@@ -50,7 +50,7 @@ const attackOf = (plan: AIAction[]) => plan.find((a): a is Extract<AIAction, { t
 const trainersOf = (plan: AIAction[]) => plan.filter((a): a is Extract<AIAction, { type: "playTrainer" }> => a.type === "playTrainer");
 
 /** Run a plan on the consumer's state, like the frontend loop. */
-const run = (state: GameState, plan: AIAction[]) => plan.reduce(executeAIAction, state);
+const run = (state: GameState, plan: AIAction[]) => plan.reduce((s, a) => executeAIAction(s, a), state);
 
 describe("smart AI: Energy", () => {
   it("attaches by type: a Fire Energy goes to the Benched Charmander, not to the Active Bulbasaur that can't use it", () => {

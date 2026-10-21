@@ -8,6 +8,8 @@ export {
   placeOpponentSetup,
 } from "./modifiers";
 export type { BattleModifier, BattleModifierType } from "./modifiers";
+export { createAdventureGame } from "./game";
+export type { AdventureGameConfig } from "./game";
 export { ADVENTURE_PASSIVES, setupOptionsForPassives, applySetupRules, takeLuckyCoin } from "./passives";
 export { deckFromCardEntries, validateDeckEntries, isAdventureCardAllowed } from "./deck";
 export type { DeckRules } from "./deck";
