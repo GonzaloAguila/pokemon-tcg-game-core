@@ -507,5 +507,5 @@ export {
   createAdventureGame,
 } from "./domain/adventure";
 export type { AdventureGameConfig } from "./domain/adventure";
-export { adventureBattleConfig, rivalDeckFor } from "./domain/simulation";
-export type { AdventureContentLike, AdventureDifficulty } from "./domain/simulation";
+export { adventureBattleConfig, rivalDeckFor, adventurePairings, runAdventureBatch, playAdventureAIGame } from "./domain/simulation";
+export type { AdventureContentLike, AdventureDifficulty, AdventurePairing, AdventurePairingResult, AdventureBatchOptions } from "./domain/simulation";

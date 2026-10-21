@@ -10,7 +10,8 @@
  *   is in the hand — or as Buzzap Energy (Electrode Knocks itself Out), or back in the hand by
  *   Rebirth (Rocket's Moltres: its "volvió a la mano tras quedar Fuera de Combate" line in this
  *   action's events). Scoop Up (Basic to the
- *   hand), Mr. Fuji, Vanish... are not Knock Outs. Trainers played as Basics give no Prize.
+ *   hand), Mr. Fuji, Vanish... are not Knock Outs. Trainers played as Basics give no Prize, nor
+ *   the Pokémon an adventure table's `noPrizeFor` rule names.
  * - The between-turns checkup changes no damage but Poison's on Poisoned Active Pokémon
  *   (10, or poisonDamage: 20 for Toxic), for both players.
  * - One retreat per turn, never while Asleep / Paralyzed or under a "can't retreat" effect.
@@ -23,7 +24,7 @@
  */
 
 import type { GameCard, GameState, PokemonInPlay } from "@/lib/gameState";
-import { isPokemonCard, isTrainerInPlay } from "@/domain/cards";
+import { isPokemonCard, isTrainerInPlay, noPrizeByTableRule } from "@/domain/cards";
 import { GamePhase, PokemonPowerType, StatusCondition } from "@/domain/constants";
 import { isPowerActive } from "@/domain/powers";
 
@@ -169,7 +170,8 @@ export class GameRules {
         const hand = side === "player" ? after.playerHand : after.opponentHand;
         const devolved = !buzzapped.has(id) && hand.some((c) => c.id === id) && (p.previousEvolutions?.length ?? 0) > 0;
         const card = devolved ? p.previousEvolutions![p.previousEvolutions!.length - 1] : p.pokemon;
-        const givesPrize = !isTrainerInPlay(card) && card.kind !== "trainer";
+        // Adventure tables: a Pokémon the noPrizeFor rule names gives none either
+        const givesPrize = !isTrainerInPlay(card) && card.kind !== "trainer" && !noPrizeByTableRule({ pokemon: card }, before, side);
         if (knockedOut && givesPrize) this.knockOuts[side]++;
       }
     }

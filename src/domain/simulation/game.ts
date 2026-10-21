@@ -47,6 +47,7 @@ import {
 } from "@/domain/effects";
 import { isPowerActive } from "@/domain/powers";
 import { drawLuckyDuel, initializeLuckyDuelGame, isLuckyDuel } from "@/domain/lucky-duel";
+import { createAdventureGame, type AdventureGameConfig } from "@/domain/adventure/game";
 import { cardIdentities, checkInvariants, ownedCardIds, type CardIdentity } from "./invariants";
 import { GameRules } from "./rules";
 import { flipCoin, withRandom, type Rng } from "./rng";
@@ -141,8 +142,8 @@ class GameRunner {
   private readonly passiveWorking = new Set<string>();
   private lastAction = "start";
   private readonly recentActions: string[] = [];
-  private readonly initialIds: { player: string[]; opponent: string[] };
-  private readonly initialCards: Map<string, CardIdentity>;
+  private initialIds: { player: string[]; opponent: string[] };
+  private initialCards: Map<string, CardIdentity>;
   private readonly rules = new GameRules();
 
   constructor(
@@ -208,6 +209,12 @@ class GameRunner {
       this.fail(`the action mutated its input state (${changed.join(", ")})`);
     }
     if (next.events.length > EVENTS_KEPT) next = { ...next, events: next.events.slice(-EVENTS_KEPT) };
+    // Adventure bonus cards (setupRules, dealt at the both-ready transition): battle-only cards
+    // join each side's cards from then on
+    if (before.setupRules && !next.setupRules) {
+      this.initialCards = new Map([...this.initialCards, ...cardIdentities(next)]);
+      this.initialIds = { player: [...ownedCardIds(next, "player")].sort(), opponent: [...ownedCardIds(next, "opponent")].sort() };
+    }
     this.state = next;
     this.actions++;
     const kind = actionKind(action.label);
@@ -450,9 +457,10 @@ class GameRunner {
       // Lucky Duel: the Actives are given (no mulligan, nothing to place): both confirm
       for (const side of ["A", "B"] as const) this.apply(side, { label: "ready", run: (v) => setPlayerReady(v, true) });
     } else {
-      // Mulligans (classic: reveal and redraw until there is a Basic)
+      // Mulligans (classic: reveal and redraw until there is a Basic); none for a side that starts
+      // with Pokémon in play (an adventure rival's preset board)
       for (const side of ["A", "B"] as const) {
-        for (let mulligans = 0; !hasBasicPokemon(this.view(side).playerHand); mulligans++) {
+        for (let mulligans = 0; !this.view(side).playerActivePokemon && !hasBasicPokemon(this.view(side).playerHand); mulligans++) {
           if (mulligans > 30) this.fail("no Basic Pokémon after 30 mulligans");
           this.apply(side, { label: "mulligan", run: (v) => doMulligan(v, true) });
         }
@@ -500,6 +508,15 @@ export function playLuckyDuelAIGame(options: GameOptions): GameOutcome {
     const initial = initializeLuckyDuelGame(drawLuckyDuel(settings.rng), drawLuckyDuel(settings.rng), settings.rng);
     return new GameRunner(initial, settings).play();
   });
+}
+
+/**
+ * Play a complete headless adventure battle (createAdventureGame: side A = the human / the run's
+ * deck, side B = the rival with the battle's modifiers). Deterministic for a given rng seed.
+ */
+export function playAdventureAIGame(config: AdventureGameConfig, options: GameOptions): GameOutcome {
+  const settings: Required<GameOptions> = { maxTurns: 300, maxActionsPerTurn: 150, onAction: () => undefined, checkMutation: false, ...options };
+  return withRandom(settings.rng, () => new GameRunner(createAdventureGame(config), settings).play());
 }
 
 export function playAIGame(deckA: Deck, deckB: Deck, options: GameOptions): GameOutcome {

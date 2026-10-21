@@ -10,7 +10,7 @@ import { playAIGame, playLuckyDuelAIGame, SimulationFailure, type GameOutcome } 
 import { createGreedyPolicy, randomLegalPolicy, type Policy } from "./policies";
 import { mulberry32 } from "./rng";
 
-export { playAIGame, playLuckyDuelAIGame, SimulationFailure, actionKind, isPassivePower, stalemateTurn } from "./game";
+export { playAIGame, playLuckyDuelAIGame, playAdventureAIGame, SimulationFailure, actionKind, isPassivePower, stalemateTurn } from "./game";
 export type { GameOptions, GameOutcome, SideId } from "./game";
 export { randomLegalPolicy, createGreedyPolicy, legalActions, randomAnswer, firstAnswer, retreatTo } from "./policies";
 export type { Policy, ViewAction } from "./policies";
@@ -20,8 +20,8 @@ export { checkInvariants, ownedCardIds } from "./invariants";
 export { mulberry32, withRandom, createSeededRng, hashSeed } from "./rng";
 export type { Rng, SeededRng } from "./rng";
 export { swapSides } from "@/domain/board";
-export { adventureBattleConfig, rivalDeckFor } from "./adventure";
-export type { AdventureContentLike, AdventureDifficulty } from "./adventure";
+export { adventureBattleConfig, rivalDeckFor, adventurePairings, runAdventureBatch } from "./adventure";
+export type { AdventureContentLike, AdventureDifficulty, AdventurePairing, AdventurePairingResult, AdventureBatchOptions } from "./adventure";
 
 /** greedy = smart = the single-player AI; legacy = the greedy script it replaced (baseline) */
 export type PolicyName = "greedy" | "smart" | "legacy" | "random" | "explore";

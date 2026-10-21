@@ -20,9 +20,30 @@
  *
  * Game i uses seed (seed + i); replay a failure with `--games 1 --seed <seed>`.
  * Exit code 1 when any game failed.
+ *
+ *   npm run simulate -- --adventure ../pokemon-tcg-api-wt-adventure/content/adventures/pueblo-paleta-bosque-verde.json --games 100 --seed 1
+ *
+ * --adventure <json>: the adventure's battles (the API's content file): every starter (untouched
+ * starter deck, no passives) against every battle with its rules and modifiers (battle 10 also in
+ * hard mode, its deck by starter), --games per pairing, --policy A:B (A = the starter's side;
+ * default greedy). Prints win rate, average turns and deck-out rates per pairing. Optional
+ * --starter <id> / --battle <n>; replay a failure with `--games 1 --seed <seed> --starter <id> --battle <n>`.
  */
 
-import { runBatch, allSetIds, isAdaptiveBatch, isPassivePower, isPolicyPair, type DeckMode, type GameOutcome, type PolicyPair } from "../src/domain/simulation";
+import { readFileSync } from "node:fs";
+import {
+  runBatch,
+  allSetIds,
+  isAdaptiveBatch,
+  isPassivePower,
+  isPolicyPair,
+  policyPair,
+  runAdventureBatch,
+  type AdventureContentLike,
+  type DeckMode,
+  type GameOutcome,
+  type PolicyPair,
+} from "../src/domain/simulation";
 import { getSet, type CardSetId } from "../src/domain/catalog";
 import { ACTIVATED_POWER_TYPES } from "../src/domain/effects";
 import { PokemonPowerType } from "../src/domain/constants";
@@ -98,6 +119,53 @@ for (const pair of pairs) {
 }
 if (decks !== "random" && decks !== "random-mix" && decks !== "theme" && decks !== "lucky-duel") throw new Error(`Unknown --decks "${decks}" (random, random-mix, theme or lucky-duel)`);
 const coverageSets = argValue("coverage", sets.join(",")).split(",") as CardSetId[];
+
+const adventurePath = argValue("adventure", "");
+if (adventurePath) runAdventure(adventurePath);
+
+/** --adventure: per-pairing win rates of the adventure's battles (exits). */
+function runAdventure(path: string): never {
+  const content = JSON.parse(readFileSync(path, "utf8")) as AdventureContentLike;
+  const policy = (process.argv.includes("--policy") ? pairs[0] : "greedy") as PolicyPair;
+  const battleArg = argValue("battle", "");
+  const started = Date.now();
+  let failures = 0;
+  const percent = (n: number, of: number) => `${of ? Math.round((100 * n) / of) : 0}%`;
+  console.log(`[adventure ${content.id ?? path}] ${games} games per pairing (seeds ${seed}..${seed + games - 1}), policy ${policy} (starter : rival)`);
+  console.log("  starter     battle  games  starter wins  avg turns  starter deck-out  rival deck-out  ends");
+  const results = runAdventureBatch({
+    content,
+    games,
+    seed,
+    policies: () => policyPair(policy),
+    maxTurns,
+    checkMutation,
+    starterId: argValue("starter", "") || undefined,
+    battleIndex: battleArg ? Number(battleArg) : undefined,
+    onPairing: (r) => {
+      const played = r.games - r.failures.length;
+      const battle = `${r.battleIndex}${r.difficulty === "hard" ? " hard" : ""}`;
+      console.log(
+        `  ${r.starterId.padEnd(11)} ${battle.padEnd(7)} ${String(played).padStart(5)}  ${percent(r.wins, played).padStart(12)}  ${r.averageTurns.toFixed(1).padStart(9)}  ` +
+          `${percent(r.starterDeckOuts, played).padStart(16)}  ${percent(r.rivalDeckOuts, played).padStart(14)}  ` +
+          `${Object.entries(r.reasons).map(([reason, n]) => `${reason} ${n}`).join(", ")}${r.failures.length ? `  FAILED ${r.failures.length}` : ""}`
+      );
+    },
+  });
+  for (const result of results) {
+    for (const failure of result.failures) {
+      failures++;
+      console.log(`\n  FAIL ${result.starterId} vs battle ${result.battleIndex} (${result.difficulty}) seed ${failure.seed} turn ${failure.turn}`);
+      console.log(`  replay:  --adventure ${path} --games 1 --seed ${failure.seed} --starter ${result.starterId} --battle ${result.battleIndex}`);
+      console.log(`  problem: ${failure.problem}`);
+      console.log(`  action:  ${failure.action}`);
+      console.log(`  last events:\n    ${failure.lastEvents.join("\n    ")}`);
+    }
+  }
+  const total = results.reduce((sum, r) => sum + r.games, 0);
+  console.log(`\n${total} games in ${((Date.now() - started) / 1000).toFixed(1)}s: ${failures} failed`);
+  process.exit(failures > 0 ? 1 : 0);
+}
 
 let failed = false;
 const allOutcomes: GameOutcome[] = [];
