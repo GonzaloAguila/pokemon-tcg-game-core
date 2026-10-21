@@ -1,0 +1,655 @@
+{"verdict":"allow","rev":15,"data":{"rev":15,"xml":"
+
+# Modo Aventura — Spec v1
+-  · 
+
+## Resumen y alcance v1
+- El Modo Aventura es un modo single player tipo Dungeon Run: elegís un inicial, encadenás 10 batallas contra la IA, sumás tesoros tras cada victoria y la run termina al ganarle al rival o al perder 3 corazones.
+- La Aventura 1 se llama \"De Pueblo Paleta al Bosque Verde\" y cubre la zona previa a Brock: Ruta 1, Ciudad Verde, Ruta 22, Bosque Verde y Ruta 2 norte. El jefe final es el rival.
+- Entra en v1:
+- 
+- 1 aventura, 10 batallas, 3 corazones, 2 dificultades (normal y difícil)
+- 
+- 3 iniciales: Charmander, Squirtle, Bulbasaur
+- 
+- Tesoros por victoria (1 de 3), tesoro mayor en la batalla 5
+- 
+- Recompensa única por primera victoria en cada dificultad
+- 
+- Logros para rejugar
+- 
+- IA heurística simple
+- Queda fuera de v1: reglas de jefe (modificadores de partida), más aventuras, rankings, rerolls de tesoros, desbloqueo de iniciales extra. El schema ya deja lugar para todo esto.
+- Principio clave: la aventura es data, no código. Toda la aventura vive en un JSON validado. Sumar \"Gimnasio Plateado\" después es contenido nuevo, no features nuevas.
+
+## Glosario
+-  | 
+- Término | 
+- Qué es | 
+- Persiste
+-  | 
+- Aventura | 
+- Definición estática en JSON: batallas, mazos rivales, tesoros, recompensas, logros | 
+- Contenido del repo
+-  | 
+- Run | 
+- Una partida completa de una aventura por un usuario | 
+- Hasta que termina (y como historial)
+-  | 
+- Batalla | 
+- Un enfrentamiento de la run (1 a 10) jugado con el motor existente | 
+- Solo durante la partida
+-  | 
+- Corazón | 
+- Vida de la run. Empieza en 3, perder una batalla resta 1 | 
+- Solo en la run
+-  | 
+- Tesoro | 
+- Premio elegido tras una victoria: cartas para el mazo o un pasivo | 
+- Solo en la run
+-  | 
+- Tesoro mayor | 
+- Tesoro de la batalla 5, de un pool más fuerte | 
+- Solo en la run
+-  | 
+- Pasivo | 
+- Modificador que afecta todas las batallas restantes de la run | 
+- Solo en la run
+-  | 
+- Recompensa única | 
+- Premio permanente por la primera victoria en una dificultad | 
+- Permanente
+-  | 
+- Logro | 
+- Hito permanente que incentiva rejugar | 
+- Permanente
+
+## Flujo de la run
+- Una derrota no avanza: resta un corazón y se reintenta la misma batalla con el mazo actual. Con 0 corazones la run termina.
+- 
+- Inicio: el usuario elige aventura, dificultad e inicial. Se crea la Run con el mazo de inicio, 3 corazones y un seed.
+- 
+- Preparación: pantalla de mapa con la próxima batalla. Antes de cada batalla puede editar el mazo (ver Reglas).
+- 
+- Batalla N: se juega con el motor existente usando la config del modo.
+- 
+- Victoria (batallas 1 a 9): se ofrecen 3 tesoros (en la 5, 3 tesoros mayores). Elige 1 o salta. Avanza a N+1.
+- 
+- Derrota: corazones − 1. Si quedan corazones, vuelve a Preparación en la misma batalla N. Si llega a 0, la run termina como derrota.
+- 
+- Victoria en la batalla 10: la run termina como victoria. No hay tesoro: se otorga la recompensa única (si es la primera vez en esa dificultad) y se evalúan logros.
+- 
+- Abandono: el usuario puede abandonar en Preparación. Cuenta como derrota y no da logros.
+- La victoria lleva a un tesoro y a la batalla siguiente; la derrota repite la misma batalla mientras queden corazones.
+- Solo puede haber 1 run activa por usuario. Para empezar otra, debe terminar o abandonar la actual.
+- La partida no puede perderse por cerrar la pestaña: el estado de la run y de la batalla en curso se guarda en la API. Si el usuario abandona una batalla en curso (rendirse), cuenta como derrota de esa batalla.
+
+## Reglas de partida del modo
+- Se usan las reglas del Base Set del motor, con mazos más chicos y 3 premios. Todos los valores viven en rules del JSON para ajustarlos en playtest sin tocar código.
+-  | 
+- Regla | 
+- Valor inicial | 
+- Nota
+-  | 
+- Corazones | 
+- 3 | 
+- El tesoro \"Corazón extra\" sube actual y máximo en 1
+-  | 
+- Premios | 
+- 3 por jugador | 
+- El pasivo \"Atajo\" baja a 2 los que necesita el jugador
+-  | 
+- Mano inicial | 
+- 7 | 
+- Igual que el Base Set
+-  | 
+- Mazo del jugador | 
+- mín. 20, máx. 40 | 
+- El mazo de inicio tiene 24
+-  | 
+- Mazo rival | 
+- 20 a 24 | 
+- Definido a mano por batalla
+-  | 
+- Copias por carta | 
+- máx. 4 | 
+- Excepto energías básicas
+-  | 
+- Derrota por mazo vacío | 
+- Sí | 
+- Igual que el Base Set
+- Edición de mazo entre batallas:
+- 
+- Puede quitar cualquier carta del mazo, sin bajar del mínimo. Lo quitado se pierde para la run.
+- 
+- Puede sumar o quitar energías básicas de cualquier tipo libremente, respetando mín./máx. No son premios.
+- 
+- No puede sumar otras cartas fuera de los tesoros.
+- 
+- Doble Energía Incolora no es libre: solo llega por tesoro.
+- Valores a validar en playtest: con 24 cartas, 7 de mano y 3 premios quedan 14 robos. Si las partidas terminan por mazo vacío, subir el mazo de inicio a 30.
+
+## Iniciales y mazos de inicio
+- Los tres mazos son simétricos (24 cartas): línea evolutiva hasta Stage 1, un relleno incoloro y trainers básicos. El Stage 2 de cada línea solo se consigue como tesoro mayor.
+-  | 
+- Carta | 
+- Charmander | 
+- Squirtle | 
+- Bulbasaur
+-  | 
+- Básico ×4 | 
+- Charmander (base1-46) | 
+- Squirtle (base1-63) | 
+- Bulbasaur (base1-44)
+-  | 
+- Stage 1 ×2 | 
+- Charmeleon (base1-24) | 
+- Wartortle (base1-42) | 
+- Ivysaur (base1-30)
+-  | 
+- Rattata ×2 | 
+- base1-61 | 
+- base1-61 | 
+- base1-61
+-  | 
+- Potion ×2 | 
+- base1-94 | 
+- base1-94 | 
+- base1-94
+-  | 
+- Bill ×2 | 
+- base1-91 | 
+- base1-91 | 
+- base1-91
+-  | 
+- Switch ×1 | 
+- base1-95 | 
+- base1-95 | 
+- base1-95
+-  | 
+- Energía ×11 | 
+- Fuego (base1-98) | 
+- Agua (base1-102) | 
+- Planta (base1-99)
+-  | 
+- Stage 2 (tesoro mayor) | 
+- Charizard (base1-4) | 
+- Blastoise (base1-2) | 
+- Venusaur (base1-15)
+- Cada inicial define su line (basic, stage1, stage2) en el JSON. Los tesoros referencian esas cartas con tokens (starter.basic, starter.stage1, starter.stage2), así un mismo tesoro sirve para los tres iniciales.
+- Los IDs siguen la convención base1-<número> del Base Set. El agente debe mapearlos a los IDs del catálogo existente del proyecto y verificar la numeración.
+
+## Las 10 batallas
+- La curva sube por etapas: 1 a 3 solo básicos o un Stage 1 aislado, 4 a 6 líneas evolutivas, 7 a 9 más trainers ofensivos (Gust of Wind, PlusPower) y la 10 es el rival con mazo de 24. Todo con cartas del Base Set que aparecen en esa zona de Kanto.
+-  | 
+- # | 
+- Lugar | 
+- Rival | 
+- Mazo (20 cartas salvo el rival) | 
+- Tesoro tras ganar
+-  | 
+- 1 | 
+- Ruta 1 | 
+- Joven Lucas | 
+- 4 Rattata, 3 Pidgey, 1 Potion, 12 Lucha | 
+- Normal (nivel 1)
+-  | 
+- 2 | 
+- Ruta 1 | 
+- Chica Sofía | 
+- 4 Pidgey, 3 Doduo, 2 Potion, 11 Lucha | 
+- Normal (nivel 1)
+-  | 
+- 3 | 
+- Ciudad Verde | 
+- Joven Bruno | 
+- 4 Rattata, 2 Raticate, 2 Pidgey, 1 Potion, 1 Bill, 10 Lucha | 
+- Normal (nivel 1)
+-  | 
+- 4 | 
+- Ruta 22 | 
+- Pescador Ramiro | 
+- 4 Magikarp, 3 Poliwag, 1 Poliwhirl, 2 Staryu, 1 Potion, 9 Agua | 
+- Normal (nivel 1)
+-  | 
+- 5 | 
+- Bosque Verde | 
+- Cazabichos Rick (mini-jefe) | 
+- 4 Weedle, 2 Kakuna, 1 Beedrill, 2 Caterpie, 1 Metapod, 1 Potion, 1 Switch, 8 Planta | 
+- Mayor
+-  | 
+- 6 | 
+- Bosque Verde | 
+- Chica Ana | 
+- 4 Pikachu, 3 Voltorb, 2 Magnemite, 2 Potion, 1 PlusPower, 8 Rayo | 
+- Normal (nivel 2)
+-  | 
+- 7 | 
+- Bosque Verde | 
+- Cazabichos Teo | 
+- 3 Weedle, 2 Kakuna, 1 Beedrill, 2 Caterpie, 2 Metapod, 1 Gust of Wind, 1 Bill, 1 Potion, 7 Planta | 
+- Normal (nivel 2)
+-  | 
+- 8 | 
+- Ruta 2 norte | 
+- Joven Mateo | 
+- 4 Diglett, 1 Dugtrio, 3 Sandshrew, 2 PlusPower, 1 Bill, 1 Switch, 8 Lucha | 
+- Normal (nivel 2)
+-  | 
+- 9 | 
+- Ruta 2 norte | 
+- Montañero Óscar | 
+- 3 Machop, 2 Machoke, 2 Onix, 1 Defender, 1 PlusPower, 1 Bill, 1 Potion, 9 Lucha | 
+- Normal (nivel 2)
+-  | 
+- 10 | 
+- Puertas de Ciudad Plateada | 
+- Rival | 
+- Según dificultad (abajo) | 
+- Ninguno: fin de la run
+- Los mazos de Pokémon incoloros usan energía Lucha por convención; el tipo no importa para sus ataques. El Montañero anticipa a Brock con Onix.
+
+### Mazo del rival (batalla 10)
+- En normal juega con Pokémon incoloros. En difícil usa el inicial con ventaja sobre el tuyo, como en los juegos de Gen 1.
+-  | 
+- Dificultad | 
+- Si elegiste | 
+- Mazo del rival (24)
+-  | 
+- Normal | 
+- Cualquiera | 
+- 3 Pidgey, 2 Pidgeotto, 3 Rattata, 2 Raticate, 2 Potion, 2 Bill, 1 Gust of Wind, 1 PlusPower, 2 Doble Energía Incolora, 6 Lucha
+-  | 
+- Difícil | 
+- Charmander | 
+- 4 Squirtle, 3 Wartortle, 1 Blastoise, 2 Pidgey, 1 Pidgeotto, 2 Potion, 2 Bill, 1 Gust of Wind, 1 PlusPower, 7 Agua
+-  | 
+- Difícil | 
+- Squirtle | 
+- 4 Bulbasaur, 3 Ivysaur, 1 Venusaur, 3 Pikachu, 2 Potion, 2 Bill, 1 Gust of Wind, 1 PlusPower, 5 Planta, 2 Rayo
+-  | 
+- Difícil | 
+- Bulbasaur | 
+- 4 Charmander, 3 Charmeleon, 1 Charizard, 2 Pidgey, 1 Pidgeotto, 2 Potion, 2 Bill, 1 Gust of Wind, 1 PlusPower, 7 Fuego
+- Ojo con Squirtle: en el Base Set su debilidad es Rayo, no Planta. Para que el mazo anti funcione de verdad, el rival con Bulbasaur suma 3 Pikachu.
+
+## Tesoros y pasivos
+- Tras cada victoria se ofrecen 3 tesoros al azar de un pool según la batalla; el jugador elige 1 o salta. Hay dos clases: cartas (se suman al mazo) y pasivos (afectan el resto de la run).
+- Generación de la oferta:
+- 
+- Pool por batalla: nivel 1 tras las batallas 1 a 4, mayor tras la 5, nivel 2 tras las 6 a 9.
+- 
+- RNG determinístico con seed + \":\" + battleIndex. Refrescar la página no cambia la oferta.
+- 
+- La oferta se guarda en pendingOffer al ganar y se borra al elegir o saltar.
+- 
+- Se excluyen pasivos que el jugador ya tiene y tesoros de cartas que romperían el límite de 4 copias.
+- 
+- Las energías que traiga un tesoro de otro tipo (por ejemplo Pikachu) se agregan junto con las cartas.
+
+### Pool nivel 1 (tras batallas 1 a 4)
+-  | 
+- ID | 
+- Nombre | 
+- Tipo | 
+- Contenido
+-  | 
+- t1-evolucion | 
+- Pack de evolución | 
+- Cartas | 
+- +1 starter.basic, +1 starter.stage1
+-  | 
+- t1-pociones | 
+- Botiquín | 
+- Cartas | 
+- +2 Potion
+-  | 
+- t1-bill | 
+- Investigación | 
+- Cartas | 
+- +2 Bill
+-  | 
+- t1-tactica | 
+- Táctica | 
+- Cartas | 
+- +1 Switch, +1 Gust of Wind
+-  | 
+- t1-pikachu | 
+- Compañero eléctrico | 
+- Cartas | 
+- +2 Pikachu, +2 energía Rayo
+-  | 
+- t1-moneda | 
+- Moneda de la suerte | 
+- Pasivo lucky_coin | 
+- La primera moneda de cada batalla sale cara
+-  | 
+- t1-energia | 
+- Arranque rápido | 
+- Pasivo start_attached_energy | 
+- Al empezar cada batalla, tu activo recibe 1 energía básica del mazo
+
+### Pool mayor (tras batalla 5)
+-  | 
+- ID | 
+- Nombre | 
+- Tipo | 
+- Contenido
+-  | 
+- m-final | 
+- Evolución final | 
+- Cartas | 
+- +1 starter.stage2, +1 starter.stage1
+-  | 
+- m-corazon | 
+- Corazón extra | 
+- Pasivo extra_heart | 
+- +1 corazón actual y máximo
+-  | 
+- m-atajo | 
+- Atajo | 
+- Pasivo prize_minus_one | 
+- Ganás tomando 1 premio menos (2 en vez de 3)
+-  | 
+- m-profesor | 
+- Mochila del profesor | 
+- Cartas | 
+- +1 Professor Oak, +1 Computer Search
+
+### Pool nivel 2 (tras batallas 6 a 9)
+-  | 
+- ID | 
+- Nombre | 
+- Tipo | 
+- Contenido
+-  | 
+- t2-oak | 
+- Profesor Oak | 
+- Cartas | 
+- +1 Professor Oak
+-  | 
+- t2-superpocion | 
+- Super botiquín | 
+- Cartas | 
+- +2 Super Potion
+-  | 
+- t2-plus | 
+- Golpe extra | 
+- Cartas | 
+- +2 PlusPower
+-  | 
+- t2-removal | 
+- Sabotaje | 
+- Cartas | 
+- +2 Energy Removal
+-  | 
+- t2-bandada | 
+- Bandada | 
+- Cartas | 
+- +2 Pidgey, +1 Pidgeotto
+-  | 
+- t2-defensa | 
+- Defensa | 
+- Cartas | 
+- +2 Defender
+-  | 
+- t2-dce | 
+- Energía doble | 
+- Cartas | 
+- +2 Doble Energía Incolora
+-  | 
+- t2-mano | 
+- Mano preparada | 
+- Pasivo opening_hand_plus_1 | 
+- Mano inicial de 8
+
+### Pasivos: dónde se enganchan en el motor
+-  | 
+- Pasivo | 
+- Hook | 
+- Comportamiento
+-  | 
+- lucky_coin | 
+- Lanzamiento de moneda del jugador | 
+- El primer flip del jugador en cada batalla devuelve cara
+-  | 
+- start_attached_energy | 
+- Fin del setup | 
+- Busca en el mazo la primera energía básica que el activo pueda usar, la une y mezcla. Si no hay, no pasa nada
+-  | 
+- opening_hand_plus_1 | 
+- Setup | 
+- Mano inicial del jugador = openingHand + 1
+-  | 
+- prize_minus_one | 
+- Condición de victoria | 
+- Se apartan 3 premios, pero el jugador gana al tomar 2
+-  | 
+- extra_heart | 
+- Nivel run | 
+- hearts += 1, maxHearts += 1 al elegirlo
+
+## Recompensas únicas y logros
+- La recompensa única se entrega la primera vez que se completa la aventura en cada dificultad. Los logros se evalúan en el server al terminar cada run y son idempotentes.
+
+### Recompensas únicas (propuesta, reemplazable)
+-  | 
+- Dificultad | 
+- Recompensa | 
+- Tipo
+-  | 
+- Normal | 
+- Dorso de carta \"Bosque Verde\" | 
+- cosmetic
+-  | 
+- Difícil | 
+- Pikachu como inicial para futuras aventuras | 
+- starter_unlock
+- El schema acepta cosmetic, starter_unlock y card (una carta para la colección, si más adelante existe).
+
+### Logros
+-  | 
+- ID | 
+- Nombre | 
+- Condición
+-  | 
+- clear_normal | 
+- Primer paso | 
+- Completar en normal
+-  | 
+- clear_hard | 
+- Esta vez en serio | 
+- Completar en difícil
+-  | 
+- flawless | 
+- Sin un rasguño | 
+- Completar sin perder corazones (cualquier dificultad)
+-  | 
+- all_starters | 
+- Ayudante del Profesor | 
+- Completar con los 3 iniciales (cualquier dificultad)
+-  | 
+- all_starters_hard | 
+- Maestro de Kanto | 
+- Completar en difícil con los 3 iniciales
+-  | 
+- purist | 
+- Purista | 
+- Completar saltando todos los tesoros
+-  | 
+- monotype | 
+- Monotipo | 
+- Completar sin cartas ni energías de un tipo distinto al del inicial (incoloros permitidos)
+
+## Modelo de datos
+- Tres piezas: la Aventura (JSON estático en el repo, validado con zod al arrancar), la Run (estado mutable en la base) y el progreso del usuario por aventura (permanente).
+
+### Aventura (JSON)
+- Ruta sugerida: content/adventures/pueblo-paleta-bosque-verde.json. Ejemplo recortado, con una batalla, un tesoro de cada clase y un logro:
+- 
+- Una carta de tesoro es { cardId, qty } o { ref: \"starter.basic\" | \"starter.stage1\" | \"starter.stage2\", qty }.
+- 
+- modifiers queda vacío en v1; es el lugar para las futuras reglas de jefe.
+- 
+- El validador debe chequear: 10 batallas con índices 1–10, mazos rivales dentro de 20–24, pools que referencian tesoros existentes, mazos de inicio dentro de rules.
+
+### Run (base de datos)
+
+### Progreso por usuario y aventura
+
+## API Express e integración con el motor
+- El resultado de cada batalla lo aplica el server cuando el motor termina la partida; el cliente nunca reporta \"gané\". Así no se pueden falsear victorias ni logros.
+-  | 
+- Método | 
+- Ruta | 
+- Qué hace
+-  | 
+- GET | 
+- /adventures | 
+- Lista aventuras con el progreso del usuario
+-  | 
+- GET | 
+- /adventures/:id | 
+- Detalle (sin mazos rivales de batallas futuras)
+-  | 
+- POST | 
+- /runs | 
+- Crea run { adventureId, difficulty, starterId }. 409 si ya hay una activa
+-  | 
+- GET | 
+- /runs/active | 
+- Run activa del usuario o 404
+-  | 
+- GET | 
+- /runs/:id | 
+- Estado completo de la run
+-  | 
+- PATCH | 
+- /runs/:id/deck | 
+- Edita mazo { remove: CardEntry[], energies: CardEntry[] }. Solo en pre_battle
+-  | 
+- POST | 
+- /runs/:id/battle | 
+- Arranca la batalla actual, crea la partida en el motor y devuelve gameId. Solo en pre_battle
+-  | 
+- POST | 
+- /runs/:id/treasure | 
+- { treasureId } o { skip: true }. Solo en choosing_treasure
+-  | 
+- POST | 
+- /runs/:id/abandon | 
+- Termina la run como abandoned
+- Al terminar una partida del modo, el motor emite el resultado y el servicio de runs:
+- 
+- Victoria en batallas 1 a 9: genera la oferta con el seed, la guarda en pendingOffer y pasa a choosing_treasure.
+- 
+- Victoria en la 10: status = won, otorga recompensa si corresponde, evalúa logros, actualiza progreso.
+- 
+- Derrota: hearts − 1, heartsLost + 1. Si hearts > 0 vuelve a pre_battle; si no, status = lost.
+- Config que el motor necesita aceptar (si hoy no la acepta, este es el cambio en el motor):
+- Los pasivos se implementan como hooks del motor (setup, coin flip, condición de victoria), no como if sueltos por el código.
+
+## IA del rival v1
+- Una IA heurística alcanza: la dificultad la ponen los mazos diseñados a mano, no la IA. Si el proyecto ya tiene una, se reutiliza con el perfil basic.
+- Cada turno, la IA recorre estas prioridades en orden:
+- 
+- Setup: activo = el básico con más HP; el resto de básicos a la banca (máx. 5).
+- 
+- Robar y jugar Bill o Professor Oak si la mano tiene 3 cartas o menos.
+- 
+- Bajar básicos a la banca mientras haya lugar.
+- 
+- Evolucionar todo lo que se pueda, priorizando el activo.
+- 
+- Trainers: Potion o Super Potion si el activo tiene 20+ de daño; Gust of Wind si trae un Pokémon de banca que puede noquear este turno; PlusPower si da un KO; Energy Removal sobre el activo rival con más energía; Defender si el activo puede ser noqueado el turno siguiente.
+- 
+- Unir energía: al activo si le falta para su mejor ataque; si no, al Pokémon de banca más cerca de poder atacar.
+- 
+- Retirar solo si el activo no puede atacar, tiene la energía para retirarse y hay uno en banca listo para atacar.
+- 
+- Atacar con el ataque que noquea; si ninguno noquea, el de mayor daño esperado (daño × probabilidad de moneda, aplicando debilidad y resistencia).
+- 
+- Promover tras un KO: el de banca que pueda atacar ya; si ninguno, el de más HP.
+- La IA debe ser determinística dado el estado y el seed de la partida, para poder reproducir bugs.
+
+## UI
+- Seis pantallas nuevas; la batalla reutiliza la mesa existente con una barra de run (corazones, batalla N/10, pasivos activos).
+-  | 
+- Pantalla | 
+- Qué muestra | 
+- Acciones
+-  | 
+- Selección de aventura | 
+- Tarjeta de la aventura, logros obtenidos, recompensas reclamadas | 
+- Jugar, ver logros
+-  | 
+- Nueva run | 
+- Los 3 iniciales con su mazo, selector normal/difícil | 
+- Empezar
+-  | 
+- Mapa | 
+- Camino de 10 nodos por zonas de Kanto, nodo actual, corazones, pasivos | 
+- Editar mazo, ver rival, batallar, abandonar
+-  | 
+- Editor de mazo | 
+- Mazo actual agrupado por tipo, contador mín./máx., stepper de energías | 
+- Quitar carta, ajustar energías, guardar
+-  | 
+- Elección de tesoro | 
+- 3 tesoros grandes; el mayor con tratamiento holo | 
+- Elegir, saltar
+-  | 
+- Fin de run | 
+- Victoria o derrota, batallas ganadas, tesoros, logros nuevos, recompensa | 
+- Volver, nueva run
+- Dirección visual sugerida: mapa estilo Game Boy Color con nodos pixel art y un rastro de pasos; el resto con la UI del proyecto. Los nodos ganados quedan marcados, el actual pulsa y los futuros muestran solo la silueta del rival.
+- Perder un corazón merece feedback claro: animación del corazón rompiéndose y el texto \"Te quedan N corazones\" antes de volver al mapa.
+
+## Hitos, tests y preguntas abiertas
+- Orden sugerido: cada hito deja algo jugable o testeable antes de pasar al siguiente.
+
+### Hitos
+- 
+- H1 · Contenido: tipos + schema zod + JSON completo de la Aventura 1 (10 batallas, 4 mazos de rival, pools, recompensas, logros). Test: el JSON valida.
+- 
+- H2 · Motor: aceptar GameConfig del modo (premios, mano, mazos) y hooks de los 5 pasivos.
+- 
+- H3 · IA básica: perfil basic con las prioridades de la sección IA. Test: IA vs IA termina siempre sin errores en 100 partidas con seeds fijos.
+- 
+- H4 · Servicio de runs + API: modelo Run, endpoints, transiciones de fase, oferta determinística, edición de mazo.
+- 
+- H5 · UI: las 6 pantallas y la barra de run en la mesa.
+- 
+- H6 · Progreso: recompensas únicas, logros, historial de runs.
+- 
+- H7 · Playtest: 3 runs completas por inicial y ajuste de rules y mazos rivales.
+
+### Tests clave
+- 
+- La misma run (seed + batalla) genera siempre la misma oferta de tesoros.
+- 
+- Una derrota resta 1 corazón y deja la run en la misma batalla; con 0 termina en lost.
+- 
+- No se puede editar el mazo, batallar ni elegir tesoro fuera de su fase (409).
+- 
+- El mazo nunca baja de 20 ni supera 40; ninguna carta no-energía supera 4 copias.
+- 
+- Los tokens starter.* se resuelven a la línea del inicial correcto.
+- 
+- La recompensa única se otorga solo la primera vez por dificultad.
+- 
+- Cada logro se evalúa bien en una run construida a mano que lo cumple y en otra que no.
+- 
+- El difícil asigna el mazo de rival correcto para cada inicial.
+
+### Preguntas abiertas
+- 
+- ¿El motor corre en el server (Express) o en el cliente? Define dónde se aplica el resultado de la batalla.
+- 
+- ¿Ya existe alguna IA en el proyecto o se construye desde cero?
+- 
+- ¿Qué persistencia usa la API hoy? Define dónde viven Run y AdventureProgress.
+- 
+- ¿Hay un sistema de cuentas/sesión listo, o la v1 guarda progreso por usuario anónimo?
+- 
+- Valores de rules (tamaño de mazo y premios) a confirmar en H7.","complete":true},"frame":{"slug":"0cfe4e81-275c-4766-ac3f-51082cc8b662","url":"https://claude.ai/artifact/2c4U2tybHiuyBak5oNxSfT","artifactUrl":"https://claude.ai/artifact/2c4U2tybHiuyBak5oNxSfT"}}
