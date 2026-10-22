@@ -299,6 +299,16 @@ describe("Group Attack (Koga's Zubat)", () => {
     expect(none.pendingAttackChoice).toBeUndefined();
     expect(none.opponentActivePokemon!.currentDamage).toBe(20);
   });
+  it("a full Bench doesn't block it (the search is optional): no search, 10 × the ones in play", () => {
+    const bench = [gym(83), gym(83), gym(83), gym(83), gym(83)];
+    const state = deepFreeze(vs(gym(83), dummy(), { player: { bench, deck: [gymCard(83)] } }));
+    const armed = { ...state, playerActivePokemon: armedFor(state.playerActivePokemon!, "Ataque en Grupo") };
+    expect(canExecuteAttack(armed, attackIndex(armed.playerActivePokemon!, "Ataque en Grupo"))).toBeNull();
+    const done = attack(state, "Ataque en Grupo");
+    expect(done.pendingAttackChoice).toBeUndefined();
+    expect(done.playerBench).toHaveLength(5);
+    expect(done.opponentActivePokemon!.currentDamage).toBe(60);
+  });
 });
 
 describe("Amnesia (Misty's Poliwag, Base Set Poliwhirl)", () => {

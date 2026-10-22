@@ -4223,8 +4223,9 @@ export function canExecuteAttack(state: GameState, attackIndex: number): string 
   const isUseOnce = attack.effects?.some((e) => e.type === AttackEffectType.UseOnce);
   if (isUseOnce && attacker.usedOnceAttacks?.includes(attack.name)) return `${attack.name} ya fue usado`;
   if (!canUseAttack(attacker, attackIndex, undefined, state)) return `${name} no tiene la energía necesaria para ${attack.name}`;
+  // Group Attack's "you may search" before the damage (beforeDamage) is optional: a full Bench only skips it
   const searchesDeck = attack.effects?.some(
-    (e) => e.type === AttackEffectType.DeckSearch || (e.type === AttackEffectType.SearchDeckChoice && e.destination === "bench")
+    (e) => e.type === AttackEffectType.DeckSearch || (e.type === AttackEffectType.SearchDeckChoice && e.destination === "bench" && !e.beforeDamage)
   );
   if (searchesDeck && isBenchFull(state, "player")) {
     return "Tu banca está llena, no puedes usar este ataque";
