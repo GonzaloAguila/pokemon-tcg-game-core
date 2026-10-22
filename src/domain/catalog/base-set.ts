@@ -2481,7 +2481,7 @@ export const baseSetCards: Card[] = [
       attacks: [
         {
           name: "Derribo",
-          cost: [EnergyType.Lightning],
+          cost: [EnergyType.Colorless],
           damage: 10,
         }
       ],
