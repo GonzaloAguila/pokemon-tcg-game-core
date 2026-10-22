@@ -1827,6 +1827,13 @@ function prizePositionStep(state: GameState, side: "player" | "opponent"): Selec
       };
 }
 
+/**
+ * How long the Blaine's Quiz guesses (#1 / #2 / #3) give their answerer
+ * (`SelectionStep.answerTimeLimitMs`): a length or a card name can be looked up outside the game,
+ * so the guess must come quickly; once the time runs out the consumer answers `defaultSelection`.
+ */
+export const QUIZ_ANSWER_TIME_LIMIT_MS = 10_000;
+
 /** Pokémon cards of the hand Blaine's Quiz #1 can name (Basic or Evolution, with a known length). */
 const quizCards = (state: GameState, cardId: string) => otherHandCards(state, cardId).filter((c) => isPokemonCard(c) && pokedexHeight(c) !== undefined);
 
@@ -1945,6 +1952,7 @@ Object.assign(TRAINER_EFFECTS, {
           maxSelections: 1,
           disableAutoSelect: true,
           chooser: "opponent",
+          answerTimeLimitMs: QUIZ_ANSWER_TIME_LIMIT_MS,
           // Answer clock: the first length offered
           defaultSelection: lengths.slice(0, 1).map((o) => o.id),
         };
@@ -2595,6 +2603,7 @@ Object.assign(TRAINER_EFFECTS, {
           maxSelections: 1,
           disableAutoSelect: true,
           chooser: "opponent",
+          answerTimeLimitMs: QUIZ_ANSWER_TIME_LIMIT_MS,
           // Answer clock: the first option
           defaultSelection: ["pokemon"],
         };
@@ -2648,6 +2657,7 @@ Object.assign(TRAINER_EFFECTS, {
           maxSelections: 1,
           disableAutoSelect: true,
           chooser: "opponent",
+          answerTimeLimitMs: QUIZ_ANSWER_TIME_LIMIT_MS,
           // Answer clock: the first name offered (alphabetical: says nothing about the answer)
           defaultSelection: options.slice(0, 1).map((o) => o.id),
         };

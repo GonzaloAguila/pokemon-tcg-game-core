@@ -54,7 +54,7 @@ export type {
   CoinFlipRequirement,
   CoinFlipper,
 } from "./types";
-export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, catalogTrainerNames, isPlayedAsBasic, staysInPlay } from "./trainers";
+export { TRAINER_EFFECTS, UNSUPPORTED_TRAINERS, QUIZ_ANSWER_TIME_LIMIT_MS, catalogTrainerNames, isPlayedAsBasic, staysInPlay } from "./trainers";
 export { POWER_EFFECTS, ACTIVATED_POWER_TYPES } from "./powers";
 export { playStadium, STADIUM_EFFECTS, STADIUM_ACTIONS, withHandDiscardCost } from "./stadiums";
 export { checkSelection, minSelectionsOf, stepCommitsEffect, stepForAnswerer } from "./validate";

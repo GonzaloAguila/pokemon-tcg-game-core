@@ -83,6 +83,14 @@ export type SelectionStep = {
    * (`chooser: "opponent"`) and on the mid-attack questions; absent = the consumer's fallback.
    */
   defaultSelection?: string[];
+  /**
+   * The answerer gets only this long (ms) to answer, instead of the normal clock: a question whose
+   * answer could be looked up outside the game (the Blaine's Quiz guesses,
+   * QUIZ_ANSWER_TIME_LIMIT_MS). When it runs out the consumer answers `defaultSelection` for them
+   * (the multiplayer server's answer clock — also when the answerer is the side whose turn it is —
+   * and the single-player countdown of the human's answer). Only on steps with `defaultSelection`.
+   */
+  answerTimeLimitMs?: number;
 };
 
 /** Coins the caller must flip: a fixed number, or flip until tails (sequence ending in tails). */
