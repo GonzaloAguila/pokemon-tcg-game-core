@@ -119,6 +119,7 @@ export { IllegalActionError, assertLegal } from "./shared/errors";
 
 export type { BoardPosition, OnAttachFromHand, InPlayLocation, PlayBasicOptions } from "./domain/board";
 export type { ChaosGymOffer } from "./lib/gameState";
+export type { AttackHit } from "./lib/gameState";
 export {
   canPlayBasicPokemon,
   getPlayBasicCoinFlips,
