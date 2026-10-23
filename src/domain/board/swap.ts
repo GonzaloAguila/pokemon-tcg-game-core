@@ -106,6 +106,9 @@ export function swapSides(state: GameState): GameState {
     ...(state.setAsideHands !== undefined && { setAsideHands: swapSetAsideHands(state.setAsideHands) }),
     ...(state.pendingDuel !== undefined && { pendingDuel: swapPendingDuel(state.pendingDuel) }),
     ...(state.lastDuel !== undefined && { lastDuel: swapLastDuel(state.lastDuel) }),
+    ...(state.lastAttackHit !== undefined && {
+      lastAttackHit: { ...state.lastAttackHit, attackerSide: state.lastAttackHit.attackerSide === "player" ? ("opponent" as const) : ("player" as const) },
+    }),
     ...swapSideRules(state),
     ...(state.pendingChaosOffer !== undefined && {
       pendingChaosOffer: {

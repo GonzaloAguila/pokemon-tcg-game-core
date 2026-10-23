@@ -102,6 +102,7 @@ import {
   getEnergyTypeInSpanish,
   knockOutRetaliationDamage,
   protectionBlocksDamage,
+  recordAttackHit,
   shuffle,
   toLogCards,
 } from "./gameState";
@@ -1439,6 +1440,7 @@ export function dealChosenTargetDamage(
   if (bond) {
     next = { ...next, events: [...next.events, createGameEvent(`¡Unión de Destino! ${target.pokemon.name} se lleva a ${attacker.pokemon.name} consigo`, "action")] };
   }
+  next = recordAttackHit(next, attacker.pokemon.name, name, damage);
   return checkKnockouts(next, { forcedKnockOuts: bond ? [attacker.pokemon.id] : [] });
 }
 

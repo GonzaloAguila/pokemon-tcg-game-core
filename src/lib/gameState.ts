@@ -201,6 +201,17 @@ export type PokemonInPlay = {
  */
 export type LogCard = { name: string; imageUrl: string };
 
+/** GameState.lastAttackHit: who hit, with which attack, for how much, on which turn. */
+export type AttackHit = {
+  attackerSide: "player" | "opponent";
+  /** The attacker's card name as printed ("Misty's Seaking") */
+  attackerName: string;
+  attackName: string;
+  damage: number;
+  turn: number;
+  seq: number;
+};
+
 export type GameEvent = {
   id: string;
   timestamp: number;
@@ -385,6 +396,12 @@ export type GameState = {
    * other action while the turn waits for prizes/promotions. Kept in sync with match/types.ts.
    */
   attackedThisTurn?: boolean;
+  /**
+   * The last attack damage that landed on a Pokémon (the Defending Pokémon, or the one an attack
+   * chose): final damage after Weakness / Resistance and modifiers, before the HP cap. Set on every
+   * hit, never cleared; `seq` goes up by one per hit (consumers tell a new hit from an old one).
+   */
+  lastAttackHit?: AttackHit;
   /**
    * endTurn already ran the between-turns Pokémon Checkup for this turn number but stopped
    * before passing the turn (a prize to take or a Pokémon to promote). The next endTurn call
@@ -611,6 +628,15 @@ export type GameState = {
 /**
  * Crea un nuevo evento de juego
  */
+/** `state` with a new lastAttackHit by the player (the attacker of this view); unchanged when no damage landed. */
+export function recordAttackHit(state: GameState, attackerName: string, attackName: string, damage: number): GameState {
+  if (damage <= 0) return state;
+  return {
+    ...state,
+    lastAttackHit: { attackerSide: "player", attackerName, attackName, damage, turn: state.turnNumber, seq: (state.lastAttackHit?.seq ?? 0) + 1 },
+  };
+}
+
 export function createGameEvent(
   message: string,
   type: GameEvent["type"] = "info",
@@ -6629,6 +6655,7 @@ function executeAttackUnchecked(
     ...(newStadium !== (gameState.stadium ?? null) && { stadium: newStadium }),
     events,
   };
+  stateAfterAttack = recordAttackHit(stateAfterAttack, attacker.pokemon.name, attack.name, attackDamageToDefender);
 
   // =====================================================================
   // STEP 4 — AFTER-EFFECTS that still damage: Shock Blast (Lt. Surge's Electrode) tails, 20 damage
