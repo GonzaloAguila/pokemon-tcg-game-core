@@ -1047,19 +1047,28 @@ export function getRetreatCost(pokemon: PokemonInPlay, bench?: PokemonInPlay[], 
  * @param benchIndex - Índice del Pokémon de la banca que será el nuevo activo
  * @returns Nuevo estado del juego
  */
+/** A Confused Active flips a coin to retreat (Base Set rule): tails = it stays, its Energy is still discarded. */
+function retreatNeedsConfusionCoin(state: GameState): boolean {
+  const active = state.playerActivePokemon;
+  return !!active && hasStatusCondition(active, StatusCondition.Confused);
+}
+
 /**
- * Coins the side whose turn it is ("player") flips when its Active retreats: one per working
- * Sinkhole (Dark Dugtrio) of the opponent, in the opponent's Active-then-Bench order. Pass them
- * to executeRetreat as `coinResults` (the server flips them in multiplayer).
+ * Coins the side whose turn it is ("player") flips when its Active retreats: first the
+ * Confusion coin when the Active is Confused, then one per working Sinkhole (Dark Dugtrio) of
+ * the opponent, in the opponent's Active-then-Bench order. Pass them to executeRetreat as
+ * `coinResults` (the server flips them in multiplayer).
  */
 export function getRetreatCoinFlips(state: GameState): number {
-  return getRetreatDamageSources(state, "player").length;
+  return (retreatNeedsConfusionCoin(state) ? 1 : 0) + getRetreatDamageSources(state, "player").length;
 }
 
 /** Options of executeRetreat. */
 export type RetreatOptions = {
   /**
-   * Sinkhole coins (getRetreatCoinFlips, in order): tails = that Sinkhole does its damage to the
+   * The getRetreatCoinFlips coins, in order. Confused Active: the first one is the Confusion
+   * coin (tails = no retreat; the Energy is discarded and the turn's retreat is used, the other
+   * coins are ignored). Then the Sinkhole coins: tails = that Sinkhole does its damage to the
    * Pokémon that retreated. Omitted: the engine flips them itself (Math.random). A list of the
    * wrong length throws (a caller bug).
    */
@@ -1133,6 +1142,31 @@ export function executeRetreat(
   const energiesToDiscard = activePokemon.attachedEnergy.filter(e => energyIdsToDiscard.includes(e.id));
   const remainingEnergy = activePokemon.attachedEnergy.filter(e => !energyIdsToDiscard.includes(e.id));
 
+  const coinCount = getRetreatCoinFlips(gameState);
+  if (options.coinResults && options.coinResults.length !== coinCount) {
+    throw new Error(`executeRetreat: needs ${coinCount} coin result(s) (getRetreatCoinFlips), got ${options.coinResults.length}`);
+  }
+  const confused = retreatNeedsConfusionCoin(gameState);
+  // Confused: the Energy is paid first, then the coin; tails = it stays Active (still Confused)
+  if (confused) {
+    const coin: CoinFlipResult = options.coinResults?.[0] ?? (Math.random() < 0.5 ? "heads" : "tails");
+    if (coin === "tails") {
+      const discarded = retreatCost > 0 ? ` y descartó ${retreatCost} energía${retreatCost > 1 ? "s" : ""}` : "";
+      return {
+        ...gameState,
+        playerActivePokemon: { ...activePokemon, attachedEnergy: remainingEnergy },
+        playerDiscard: [...gameState.playerDiscard, ...energiesToDiscard],
+        retreatedThisTurn: true,
+        events: [
+          ...gameState.events,
+          createGameEvent(`${activePokemon.pokemon.name} está confundido - Moneda: [coin:tails]`, "info"),
+          createGameEvent(`${activePokemon.pokemon.name} no pudo retirarse${discarded}`, "action"),
+        ],
+      };
+    }
+  }
+  const sinkholeCoins = options.coinResults?.slice(confused ? 1 : 0);
+
   // Limpiar todos los estados especiales del Pokémon que se retira (incluido veneno)
   const retreatingPokemon = clearStatusConditionsOnRetreat(activePokemon);
 
@@ -1153,6 +1187,7 @@ export function executeRetreat(
   // Crear eventos
   const events = [
     ...gameState.events,
+    ...(confused ? [createGameEvent(`${activePokemon.pokemon.name} está confundido - Moneda: [coin:heads]`, "info")] : []),
     createGameEvent(
       `${activePokemon.pokemon.name} se retiró${retreatCost > 0 ? ` (descartó ${retreatCost} energía${retreatCost > 1 ? "s" : ""})` : ""}`,
       "action"
@@ -1165,12 +1200,9 @@ export function executeRetreat(
 
   // Sinkhole (Dark Dugtrio): the retreating player flips once per working Sinkhole of the opponent
   const sinkholes = getRetreatDamageSources(gameState, "player");
-  if (options.coinResults && options.coinResults.length !== sinkholes.length) {
-    throw new Error(`executeRetreat: needs ${sinkholes.length} coin result(s) (getRetreatCoinFlips), got ${options.coinResults.length}`);
-  }
   let retreated = pokemonGoingToBench;
   sinkholes.forEach((source, i) => {
-    const coin: CoinFlipResult = options.coinResults?.[i] ?? (Math.random() < 0.5 ? "heads" : "tails");
+    const coin: CoinFlipResult = sinkholeCoins?.[i] ?? (Math.random() < 0.5 ? "heads" : "tails");
     const power = isPokemonCard(source.pokemon) ? source.pokemon.power : undefined;
     const powerName = power?.name ?? "Socavón";
     events.push(createGameEvent(`${powerName} de ${source.pokemon.name} - Moneda: [coin:${coin}]`, "info"));

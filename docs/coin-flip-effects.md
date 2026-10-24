@@ -108,7 +108,7 @@ New coin effects in the Fossil catalog:
 | `coinCountFromEnergyType: Fire` | Continuous Fireball | attacker | one coin per Fire Energy card; 50 × heads and that many Fire Energy cards discarded |
 | `minHits: 2` | Petal Whirlwind | attacker | 3 coins, 30 × heads; Confused with 2+ heads |
 | `secondCoinAmounts` | Surprise Thunder | attacker | always 2 coins: heads/heads 20, heads/tails 10 to each opponent's Benched Pokémon, tails first = nothing |
-| `getRetreatCoinFlips(state)` → `executeRetreat(state, ids, i, { coinResults })` | retreat | the retreating player | Sinkhole: one coin per working Dark Dugtrio of the opponent; tails = 20 to the Pokémon that retreated |
+| `getRetreatCoinFlips(state)` → `executeRetreat(state, ids, i, { coinResults })` | retreat | the retreating player | Confused Active: one coin first (Base Set rule; the Energy is paid, tails = it stays Active, the retreat of the turn is used and the other coins are ignored). Sinkhole: one coin per working Dark Dugtrio of the opponent; tails = 20 to the Pokémon that retreated |
 | `getTrainerCoinFlips` = `"untilTails"` | Digger | coin i: you (even i), the opponent (odd i) | the one who got the tails does 10 to their own Active |
 | `getPowerCoinFlips` = 1 | Long-Distance Hypnosis, Pollen Stench | power owner | heads: Defending Pokémon Asleep / Confused; tails: your Active |
 | `getTrainerCoinFlips` = 1 | Sleep! | player | heads: Defending Pokémon Asleep |

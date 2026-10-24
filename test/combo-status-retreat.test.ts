@@ -96,6 +96,48 @@ describe("Sinkhole (Dark Dugtrio) with other retreat effects", () => {
   });
 });
 
+describe("retreating a Confused Pokémon (Base Set rule): pay first, then flip", () => {
+  const confusedMachop = () => applyStatusCondition(inPlay("Machop", { energy: [Fighting] }), Confused, 2);
+
+  it("one coin; heads: it retreats as usual (and the Confusion is gone)", () => {
+    const state = deepFreeze(makeState({ player: { active: confusedMachop(), bench: [inPlay("Abra")] }, opponent: { active: inPlay("Chansey") } }));
+    expect(getRetreatCoinFlips(state)).toBe(1);
+    const next = executeRetreat(state, ids(state), 0, { coinResults: [H] });
+    expect(next.playerActivePokemon!.pokemon.name).toBe("Abra");
+    expect(next.playerBench[0].statusConditions).toEqual([]);
+    expect(next.playerDiscard.map((c) => c.name)).toEqual(["Fighting Energy"]);
+  });
+
+  it("tails: it stays Active and Confused, the Energy is discarded anyway, and it can't try again this turn", () => {
+    const state = deepFreeze(makeState({ player: { active: confusedMachop(), bench: [inPlay("Abra")] }, opponent: { active: inPlay("Chansey") } }));
+    const next = executeRetreat(state, ids(state), 0, { coinResults: [T] });
+    expect(next.playerActivePokemon!.pokemon.name).toBe("Machop");
+    expect(next.playerActivePokemon!.statusConditions).toEqual([Confused]);
+    expect(next.playerActivePokemon!.attachedEnergy).toHaveLength(0);
+    expect(next.playerDiscard.map((c) => c.name)).toEqual(["Fighting Energy"]);
+    expect(next.retreatedThisTurn).toBe(true);
+    expect(next.events.at(-1)!.message).toContain("no pudo retirarse");
+  });
+
+  it("an illegal payment is refused before any coin: no Energy lost", () => {
+    const state = makeState({ player: { active: confusedMachop(), bench: [inPlay("Abra")] }, opponent: { active: inPlay("Chansey") } });
+    const refused = executeRetreat(state, [], 0, { coinResults: [T] });
+    expect(refused.playerActivePokemon!.attachedEnergy).toHaveLength(1);
+    expect(refused.retreatedThisTurn).toBe(false);
+  });
+
+  it("with Sinkhole: the Confusion coin comes first; tails = no retreat, so no Sinkhole damage", () => {
+    const state = makeState({ player: { active: confusedMachop(), bench: [inPlay("Abra")] }, opponent: { active: rocket("Dark Dugtrio") } });
+    expect(getRetreatCoinFlips(state)).toBe(2);
+    const failed = executeRetreat(state, ids(state), 0, { coinResults: [T, T] });
+    expect(failed.playerActivePokemon!.pokemon.name).toBe("Machop");
+    expect(failed.playerActivePokemon!.currentDamage).toBe(0);
+    const retreated = executeRetreat(state, ids(state), 0, { coinResults: [H, T] });
+    expect(retreated.playerBench[0].pokemon.name).toBe("Machop");
+    expect(retreated.playerBench[0].currentDamage).toBe(20);
+  });
+});
+
 describe("conditions and effects that stop retreating — Switch still works", () => {
   it.each([[Asleep], [Paralyzed]])("%s: retreat refused (Energy kept); Switch moves it and clears the condition", (status) => {
     const sw = gameCard("Switch", "base");
